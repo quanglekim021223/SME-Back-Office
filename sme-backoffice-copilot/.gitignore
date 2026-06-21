@@ -1,0 +1,24 @@
+.env
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+node_modules/
+.next/
+coverage/
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Runtime data is local by default. Keep directory markers and labelled guidance.
+data/raw_invoices/*
+!data/raw_invoices/.gitkeep
+data/raw_statements/*
+!data/raw_statements/.gitkeep
+data/labelled/*
+!data/labelled/.gitkeep
+

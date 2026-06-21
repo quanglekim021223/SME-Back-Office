@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sme-backoffice-copilot-api"
+version = "0.1.0"
+description = "Backend foundation for the SME Back-Office Copilot"
+requires-python = ">=3.12"
+dependencies = [
+  "alembic>=1.13,<2",
+  "asyncpg>=0.29,<1",
+  "fastapi>=0.115,<1",
+  "pydantic-settings>=2.6,<3",
+  "sqlalchemy[asyncio]>=2.0,<3",
+  "uvicorn[standard]>=0.32,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.27,<1",
+  "mypy>=1.13,<2",
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.24,<1",
+  "ruff>=0.8,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+
