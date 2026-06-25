@@ -8,9 +8,10 @@ informal approval channels. Owners and finance staff spend substantial time
 transcribing documents and reconstructing cash position instead of managing
 customers, suppliers, and growth.
 
-The SME Back-Office Copilot is a human-supervised financial operations platform.
-It converts source documents into traceable structured records, proposes
-reconciliations and classifications, and presents timely operational insights.
+The SME Back-Office Copilot is a human-supervised, controlled multi-agent
+financial operations platform. Specialized agents convert source documents into
+traceable structured records, validate and challenge uncertain outputs, propose
+reconciliations and classifications, and present timely operational insights.
 It is not an autonomous accountant, payment initiator, statutory filing system,
 or source of regulated financial advice.
 
@@ -29,8 +30,8 @@ or source of regulated financial advice.
 ## 3. Product Vision
 
 Create a trusted financial operations workspace where an SME can upload source
-documents, receive evidence-backed automation, resolve only ambiguous cases, and
-understand what requires attention each week.
+documents, receive evidence-backed multi-agent automation, resolve only
+ambiguous cases, and understand what requires attention each week.
 
 The product follows four principles:
 
@@ -42,6 +43,9 @@ The product follows four principles:
    behavior without erasing prior outputs.
 4. **Tenant isolation by design:** customer data, prompts, files, and derived
    records remain scoped to one organization.
+5. **Controlled agent autonomy:** agents may propose, validate, retry, and
+   explain, but financial-impacting approvals are governed by deterministic
+   policy and human review gates.
 
 ## 4. User Personas
 
@@ -80,10 +84,12 @@ tenant-level controls and operational visibility without broad document access.
 2. **Ingest:** a user uploads invoices and bank statements or connects an
    approved source. The system records immutable originals and ingestion
    metadata.
-3. **Process:** extraction and parsing produce normalized records with field-level
-   evidence, confidence, and validation results.
+3. **Process:** a controlled multi-agent workflow performs intake, privacy
+   scoping, extraction, validation, classification, reconciliation, and review
+   routing. Each step records evidence, confidence, validation results, and
+   agent/tool versions.
 4. **Reconcile:** candidate payment-to-invoice matches are scored. Safe matches
-   can be accepted by policy; ambiguous cases enter a review queue.
+   can be accepted by deterministic policy; ambiguous cases enter a review queue.
 5. **Classify:** transactions receive proposed revenue or expense categories,
    with rationale and uncertainty surfaced.
 6. **Review:** the user handles exceptions, compares proposals with source
@@ -132,14 +138,17 @@ tenant-level controls and operational visibility without broad document access.
 
 ### Tier 2 — Intelligence and quality
 
-#### Agent Workflow
+#### Controlled Multi-Agent Workflow
 
-- Coordinate extraction, validation, classification, matching, review, and
-  insight steps as resumable workflows.
+- Coordinate document intake, privacy policy, extraction, validation,
+  classification, matching, review, and insight steps as resumable workflows.
+- Define an agent registry with bounded responsibilities, allowed tools, input
+  contracts, output contracts, retry policy, and escalation behavior.
 - Use explicit state, idempotency keys, bounded retries, timeouts, and
   deterministic fallbacks.
 - Require human approval at policy-defined confidence or financial impact gates.
-- Version prompts, tools, workflow definitions, and model configuration.
+- Version prompts, tools, workflow definitions, handoff contracts, and model
+  configuration.
 
 #### Insight Generation
 
@@ -154,8 +163,9 @@ tenant-level controls and operational visibility without broad document access.
 
 - Maintain de-identified, consented, versioned datasets representative of target
   document formats and SME segments.
-- Measure extraction accuracy, reconciliation quality, classification quality,
-  groundedness, calibration, latency, cost, and human review burden.
+- Measure agent-level extraction accuracy, validation quality, reconciliation
+  quality, classification quality, review routing quality, groundedness,
+  calibration, latency, cost, and human review burden.
 - Run deterministic regression suites in CI and broader model evaluations before
   release.
 - Monitor online drift and user corrections without exposing tenant data across
@@ -206,6 +216,7 @@ band, and model/workflow version.
 | Invoice extraction | At least 95% field-level F1 on required header fields in supported formats |
 | Transaction parsing | At least 99.5% exact accuracy for date, amount, and direction on supported digital exports |
 | Match quality | At least 98% precision for automatically accepted reconciliations |
+| Review routing | At least 95% agreement with approved review policy on labelled workflow cases |
 | Review burden | Fewer than 20% of supported records require manual intervention after stabilization |
 | Insight trust | At least 95% grounded-claim rate and zero unsupported high-severity recommendations |
 | Reliability | 99.9% monthly availability for interactive APIs, excluding announced maintenance |
@@ -222,6 +233,7 @@ datasets and pilot operating conditions are agreed.
 |---|---|---|
 | Incorrect extraction or matching | Misstated cash position or missed obligations | Evidence links, confidence gates, deterministic validation, review queues |
 | Hallucinated insights | Loss of trust or harmful action | Structured inputs, calculation tools, groundedness checks, restricted claims |
+| Over-autonomous agents | Unapproved financial state changes or hard-to-debug behavior | Bounded tool access, persisted handoffs, deterministic approval policy, audit trails |
 | Sensitive-data leakage | Regulatory, contractual, and reputational harm | Tenant isolation, encryption, minimization, redaction, provider governance |
 | Format and locale variance | Poor coverage outside training examples | Capability matrix, representative evaluations, explicit unsupported states |
 | Duplicate or reordered events | Double counting and inconsistent workflow state | Content hashes, idempotency keys, immutable events, transactional state changes |
@@ -236,7 +248,8 @@ datasets and pilot operating conditions are agreed.
 ### Phase 0 — Foundation
 
 Establish tenant identity, document storage, audit events, canonical schemas,
-security controls, evaluation datasets, and local development infrastructure.
+security controls, evaluation datasets, initial agent contracts, and local
+development infrastructure.
 
 ### Phase 1 — Assisted operations
 
@@ -244,10 +257,11 @@ Deliver supported invoice extraction, bank transaction parsing, manual review,
 deterministic dashboard calculations, and export. Optimize for traceability over
 automation breadth.
 
-### Phase 2 — Confidence-aware reconciliation
+### Phase 2 — Controlled multi-agent workflow
 
-Introduce candidate matching, classification proposals, exception queues,
-approval policy, and measured auto-acceptance for low-risk cases.
+Introduce the agent registry, durable graph state, validation loops, candidate
+matching, classification proposals, exception queues, approval policy, and
+measured auto-acceptance for low-risk cases.
 
 ### Phase 3 — Weekly copilot
 
@@ -264,4 +278,3 @@ or customer systems. Add API/webhook contracts and partner governance.
 Explore cashflow forecasting, scenario planning, multi-entity reporting, and
 jurisdiction-specific capabilities only after data quality, explainability, and
 regulatory requirements are proven.
-

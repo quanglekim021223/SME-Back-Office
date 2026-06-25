@@ -2,21 +2,31 @@
 
 ## 1. Architectural Goals
 
-The architecture prioritizes correctness, provenance, tenant isolation, human
-oversight, and replaceable AI components. It separates deterministic financial
-records from probabilistic proposals so that model outputs can be reviewed,
-replayed, compared, and rolled back.
+The architecture is a **controlled multi-agent financial operations platform**.
+It uses specialized agents for document intake, extraction, validation,
+classification, reconciliation, insight generation, and review coordination, but
+keeps autonomy bounded by deterministic policy, durable workflow state, typed
+contracts, human review, and evaluation gates.
+
+The platform is intentionally not an autonomous accountant, payment initiator,
+tax filing system, or source of regulated financial advice.
 
 Key quality attributes are:
 
-- **Traceability:** every derived value links to its source and processing
-  version.
+- **Traceability:** every derived value links to source evidence and processing
+  versions.
+- **Bounded autonomy:** agents may propose, validate, route, and explain; policy
+  decides financial-impacting state transitions.
 - **Idempotency:** uploads, jobs, events, and state transitions tolerate retries.
-- **Isolation:** tenant boundaries apply to storage, queries, queues, caches, and
-  observability.
-- **Evolvability:** providers, prompts, workflows, and storage implementations
-  are behind versioned contracts.
-- **Human control:** policy gates determine where approval is mandatory.
+- **Tenant isolation:** tenant boundaries apply to storage, queries, queues,
+  caches, prompts, telemetry, and model calls.
+- **Human control:** low-confidence, high-impact, or policy-sensitive outcomes
+  require review.
+- **Evolvability:** models, prompts, tools, workflows, and storage choices are
+  replaceable behind versioned contracts.
+
+See [agent_architecture.md](agent_architecture.md) for the detailed agent
+registry, handoff protocol, state model, and agent-specific governance rules.
 
 ## 2. High-Level Architecture
 
@@ -27,31 +37,33 @@ Key quality attributes are:
                                 │ HTTPS / OAuth / Webhooks
                                 v
 ┌──────────────────────── Presentation Layer ────────────────────────────────────┐
-│ Next.js web application     API client     Upload/review/dashboard experiences │
+│ Next.js web app     Upload/review/dashboard UX     Tenant-safe API client      │
 └───────────────────────────────┬─────────────────────────────────────────────────┘
                                 │ Versioned REST API
                                 v
 ┌──────────────────────── Application Layer ─────────────────────────────────────┐
-│ FastAPI routes  AuthN/AuthZ  Tenant policy  Use cases  Review & query services │
+│ FastAPI routes  AuthN/AuthZ  Tenant policy  Use cases  Review/query services   │
 └───────────────────────────────┬─────────────────────────────────────────────────┘
-                                │ Commands / queries / job requests
+                                │ Commands / queries / durable job requests
                                 v
-┌──────────────────────── Agent Workflow Layer ──────────────────────────────────┐
-│ Durable orchestration  Checkpoints  Retries  Human gates  Workflow state       │
-│ Extraction ──> Classification ──> Matching ──> Insight                         │
+┌──────────────────────── Multi-Agent Workflow Layer ────────────────────────────┐
+│ Durable graph orchestration  Checkpoints  Handoffs  Retries  Human gates       │
+│ Intake → Policy → Extraction → QA → Classification → Reconciliation → Review   │
+│                                                        ↓                       │
+│                                                   Insight Agent                │
 └───────────────────────────────┬─────────────────────────────────────────────────┘
-                                │ Typed task interfaces
+                                │ Typed tool/service interfaces
                                 v
-┌────────────────────────── AI Service Layer ────────────────────────────────────┐
-│ OCR/document AI  LLM gateway  Embeddings  Model router  Safety/grounding       │
-│ Prompt registry  Structured output validation  Cost/quality telemetry          │
+┌────────────────────────── AI and Tool Service Layer ───────────────────────────┐
+│ OCR/document AI  LLM gateway  Embeddings  Model router  Rule engines           │
+│ Validators  Financial calculators  Grounding checks  Safety/privacy filters    │
 └───────────────────────────────┬─────────────────────────────────────────────────┘
                                 │ Repositories / object access / events
                                 v
 ┌──────────────────────────── Data Layer ────────────────────────────────────────┐
-│ PostgreSQL: canonical records, workflow state, audit, provenance               │
-│ Object storage: immutable originals and derived artifacts                     │
-│ Cache/search/analytics read models (introduced only when justified)            │
+│ PostgreSQL: canonical records, proposals, workflow state, audit, provenance    │
+│ Object storage: immutable originals and derived artifacts                      │
+│ Search/vector/read models: introduced only behind tenant-scoped contracts      │
 └───────────────────────────────┬─────────────────────────────────────────────────┘
                                 │ Managed runtime capabilities
                                 v
@@ -61,22 +73,22 @@ Key quality attributes are:
 ```
 
 Cross-cutting controls—tenant isolation, encryption, audit, schema versioning,
-idempotency, observability, and evaluation—apply to every layer.
+idempotency, observability, evaluation, and rollback—apply to every layer.
 
 ## 3. Layered Architecture
 
 The dependency direction is downward. Lower layers must not import presentation
-or workflow concerns. Upward communication occurs through return contracts and
-events, not direct reverse dependencies.
+or workflow concerns. Upward communication occurs through return contracts,
+events, and persisted state transitions.
 
 ```text
 Presentation Layer
         ↓
 Application Layer
         ↓
-Agent Workflow Layer
+Multi-Agent Workflow Layer
         ↓
-AI Service Layer
+AI and Tool Service Layer
         ↓
 Data Layer
         ↓
@@ -102,24 +114,33 @@ This layer distinguishes synchronous work from accepted asynchronous work. An
 upload request should durably store metadata and return a job identifier; it
 should not hold an HTTP connection open for model processing.
 
-### Agent Workflow Layer
+### Multi-Agent Workflow Layer
 
-Owns long-running and multi-step control flow. Workflows record explicit state,
-step inputs and outputs, model/prompt versions, retry count, confidence, and
-human-review status. Each step is idempotent and resumable. A workflow delegates
-OCR, classification, matching, calculations, and persistence to services rather
-than embedding those implementations in graph nodes.
+Owns long-running and multi-step control flow. It coordinates specialized agents
+through explicit handoff contracts and durable state. Each agent has a bounded
+responsibility, allowed tools, input schema, output schema, retry policy,
+confidence policy, and escalation path.
 
-Agent autonomy is bounded by allowed tools, schemas, time/token/cost budgets, and
-approval policy. Financial-impacting transitions use deterministic policy, not
-an LLM's self-assessed confidence alone.
+This layer records workflow state, agent inputs and outputs, model/prompt/tool
+versions, retry counts, validation results, confidence values, and human-review
+status. Each step is idempotent and resumable.
 
-### AI Service Layer
+Agent autonomy is intentionally limited:
 
-Owns adapters for OCR, document understanding, language models, embeddings, and
-future specialist models. A model gateway enforces structured output schemas,
-timeouts, provider policy, content minimization, version capture, token/cost
-budgets, retry rules, and telemetry.
+- agents produce proposals, validations, explanations, and routing
+  recommendations;
+- deterministic policy decides auto-approval eligibility;
+- high-impact or uncertain results become review tasks;
+- agents cannot bypass tenant authorization, mutate canonical records directly,
+  or call unapproved tools.
+
+### AI and Tool Service Layer
+
+Owns adapters for OCR, document understanding, language models, embeddings,
+classification tools, rule engines, financial calculators, validators, and
+grounding checks. A model gateway enforces structured output schemas, timeouts,
+provider policy, content minimization, version capture, token/cost budgets,
+retry rules, and telemetry.
 
 Provider responses are proposals, never canonical records. Validation and
 grounding occur before outputs cross into workflow state. Routing decisions use
@@ -128,15 +149,15 @@ evaluation evidence and task policy, not ad hoc calls from feature code.
 ### Data Layer
 
 Owns repositories, persistence mappings, canonical record rules, object access,
-provenance, audit events, and query models. PostgreSQL is the initial system of
-record for transactional metadata. Object storage holds immutable uploads and
-derived page images or text. Binary documents should not be stored in relational
-rows.
+provenance, audit events, workflow state, agent outputs, and query models.
+PostgreSQL is the initial system of record for transactional metadata. Object
+storage holds immutable uploads and derived page images or text. Binary
+documents should not be stored in relational rows.
 
-Canonical records, machine proposals, user approvals, and superseded versions
-remain distinct. Tenant ID is mandatory on every tenant-owned record and is
-enforced through repository scoping and, where supported, database row-level
-security.
+Canonical records, machine proposals, user approvals, agent step outputs, and
+superseded versions remain distinct. Tenant ID is mandatory on every tenant-owned
+record and is enforced through repository scoping and, where supported, database
+row-level security.
 
 ### Infrastructure Layer
 
@@ -146,28 +167,46 @@ Local Docker Compose mirrors service boundaries but is not a production topology
 Application code depends on capability interfaces, allowing local and cloud
 implementations to differ.
 
-## 4. Primary Data Flow
+## 4. Multi-Agent Data Flow
 
 ```text
-Upload Invoice
+Upload Invoice / Statement
       │
       v
+Document Intake Agent
+      │ accepted metadata + content hash + document type
+      v
+Privacy & Policy Gate
+      │ allowed processing scope + redaction/minimization rules
+      v
 Extraction Agent
-      │ structured fields + evidence + confidence
+      │ proposed structured payload + field evidence + confidence
       v
-Classification Agent
-      │ proposed category + rationale + policy result
-      v
-Matching Agent
-      │ ranked transaction candidates + match decision/review task
-      v
-Insight Agent
-      │ grounded observations over approved/provisional records
-      v
-Dashboard
+QA & Validation Agent
+      │ valid ───────────────┐
+      │ invalid              │
+      v                      v
+Retry / Review / DLQ   Classification Agent
+                             │ proposed category + rationale
+                             v
+                       Reconciliation Agent
+                             │ ranked match proposals
+                             v
+                       Review Coordinator
+                         │           │
+                   auto-approve   human review
+                         │           │
+                         v           v
+                      Dashboard ← Approved / corrected records
+                         │
+                         v
+                    Business Insight Agent
+                         │ grounded weekly insights
+                         v
+                      Dashboard / Notifications
 ```
 
-### Step 1 — Upload invoice
+### Step 1 — Upload and intake
 
 1. The frontend requests an upload session.
 2. The application layer authenticates the user, authorizes the organization,
@@ -175,47 +214,67 @@ Dashboard
 3. Prefer direct upload to tenant-scoped object storage using a short-lived
    signed URL. The backend records the content hash, size, media type, and object
    version after upload.
-4. Malware scanning and file validation complete before the document becomes
-   processable.
+4. The Document Intake Agent verifies file type, duplicate identity, malware scan
+   result, ingestion metadata, and processing eligibility.
 5. A durable `DocumentIngested` event starts the workflow. The API returns a job
    ID that the UI can poll or subscribe to.
 
-### Step 2 — Extraction Agent
+### Step 2 — Privacy and policy gate
+
+1. Tenant policy determines whether the document may be processed, which tools
+   are allowed, and whether external model providers may receive any content.
+2. Sensitive fields are minimized, redacted, or tokenized where task quality
+   permits.
+3. The workflow records the allowed processing scope before any model call.
+
+### Step 3 — Extraction Agent
 
 1. The workflow renders or normalizes the source without changing the original.
-2. The AI service selects an approved extractor for the file type and tenant
-   policy.
-3. Structured invoice fields are validated for schema, arithmetic, dates,
-   currency, and duplicate identity.
-4. Each field stores source coordinates or text span, confidence, model version,
-   prompt/configuration version, and validation status.
-5. Invalid or low-confidence required fields create a review task. Successful
-   output creates a versioned invoice proposal.
+2. The AI service selects an approved extractor for the file type, locale, and
+   tenant policy.
+3. The agent emits structured invoice or statement data with field-level
+   evidence, confidence, and model/prompt/configuration versions.
+4. Output is treated as a proposal, not truth.
 
-### Step 3 — Classification Agent
+### Step 4 — QA & Validation Agent
 
-1. The workflow provides only required normalized fields, tenant taxonomy, and
-   permitted historical examples.
-2. Deterministic rules run first; an AI classifier handles unresolved cases.
-3. The result is a proposed category with evidence, confidence, and version
-   metadata.
-4. Policy determines auto-acceptance or review based on confidence, amount,
-   category sensitivity, and prior correction behavior.
+1. The agent checks schema validity, arithmetic consistency, date logic,
+   currency rules, duplicate identity, source grounding, and required fields.
+2. If the result is repairable, it can request bounded self-correction from the
+   Extraction Agent.
+3. Retries are capped. Repeated failure routes the item to human review or a
+   dead-letter queue with an auditable error reason.
 
-### Step 4 — Matching Agent
+### Step 5 — Classification Agent
+
+1. Deterministic rules run first using tenant taxonomy and known mappings.
+2. An AI classifier handles unresolved cases using only permitted context.
+3. The result is a proposed revenue/expense/category classification with
+   evidence, confidence, and version metadata.
+4. Sensitive categories, high values, or low confidence require review.
+
+### Step 6 — Reconciliation Agent
 
 1. Candidate generation uses deterministic indexes: tenant, account, currency,
    direction, date window, amount tolerance, and normalized references.
-2. A scorer combines exact features with optional semantic similarity. Candidate
-   generation and decision thresholds remain independently measurable.
-3. The agent emits a ranked proposal supporting exact, partial, split, or
-   aggregated matches.
-4. Database constraints and a transactional decision service prevent the same
+2. Optional semantic scoring may rank candidates, but candidate recall and final
+   auto-accept precision are measured separately.
+3. The agent emits ranked proposals supporting exact, partial, split, aggregated,
+   or fee-adjusted matches.
+4. Database constraints and transactional decision services prevent the same
    amount from being consumed incompatibly.
-5. High-confidence, low-risk proposals may be approved by policy; all others
-   enter review.
 
-### Step 5 — Insight Agent
+### Step 7 — Review Coordinator
+
+1. The Review Coordinator applies deterministic approval policy using confidence,
+   validation status, amount risk, category sensitivity, tenant settings, and
+   prior correction patterns.
+2. Eligible low-risk proposals can be auto-approved by policy.
+3. Ambiguous, high-impact, or policy-sensitive proposals become human review
+   tasks.
+4. All decisions append audit events and preserve the original agent outputs.
+
+### Step 8 — Business Insight Agent
 
 1. Deterministic query services calculate cashflow aggregates and retrieve
    anomalies or overdue items from approved records, with provisional data
@@ -224,10 +283,10 @@ Dashboard
    operational actions.
 3. A grounding check verifies that each claim cites supplied record IDs and that
    numeric claims agree with calculation outputs.
-4. Unsupported claims are removed or routed to evaluation; the agent does not
-   query raw tenant data outside its authorized context.
+4. The agent is not allowed to make tax, legal, investment, credit, or solvency
+   conclusions.
 
-### Step 6 — Dashboard
+### Step 9 — Dashboard
 
 1. The frontend requests tenant-scoped read models rather than recomputing
    financial totals in the browser.
@@ -242,10 +301,16 @@ Dashboard
 
 - **Document lifecycle:** `uploaded → scanning → accepted → processing →
   review_required | processed | failed`.
+- **Agent step lifecycle:** `scheduled → running → succeeded | retrying |
+  review_required | failed | skipped`.
 - **Proposal lifecycle:** `generated → validated → pending_review →
   approved | rejected | superseded`.
 - **Workflow contract:** includes `workflow_id`, `tenant_id`, `document_id`,
-  `version`, `status`, `current_step`, `attempt`, timestamps, and correlation ID.
+  `workflow_version`, `status`, `current_agent`, `attempt`, timestamps, and
+  correlation ID.
+- **Agent handoff envelope:** includes `source_agent`, `target_agent`,
+  `handoff_type`, schema version, tenant ID, payload reference, confidence,
+  validation status, evidence references, and policy flags.
 - **Event envelope:** includes event ID, type, schema version, tenant ID,
   aggregate ID/version, occurred time, trace ID, and payload reference.
 - **Idempotency:** externally initiated commands accept idempotency keys;
@@ -257,8 +322,8 @@ Dashboard
 - Keep API nodes stateless and horizontally scalable; store state in durable
   services.
 - Separate interactive API traffic from CPU/GPU/model-heavy workers.
-- Partition queue workloads by task class and apply per-tenant quotas to prevent
-  noisy neighbors.
+- Partition queue workloads by agent/task class and apply per-tenant quotas to
+  prevent noisy neighbors.
 - Use direct-to-object-storage uploads and streamed processing for large files.
 - Batch OCR or embedding requests only where latency and tenant isolation allow.
 - Index candidate matching on tenant, date, amount, account, currency, and
@@ -268,9 +333,9 @@ Dashboard
 - Cache only versioned, tenant-keyed results; never rely on cache invalidation
   alone for financial correctness.
 - Apply provider concurrency limits, circuit breakers, exponential backoff, and
-  dead-letter handling.
-- Record cost and latency per document, page, workflow step, tenant, and model to
-  guide routing and capacity decisions.
+  dead-letter handling per agent class.
+- Record cost and latency per document, page, workflow step, agent, tenant, and
+  model to guide routing and capacity decisions.
 - Start as a modular monolith plus workers. Extract services only when scaling,
   ownership, reliability, or regulatory boundaries justify operational cost.
 
@@ -289,12 +354,15 @@ Dashboard
 - Treat document text as untrusted input and defend against prompt injection:
   delimit content, restrict tools, use allowlisted actions, validate outputs, and
   require policy approval for side effects.
+- Enforce tool allowlists per agent. An agent may call only the tools registered
+  for its role and tenant policy.
 - Minimize provider payloads and use enterprise terms that prohibit training on
   customer data. Make provider and region policy configurable.
 - Redact sensitive content from logs and traces. Audit access, download,
   approval, correction, export, deletion, and administrator actions.
 - Define retention and deletion workflows covering originals, derivatives,
-  backups, caches, vector indexes, evaluation copies, and provider retention.
+  backups, caches, vector indexes, evaluation copies, workflow state, agent logs,
+  and provider retention.
 - Apply least-privilege service identities, private networking, egress controls,
   dependency/image scanning, signed artifacts, and protected deployment
   environments.
@@ -304,18 +372,21 @@ Dashboard
 ## 8. Evaluation and Observability
 
 Every AI output captures the dataset-relevant features needed to reproduce it:
-model, provider, prompt/configuration version, input artifact version, latency,
-token/cost usage, validation result, and confidence. Production telemetry must
-not store raw prompts or documents by default.
+agent name, model, provider, prompt/configuration version, input artifact
+version, tool versions, latency, token/cost usage, validation result, confidence,
+and handoff decision. Production telemetry must not store raw prompts or
+documents by default.
 
 Release quality combines:
 
 - deterministic unit and contract tests;
 - offline task metrics and confidence calibration;
+- agent-level evaluations for extraction, validation, classification,
+  reconciliation, review routing, and insight grounding;
 - workflow replay and failure-injection tests;
 - groundedness and policy evaluations for insights;
-- shadow or canary comparisons for model changes;
-- online correction, review, latency, cost, and drift signals.
+- shadow or canary comparisons for model and prompt changes;
+- online correction, review, latency, cost, drift, and handoff-failure signals.
 
 See [evaluation.md](evaluation.md) for gates and metric definitions.
 
@@ -327,10 +398,10 @@ portability:
 | Capability | Cloud deployment consideration |
 |---|---|
 | Web/API | Container platform with autoscaling, private service networking, health probes, and zero-downtime rollout |
-| Workers | Independently scaled worker pools by task type, including optional GPU-capable pools |
+| Workers | Independently scaled worker pools by agent/task type, including optional GPU-capable pools |
 | Database | Managed PostgreSQL with high availability, point-in-time recovery, encryption, and connection pooling |
 | Objects | Versioned object storage with private endpoints, lifecycle policy, malware quarantine, and tenant-aware prefixes |
-| Queue | Managed durable queue with dead-letter support, visibility timeouts, ordering only where required, and per-task topics |
+| Queue | Managed durable queue with dead-letter support, visibility timeouts, ordering only where required, and per-agent topics |
 | Identity | Managed OIDC federation, centralized authorization policy, and workload identities |
 | Secrets/keys | Managed secrets and KMS/HSM-backed keys with rotation and access audit |
 | Observability | OpenTelemetry-compatible collection with region and retention controls |
@@ -342,9 +413,9 @@ gates, automated rollback, backup restoration drills, and regional data
 residency.
 
 Avoid designing around one cloud's proprietary AI API in domain code. Provider
-adapters belong in the AI service layer, while durable records use internal
-schemas. Multi-region active-active operation should be deferred until tenant
-placement, recovery objectives, write consistency, and cost justify its
+adapters belong in the AI and Tool Service Layer, while durable records use
+internal schemas. Multi-region active-active operation should be deferred until
+tenant placement, recovery objectives, write consistency, and cost justify its
 complexity.
 
 ## 10. Architecture Decisions to Resolve Before Implementation
@@ -354,9 +425,10 @@ complexity.
    tenant, or database per tenant.
 3. Workflow engine and queue selection based on durability and operational
    requirements.
-4. Object storage and document-processing residency constraints.
-5. Initial OCR/model provider set and contractual data-handling guarantees.
-6. Canonical accounting taxonomy and the boundary with external ledgers.
-7. Confidence and financial-impact thresholds for each auto-approval action.
-8. Recovery point and recovery time objectives by service and data class.
-
+4. Multi-agent orchestration framework and persistence strategy.
+5. Object storage and document-processing residency constraints.
+6. Initial OCR/model provider set and contractual data-handling guarantees.
+7. Canonical accounting taxonomy and the boundary with external ledgers.
+8. Confidence and financial-impact thresholds for each auto-approval action.
+9. Tool allowlists, redaction policy, and provider-routing rules per agent.
+10. Recovery point and recovery time objectives by service and data class.

@@ -1,8 +1,8 @@
 # SME Back-Office Copilot
 
-Foundation for an agentic platform that processes SME financial documents,
-reconciles payments, and turns verified financial data into operational
-insights.
+Foundation for a controlled multi-agent platform that processes SME financial
+documents, reconciles payments, and turns verified financial data into
+operational insights.
 
 This repository intentionally contains no accounting or AI business logic. It
 defines service boundaries, deployment shells, ownership expectations, and the
@@ -24,6 +24,7 @@ docker compose -f infra/docker-compose.yml up --build
 - [Repository structure](docs/repository_structure.md)
 - [Product brief](docs/product_brief.md)
 - [Architecture](docs/architecture.md)
+- [Agent architecture](docs/agent_architecture.md)
+- [Implementation plan](docs/implementation_plan.md)
 - [Data model](docs/data_model.md)
 - [Evaluation strategy](docs/evaluation.md)
-
