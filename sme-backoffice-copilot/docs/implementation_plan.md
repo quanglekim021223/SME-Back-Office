@@ -11,17 +11,17 @@ Use this file as a living checklist. Tick each item when it is completed:
 
 Goal: make the repository easy to run, understand, and extend locally.
 
-- [ ] Confirm repository structure matches the intended monorepo layout.
-- [ ] Confirm backend can start locally.
-- [ ] Confirm frontend can start locally.
-- [ ] Confirm Docker Compose can start local dependencies.
-- [ ] Add `.env.example` values for local development.
-- [ ] Document local setup steps in `README.md`.
-- [ ] Confirm all docs are linked from `README.md`.
-- [ ] Decide minimum supported Python version.
-- [ ] Decide minimum supported Node.js version.
-- [ ] Add basic formatting/linting commands.
-- [ ] Add basic test commands.
+- [x] Confirm repository structure matches the intended monorepo layout.
+- [x] Confirm backend can start locally.
+- [x] Confirm frontend can start locally.
+- [x] Confirm Docker Compose can start local dependencies.
+- [x] Add `.env.example` values for local development.
+- [x] Document local setup steps in `README.md`.
+- [x] Confirm all docs are linked from `README.md`.
+- [x] Decide minimum supported Python version.
+- [x] Decide minimum supported Node.js version.
+- [x] Add basic formatting/linting commands.
+- [x] Add basic test commands.
 
 ## Phase 1 — Core backend skeleton
 
@@ -285,4 +285,3 @@ Goal: prepare the MVP for a controlled pilot.
 - [ ] Add advanced anomaly detection.
 - [ ] Add tenant-specific learning signals.
 - [ ] Add production-grade vector search.
-

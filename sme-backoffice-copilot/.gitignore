@@ -8,6 +8,7 @@ __pycache__/
 .venv/
 node_modules/
 .next/
+*.tsbuildinfo
 coverage/
 htmlcov/
 dist/
@@ -21,4 +22,3 @@ data/raw_statements/*
 !data/raw_statements/.gitkeep
 data/labelled/*
 !data/labelled/.gitkeep
-

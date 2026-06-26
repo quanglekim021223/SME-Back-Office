@@ -12,9 +12,7 @@ class Settings(BaseSettings):
     app_env: str = "local"
     app_debug: bool = False
     app_api_prefix: str = "/api/v1"
-    database_url: str = (
-        "postgresql+asyncpg://sme:sme@localhost:5432/sme_backoffice"
-    )
+    database_url: str = "postgresql+asyncpg://sme:sme@localhost:5432/sme_backoffice"
     cors_origins: list[str] = ["http://localhost:3000"]
 
     model_config = SettingsConfigDict(
@@ -29,4 +27,3 @@ def get_settings() -> Settings:
     """Return one immutable configuration view per process."""
 
     return Settings()
-
