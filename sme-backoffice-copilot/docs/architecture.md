@@ -179,14 +179,24 @@ Document Intake Agent
 Privacy & Policy Gate
       │ allowed processing scope + redaction/minimization rules
       v
-Extraction Agent
-      │ proposed structured payload + field evidence + confidence
+Document Layout Analyzer
+      │ region plan + OCR/layout artifacts
+      v
+┌──────────────────────┬──────────────────────┬──────────────────────┐
+│ Metadata Extractor   │ Table Extractor       │ Totals Extractor      │
+│ Agent                │ Agent                 │ Agent                 │
+└──────────┬───────────┴──────────┬───────────┴──────────┬───────────┘
+           │ Group 1 metadata      │ Group 2 line items    │ Group 3 totals
+           └───────────────────────┴──────────┬───────────┘
+                                              v
+Invoice Assembly Node
+      │ proposed invoice payload + grouped evidence + confidence
       v
 QA & Validation Agent
       │ valid ───────────────┐
       │ invalid              │
       v                      v
-Retry / Review / DLQ   Classification Agent
+Targeted retry / Review / DLQ   Classification Agent
                              │ proposed category + rationale
                              v
                        Reconciliation Agent
@@ -227,22 +237,35 @@ Retry / Review / DLQ   Classification Agent
    permits.
 3. The workflow records the allowed processing scope before any model call.
 
-### Step 3 — Extraction Agent
+### Step 3 — Layout analysis and grouped extraction
 
 1. The workflow renders or normalizes the source without changing the original.
-2. The AI service selects an approved extractor for the file type, locale, and
-   tenant policy.
-3. The agent emits structured invoice or statement data with field-level
-   evidence, confidence, and model/prompt/configuration versions.
-4. Output is treated as a proposal, not truth.
+2. The Document Layout Analyzer identifies regions for metadata, line-item
+   tables, totals/formulas, and unsupported or low-quality areas.
+3. Invoice extraction is split into focused sub-agents:
+
+   - Metadata Extractor Agent for supplier, buyer, tax IDs, invoice number,
+     dates, currency, and payment terms.
+   - Table Extractor Agent for line items, quantities, unit prices, tax rates,
+     discounts, and line amounts.
+   - Totals Extractor Agent for subtotal, tax, fees, discounts, total, and
+     amount in words.
+4. The Invoice Assembly Node merges the grouped outputs into one invoice
+   proposal without inventing fields.
+5. Each group stores source evidence, confidence, model/prompt/configuration
+   versions, and region references. Output is treated as a proposal, not truth.
 
 ### Step 4 — QA & Validation Agent
 
 1. The agent checks schema validity, arithmetic consistency, date logic,
    currency rules, duplicate identity, source grounding, and required fields.
-2. If the result is repairable, it can request bounded self-correction from the
-   Extraction Agent.
-3. Retries are capped. Repeated failure routes the item to human review or a
+2. If the result is repairable, it emits a structured error signal with
+   `error_code`, `target_agent`, `target_field`, observed values, expected
+   values, and a short repair instruction.
+3. Repair signals are routed to the smallest responsible component: metadata,
+   table, totals, or assembly. The workflow should not retry full invoice
+   extraction when one bounded region is responsible.
+4. Retries are capped. Repeated failure routes the item to human review or a
    dead-letter queue with an auditable error reason.
 
 ### Step 5 — Classification Agent

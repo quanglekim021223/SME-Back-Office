@@ -140,12 +140,16 @@ tenant-level controls and operational visibility without broad document access.
 
 #### Controlled Multi-Agent Workflow
 
-- Coordinate document intake, privacy policy, extraction, validation,
+- Coordinate document intake, privacy policy, grouped extraction, validation,
   classification, matching, review, and insight steps as resumable workflows.
+- Split invoice extraction into metadata, table/grid, and totals/formula
+  sub-agents so each prompt and evaluation target stays focused.
 - Define an agent registry with bounded responsibilities, allowed tools, input
   contracts, output contracts, retry policy, and escalation behavior.
 - Use explicit state, idempotency keys, bounded retries, timeouts, and
   deterministic fallbacks.
+- Use structured QA error signals for targeted self-correction instead of
+  retrying full extraction blindly.
 - Require human approval at policy-defined confidence or financial impact gates.
 - Version prompts, tools, workflow definitions, handoff contracts, and model
   configuration.
