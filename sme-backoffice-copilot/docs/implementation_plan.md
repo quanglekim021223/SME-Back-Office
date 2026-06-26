@@ -30,7 +30,7 @@ logic too early.
 
 - [x] Define FastAPI application entrypoint.
 - [x] Add health check endpoint.
-- [ ] Add configuration module.
+- [x] Add configuration module.
 - [ ] Add database connection module.
 - [ ] Add SQLAlchemy/Alembic setup.
 - [ ] Add base repository pattern or data-access convention.

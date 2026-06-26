@@ -4,7 +4,7 @@ from typing import cast
 
 from fastapi import APIRouter, Request
 
-from app.config import Settings
+from app.core.config import Settings
 
 router = APIRouter(tags=["platform"])
 
