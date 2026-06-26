@@ -19,6 +19,22 @@ docker compose -f infra/docker-compose.yml up --build
 - API health check: `http://localhost:8000/health`
 - API documentation: `http://localhost:8000/docs`
 
+## Development commands
+
+Install local development dependencies:
+
+```bash
+make install
+```
+
+Run formatting, linting, and tests:
+
+```bash
+make format
+make lint
+make test
+```
+
 ## Documentation
 
 - [Repository structure](docs/repository_structure.md)

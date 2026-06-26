@@ -22,4 +22,3 @@ async def health() -> dict[str, str]:
     """Liveness endpoint for local orchestration and deployment probes."""
 
     return {"status": "ok", "environment": settings.app_env}
-

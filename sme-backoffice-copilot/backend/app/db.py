@@ -32,4 +32,3 @@ async def get_db_session() -> AsyncIterator[AsyncSession]:
 
     async with async_session_factory() as session:
         yield session
-
