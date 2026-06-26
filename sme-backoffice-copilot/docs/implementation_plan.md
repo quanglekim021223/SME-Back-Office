@@ -28,8 +28,8 @@ Goal: make the repository easy to run, understand, and extend locally.
 Goal: create a clean backend foundation without implementing complex business
 logic too early.
 
-- [ ] Define FastAPI application entrypoint.
-- [ ] Add health check endpoint.
+- [x] Define FastAPI application entrypoint.
+- [x] Add health check endpoint.
 - [ ] Add configuration module.
 - [ ] Add database connection module.
 - [ ] Add SQLAlchemy/Alembic setup.

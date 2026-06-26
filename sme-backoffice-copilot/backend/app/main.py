@@ -1,24 +1,29 @@
-"""FastAPI application entry point.
-
-Only platform-level endpoints belong here. Domain routes are composed from the
-``routes`` package as they are implemented.
-"""
+"""FastAPI application entry point and composition root."""
 
 from fastapi import FastAPI
 
-from app.config import get_settings
-
-settings = get_settings()
-
-app = FastAPI(
-    title=settings.app_name,
-    debug=settings.app_debug,
-    version="0.1.0",
-)
+from app.api.routers.health import router as health_router
+from app.config import Settings, get_settings
 
 
-@app.get("/health", tags=["platform"])
-async def health() -> dict[str, str]:
-    """Liveness endpoint for local orchestration and deployment probes."""
+def create_app(settings: Settings | None = None) -> FastAPI:
+    """Create and configure the FastAPI application instance.
 
-    return {"status": "ok", "environment": settings.app_env}
+    Keeping app construction inside a factory makes tests, future middleware,
+    router registration, and dependency wiring easier to control.
+    """
+
+    resolved_settings = settings or get_settings()
+
+    app = FastAPI(
+        title=resolved_settings.app_name,
+        debug=resolved_settings.app_debug,
+        version="0.1.0",
+    )
+    app.state.settings = resolved_settings
+    app.include_router(health_router)
+
+    return app
+
+
+app = create_app()
