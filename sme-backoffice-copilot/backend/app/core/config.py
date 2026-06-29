@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     app_debug: bool = False
     app_api_prefix: str = "/api/v1"
     database_url: str = "postgresql+asyncpg://sme:sme@localhost:5432/sme_backoffice"
+    database_echo: bool = False
     cors_origins: list[str] = ["http://localhost:3000"]
 
     model_config = SettingsConfigDict(

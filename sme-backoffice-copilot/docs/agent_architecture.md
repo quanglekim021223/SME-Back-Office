@@ -25,13 +25,26 @@ human review where required.
            │ AllowedProcessingScope
            v
 ┌──────────────────────┐
-│  Extraction Agent    │
+│ Document Layout      │
+│ Analyzer             │
 └──────────┬───────────┘
-           │ ProposedStructuredPayload
+           │ Region plan + OCR/layout artifacts
+           v
+┌──────────┴───────────┬──────────────────────┬──────────────────────┐
+│ Metadata Extractor   │ Table Extractor       │ Totals Extractor      │
+│ Agent                │ Agent                 │ Agent                 │
+└──────────┬───────────┴──────────┬───────────┴──────────┬───────────┘
+           │ Group 1 metadata      │ Group 2 line items    │ Group 3 totals
+           └───────────────────────┴──────────┬───────────┘
+                                              v
+┌──────────────────────┐
+│ Invoice Assembly Node│
+└──────────┬───────────┘
+           │ ProposedInvoicePayload
            v
 ┌──────────────────────┐      validation errors       ┌──────────────────────┐
-│ QA & Validation Agent│ ───────────────────────────► │ Extraction Agent     │
-└──────────┬───────────┘      bounded retry request    └──────────────────────┘
+│ QA & Validation Agent│ ───────────────────────────► │ Targeted extractor   │
+└──────────┬───────────┘      structured repair signal  └──────────────────────┘
            │ ValidatedPayload
            v
 ┌──────────────────────┐
@@ -64,7 +77,11 @@ human review where required.
 |---|---|---|---|---|---|
 | Document Intake Agent | Verify upload integrity, type, duplicate identity, scan result, and processing eligibility. | Document metadata, object reference, hash, tenant policy. | `DocumentAccepted`, `DocumentRejected`, or `DocumentNeedsReview`. | MIME checker, hash service, malware scan result reader, metadata validator. | Reject unsupported or unsafe files; route ambiguous metadata to review. |
 | Privacy & Policy Gate | Decide processing scope before model/tool calls. | Tenant policy, document class, user role, provider policy. | Redaction/minimization plan, allowed tools, provider restrictions. | Policy engine, sensitive-field classifier, tokenizer/redactor. | Block external processing or require admin review. |
-| Extraction Agent | Convert invoice or statement content into structured payloads with evidence. | Document artifact, OCR text/layout, schema, locale policy. | Proposed invoice fields or statement rows with confidence and evidence. | OCR/document AI, LLM structured output gateway, layout parser. | Retry only when QA gives specific repairable errors; otherwise review. |
+| Document Layout Analyzer | Identify document regions and prepare OCR/layout artifacts before extraction. | Document artifact, OCR output, page images, tenant policy. | Region plan for metadata, table, totals, and unsupported regions. | OCR/layout parser, page renderer, region detector. | Route low-quality scans or unsupported layouts to review. |
+| Metadata Extractor Agent | Extract invoice header and party metadata. | Metadata region, OCR spans, invoice metadata schema, locale policy. | Group 1 metadata JSON with evidence and confidence. | LLM structured output gateway, rules for tax IDs/dates, evidence linker. | Targeted retry for missing/ungrounded header fields; otherwise review. |
+| Table Extractor Agent | Extract invoice line-item table into structured rows. | Table region, cropped page artifact, OCR table hints, line-item schema. | Group 2 line-item array with evidence and confidence. | Table parser, OCR/document AI, LLM structured output gateway. | Targeted retry for row/amount mismatches; otherwise review. |
+| Totals Extractor Agent | Extract subtotal, tax, discounts, fees, total, and amount-in-words fields. | Totals region, OCR spans, totals schema, currency policy. | Group 3 totals JSON with evidence and confidence. | LLM structured output gateway, numeric normalizer, currency parser. | Targeted retry for formula mismatch or ungrounded totals; otherwise review. |
+| Invoice Assembly Node | Merge extraction groups into one invoice proposal without inventing fields. | Metadata JSON, line-item JSON, totals JSON, evidence references. | `ProposedInvoicePayload` with grouped provenance. | Schema assembler, provenance merger. | Reject incomplete group contracts; route to QA/review. |
 | QA & Validation Agent | Detect schema, arithmetic, grounding, date, currency, and consistency errors. | Extraction proposal, source evidence, validation rules. | `ValidatedPayload`, `RepairRequest`, or `ValidationFailed`. | Schema validator, financial math checker, evidence checker. | Retry extraction up to policy limit; then review or DLQ. |
 | Classification Agent | Propose revenue/expense/category labels. | Validated records, tenant taxonomy, allowed examples. | Category proposal with confidence, rationale, and evidence. | Rule engine, taxonomy lookup, LLM classifier. | Human review for low confidence or sensitive categories. |
 | Reconciliation Agent | Rank payment-to-invoice match candidates. | Invoices, transactions, references, date/amount windows. | Match proposal with candidates, allocation, confidence, and reasons. | SQL search, deterministic matcher, optional vector scorer. | Review for high amount, ambiguous candidates, or policy conflict. |
@@ -140,15 +157,34 @@ bounded, machine-checkable feedback.
 
 Example:
 
-```text
-QA result:
-- subtotal + tax does not equal total
-- invoice date is after due date
-- supplier name has no source evidence
-
-Action:
-- request Extraction Agent repair attempt 2 of 3
+```json
+{
+  "error_code": "ERR_LOGIC_MATH_TOTAL_MISMATCH",
+  "severity": "repairable",
+  "target_agent": "TotalsExtractorAgent",
+  "target_field": "total_amount",
+  "message": "Subtotal + tax does not match extracted total.",
+  "observed": {
+    "line_items_sum": "10000",
+    "tax_amount": "1000",
+    "extracted_total": "12000",
+    "expected_total": "11000"
+  },
+  "repair_instruction": "Re-check only the total_amount field using the totals region evidence."
+}
 ```
+
+The QA & Validation Agent should route repair requests to the smallest
+responsible extractor:
+
+- metadata errors go to the Metadata Extractor Agent;
+- line-item/table errors go to the Table Extractor Agent;
+- subtotal/tax/total errors go to the Totals Extractor Agent;
+- cross-group inconsistencies go to the Invoice Assembly Node first;
+- unrecoverable or repeatedly failing errors go to human review or DLQ.
+
+The system should not retry the full invoice extraction when one bounded region
+or field is responsible for the error.
 
 Retries must be capped by:
 
@@ -161,7 +197,20 @@ Retries must be capped by:
 After retry exhaustion, the item moves to human review or a dead-letter queue
 with a clear reason.
 
-## 7. Human Review Gates
+## 7. Invoice Extraction Grouping
+
+Invoice extraction is split into independently measurable groups:
+
+| Group | Owner | Typical fields | Why separate it |
+|---|---|---|---|
+| Group 1 — Metadata | Metadata Extractor Agent | Supplier, buyer, tax IDs, invoice number, dates, currency, payment terms. | Header fields are sparse and benefit from short, focused prompts. |
+| Group 2 — Table/Grid | Table Extractor Agent | Description, quantity, unit price, tax rate, line amount, discounts. | Tables require layout-aware parsing and often dominate token usage. |
+| Group 3 — Totals/Formula | Totals Extractor Agent + QA Validator | Subtotal, tax, fees, discounts, total, amount in words. | Totals must be extracted and then checked with deterministic arithmetic. |
+
+This grouping reduces prompt size, improves signal quality, allows parallel
+extraction when layout is known, and enables targeted self-correction.
+
+## 8. Human Review Gates
 
 Human review is mandatory when:
 
@@ -176,12 +225,12 @@ Human review is mandatory when:
 Human corrections are stored as new versions and may become governed evaluation
 examples after consent, de-identification, and dataset approval.
 
-## 8. Tool Governance
+## 9. Tool Governance
 
 Tools are granted per agent, not globally.
 
 - Intake agents cannot call LLMs unless explicitly approved.
-- Extraction agents cannot approve records.
+- Extraction agents cannot approve records or mutate canonical invoices.
 - Insight agents cannot query arbitrary raw documents.
 - Reconciliation agents cannot mutate canonical allocations directly.
 - Evaluation agents cannot access raw production data unless the dataset has
@@ -190,20 +239,22 @@ Tools are granted per agent, not globally.
 Tool calls capture tool name, version, input artifact reference, output artifact
 reference, latency, cost, and policy result.
 
-## 9. Failure Modes
+## 10. Failure Modes
 
 | Failure mode | Handling |
 |---|---|
 | Unsupported file format | Reject or route to review with reason. |
 | Malware or unsafe content | Quarantine and block processing. |
 | Prompt injection in document text | Treat source text as untrusted; restrict tools; validate outputs. |
-| Extraction hallucination | QA validation, source evidence checks, bounded retry, review. |
+| Extraction hallucination | QA validation, source evidence checks, targeted structured error signal, bounded retry, review. |
+| Table extraction miss | Retry only the table region or send to review with row-level evidence gaps. |
+| Formula mismatch | Emit math error signal to the responsible extractor or review queue. |
 | Ambiguous reconciliation | Ranked candidates plus human review. |
 | Agent timeout/provider failure | Retry with backoff, fallback provider if approved, or DLQ. |
 | Cross-tenant access attempt | Deny, audit, alert. |
 | Cost budget exceeded | Stop workflow and route to review/admin action. |
 
-## 10. Implementation Boundary
+## 11. Implementation Boundary
 
 The first implementation should be a modular monolith plus background workers.
 Agents can be implemented as workflow nodes calling internal services. Separate

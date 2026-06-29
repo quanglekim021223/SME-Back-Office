@@ -28,12 +28,12 @@ Goal: make the repository easy to run, understand, and extend locally.
 Goal: create a clean backend foundation without implementing complex business
 logic too early.
 
-- [ ] Define FastAPI application entrypoint.
-- [ ] Add health check endpoint.
-- [ ] Add configuration module.
-- [ ] Add database connection module.
-- [ ] Add SQLAlchemy/Alembic setup.
-- [ ] Add base repository pattern or data-access convention.
+- [x] Define FastAPI application entrypoint.
+- [x] Add health check endpoint.
+- [x] Add configuration module.
+- [x] Add database connection module.
+- [x] Add SQLAlchemy/Alembic setup.
+- [x] Add base repository pattern or data-access convention.
 - [ ] Add API response/error conventions.
 - [ ] Add request correlation ID middleware.
 - [ ] Add tenant context placeholder.
@@ -96,12 +96,19 @@ Goal: implement the workflow shape before connecting real OCR/LLM providers.
 
 - [ ] Define shared workflow state schema.
 - [ ] Define agent handoff envelope schema.
+- [ ] Define structured QA error signal schema.
 - [ ] Define base agent interface.
 - [ ] Define tool interface convention.
 - [ ] Implement `Document Intake Agent` skeleton.
 - [ ] Implement `Privacy & Policy Gate` skeleton.
-- [ ] Implement `Extraction Agent` skeleton.
+- [ ] Implement `Document Layout Analyzer` skeleton.
+- [ ] Define invoice extraction group contracts.
+- [ ] Implement `Metadata Extractor Agent` skeleton.
+- [ ] Implement `Table Extractor Agent` skeleton.
+- [ ] Implement `Totals Extractor Agent` skeleton.
+- [ ] Implement `Invoice Assembly Node` skeleton.
 - [ ] Implement `QA & Validation Agent` skeleton.
+- [ ] Implement targeted self-correction routing.
 - [ ] Implement `Classification Agent` skeleton.
 - [ ] Implement `Reconciliation Agent` skeleton.
 - [ ] Implement `Review Coordinator` skeleton.

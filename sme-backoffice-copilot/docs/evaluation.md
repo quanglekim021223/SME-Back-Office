@@ -21,9 +21,12 @@ safety, and human burden for every supported document and workflow segment.
 
 | Capability | Primary metrics |
 |---|---|
-| Invoice extraction | Field precision/recall/F1, exact match, normalized edit distance, arithmetic validity |
+| Invoice metadata extraction | Field precision/recall/F1, exact match, normalized edit distance, source evidence coverage |
+| Invoice table extraction | Row coverage, cell accuracy, line amount accuracy, table structure validity |
+| Invoice totals extraction | Exact subtotal/tax/total accuracy, amount-in-words accuracy, arithmetic validity |
 | Statement parsing | Row coverage, exact date/amount/direction accuracy, duplicate rate, balance consistency |
-| QA and validation | Schema pass rate, arithmetic-check accuracy, grounding-check accuracy, false reject rate, missed-error rate |
+| QA and validation | Schema pass rate, arithmetic-check accuracy, grounding-check accuracy, error-signal precision, false reject rate, missed-error rate |
+| Targeted self-correction | First-repair success rate, retry count per error type, unnecessary full-retry rate, DLQ rate |
 | Classification | Macro/micro F1, top-k accuracy, abstention quality, calibration error |
 | Reconciliation | Candidate recall, auto-accept precision, allocation accuracy, false-match financial value |
 | Review coordination | Policy agreement rate, correct escalation rate, unsafe auto-approval rate, review queue precision/recall |
