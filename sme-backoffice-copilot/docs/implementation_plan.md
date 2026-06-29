@@ -39,8 +39,8 @@ logic too early.
 - [x] Add tenant context placeholder.
 - [x] Add authentication placeholder.
 - [x] Add authorization policy placeholder.
-- [ ] Add unit test scaffold.
-- [ ] Add integration test scaffold.
+- [x] Add unit test scaffold.
+- [x] Add integration test scaffold.
 
 ## Phase 2 — Data model foundation
 

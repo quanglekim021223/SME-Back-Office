@@ -1,11 +1,10 @@
+import pytest
 from fastapi.testclient import TestClient
 
-from app.main import create_app
+pytestmark = pytest.mark.integration
 
 
-def test_health_endpoint() -> None:
-    client = TestClient(create_app())
-
+def test_health_endpoint(client: TestClient) -> None:
     response = client.get("/health")
 
     assert response.status_code == 200

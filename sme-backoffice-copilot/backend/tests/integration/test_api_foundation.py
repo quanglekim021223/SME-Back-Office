@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from fastapi import Depends
+import pytest
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import (
@@ -15,21 +16,18 @@ from app.api.responses import APIError
 from app.core.auth import Permission, Principal
 from app.core.middleware import CORRELATION_ID_HEADER
 from app.core.tenant import TenantContext
-from app.main import create_app
+
+pytestmark = pytest.mark.integration
 
 
-def test_correlation_id_is_generated_for_responses() -> None:
-    client = TestClient(create_app())
-
+def test_correlation_id_is_generated_for_responses(client: TestClient) -> None:
     response = client.get("/health")
 
     assert response.status_code == 200
     assert response.headers[CORRELATION_ID_HEADER]
 
 
-def test_correlation_id_reuses_incoming_header() -> None:
-    client = TestClient(create_app())
-
+def test_correlation_id_reuses_incoming_header(client: TestClient) -> None:
     response = client.get(
         "/health",
         headers={CORRELATION_ID_HEADER: "test-correlation-id"},
@@ -39,9 +37,7 @@ def test_correlation_id_reuses_incoming_header() -> None:
     assert response.headers[CORRELATION_ID_HEADER] == "test-correlation-id"
 
 
-def test_api_error_uses_standard_error_envelope() -> None:
-    app = create_app()
-
+def test_api_error_uses_standard_error_envelope(app: FastAPI) -> None:
     @app.get("/test-error")
     async def test_error() -> None:
         raise APIError(
@@ -70,9 +66,7 @@ def test_api_error_uses_standard_error_envelope() -> None:
     }
 
 
-def test_tenant_context_placeholder_reads_tenant_header() -> None:
-    app = create_app()
-
+def test_tenant_context_placeholder_reads_tenant_header(app: FastAPI) -> None:
     @app.get("/test-tenant")
     async def test_tenant(
         tenant_context: Annotated[TenantContext, Depends(get_tenant_context)],
@@ -90,9 +84,7 @@ def test_tenant_context_placeholder_reads_tenant_header() -> None:
     assert response.json() == {"tenant_id": "tenant_123"}
 
 
-def test_authentication_placeholder_reads_user_headers() -> None:
-    app = create_app()
-
+def test_authentication_placeholder_reads_user_headers(app: FastAPI) -> None:
     @app.get("/test-principal")
     async def test_principal(
         principal: Annotated[Principal, Depends(get_current_principal)],
@@ -125,9 +117,7 @@ def test_authentication_placeholder_reads_user_headers() -> None:
     }
 
 
-def test_authorization_policy_placeholder_allows_permission() -> None:
-    app = create_app()
-
+def test_authorization_policy_placeholder_allows_permission(app: FastAPI) -> None:
     @app.get("/test-authorized")
     async def test_authorized(
         principal: Annotated[
@@ -151,9 +141,9 @@ def test_authorization_policy_placeholder_allows_permission() -> None:
     assert response.json() == {"user_id": "user_123"}
 
 
-def test_authorization_policy_placeholder_rejects_unauthenticated_user() -> None:
-    app = create_app()
-
+def test_authorization_policy_placeholder_rejects_unauthenticated_user(
+    app: FastAPI,
+) -> None:
     @app.get("/test-auth-required")
     async def test_auth_required(
         principal: Annotated[
@@ -171,9 +161,9 @@ def test_authorization_policy_placeholder_rejects_unauthenticated_user() -> None
     assert response.json()["error"]["code"] == "unauthenticated"
 
 
-def test_authorization_policy_placeholder_rejects_missing_permission() -> None:
-    app = create_app()
-
+def test_authorization_policy_placeholder_rejects_missing_permission(
+    app: FastAPI,
+) -> None:
     @app.get("/test-forbidden")
     async def test_forbidden(
         principal: Annotated[
