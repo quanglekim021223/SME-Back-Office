@@ -31,9 +31,9 @@ logic too early.
 - [x] Define FastAPI application entrypoint.
 - [x] Add health check endpoint.
 - [x] Add configuration module.
-- [ ] Add database connection module.
-- [ ] Add SQLAlchemy/Alembic setup.
-- [ ] Add base repository pattern or data-access convention.
+- [x] Add database connection module.
+- [x] Add SQLAlchemy/Alembic setup.
+- [x] Add base repository pattern or data-access convention.
 - [ ] Add API response/error conventions.
 - [ ] Add request correlation ID middleware.
 - [ ] Add tenant context placeholder.
