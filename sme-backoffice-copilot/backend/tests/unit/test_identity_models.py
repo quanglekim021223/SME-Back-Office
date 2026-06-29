@@ -1,10 +1,13 @@
 from app.models import (
+    AgentHandoff,
+    AgentStepExecution,
     Document,
     DocumentArtifact,
     Membership,
     Organization,
     ProcessingRun,
     User,
+    WorkflowRun,
 )
 from app.models.base import Base
 
@@ -64,6 +67,9 @@ def test_current_tenant_owned_tables_have_tenant_id() -> None:
         Document.__table__,
         DocumentArtifact.__table__,
         ProcessingRun.__table__,
+        WorkflowRun.__table__,
+        AgentStepExecution.__table__,
+        AgentHandoff.__table__,
     ]
 
     for table in tenant_owned_tables:

@@ -20,6 +20,7 @@ from app.models.base import (
 
 if TYPE_CHECKING:
     from app.models.organization import Organization
+    from app.models.workflow import WorkflowRun
 
 
 class DocumentType(StrEnum):
@@ -148,3 +149,6 @@ class ProcessingRun(TenantOwnedMixin, UUIDPrimaryKeyMixin, TimestampMixin, Base)
     metrics: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
 
     document: Mapped[Document] = relationship(back_populates="processing_runs")
+    workflow_runs: Mapped[list[WorkflowRun]] = relationship(
+        back_populates="processing_run"
+    )

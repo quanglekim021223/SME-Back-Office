@@ -52,10 +52,10 @@ logic.
 - [x] Define `Document` model.
 - [x] Define `DocumentArtifact` or object reference model.
 - [x] Define `ProcessingRun` model.
-- [ ] Define `WorkflowRun` model.
-- [ ] Define `AgentDefinition` model.
-- [ ] Define `AgentStepExecution` model.
-- [ ] Define `AgentHandoff` model.
+- [x] Define `WorkflowRun` model.
+- [x] Define `AgentDefinition` model.
+- [x] Define `AgentStepExecution` model.
+- [x] Define `AgentHandoff` model.
 - [ ] Define `Invoice` model.
 - [ ] Define `InvoiceLineItem` model.
 - [ ] Define `InvoiceFieldEvidence` model.
