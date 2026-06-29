@@ -3,8 +3,16 @@ from typing import Annotated
 from fastapi import Depends
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import TENANT_ID_HEADER, get_tenant_context
+from app.api.dependencies import (
+    TENANT_ID_HEADER,
+    USER_ID_HEADER,
+    USER_ROLE_HEADER,
+    get_current_principal,
+    get_tenant_context,
+    require_permission,
+)
 from app.api.responses import APIError
+from app.core.auth import Permission, Principal
 from app.core.middleware import CORRELATION_ID_HEADER
 from app.core.tenant import TenantContext
 from app.main import create_app
@@ -80,3 +88,114 @@ def test_tenant_context_placeholder_reads_tenant_header() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"tenant_id": "tenant_123"}
+
+
+def test_authentication_placeholder_reads_user_headers() -> None:
+    app = create_app()
+
+    @app.get("/test-principal")
+    async def test_principal(
+        principal: Annotated[Principal, Depends(get_current_principal)],
+    ) -> dict[str, object]:
+        return {
+            "user_id": principal.user_id,
+            "roles": sorted(principal.roles),
+            "permissions": sorted(
+                permission.value for permission in principal.permissions
+            ),
+            "is_authenticated": principal.is_authenticated,
+        }
+
+    client = TestClient(app)
+
+    response = client.get(
+        "/test-principal",
+        headers={
+            USER_ID_HEADER: "user_123",
+            USER_ROLE_HEADER: "member, finance",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "user_id": "user_123",
+        "roles": ["finance", "member"],
+        "permissions": ["read:health", "read:tenant"],
+        "is_authenticated": True,
+    }
+
+
+def test_authorization_policy_placeholder_allows_permission() -> None:
+    app = create_app()
+
+    @app.get("/test-authorized")
+    async def test_authorized(
+        principal: Annotated[
+            Principal,
+            Depends(require_permission(Permission.READ_TENANT)),
+        ],
+    ) -> dict[str, str | None]:
+        return {"user_id": principal.user_id}
+
+    client = TestClient(app)
+
+    response = client.get(
+        "/test-authorized",
+        headers={
+            USER_ID_HEADER: "user_123",
+            USER_ROLE_HEADER: "member",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"user_id": "user_123"}
+
+
+def test_authorization_policy_placeholder_rejects_unauthenticated_user() -> None:
+    app = create_app()
+
+    @app.get("/test-auth-required")
+    async def test_auth_required(
+        principal: Annotated[
+            Principal,
+            Depends(require_permission(Permission.READ_TENANT)),
+        ],
+    ) -> dict[str, str | None]:
+        return {"user_id": principal.user_id}
+
+    client = TestClient(app)
+
+    response = client.get("/test-auth-required")
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "unauthenticated"
+
+
+def test_authorization_policy_placeholder_rejects_missing_permission() -> None:
+    app = create_app()
+
+    @app.get("/test-forbidden")
+    async def test_forbidden(
+        principal: Annotated[
+            Principal,
+            Depends(require_permission(Permission.READ_TENANT)),
+        ],
+    ) -> dict[str, str | None]:
+        return {"user_id": principal.user_id}
+
+    client = TestClient(app)
+
+    response = client.get(
+        "/test-forbidden",
+        headers={
+            USER_ID_HEADER: "user_123",
+            USER_ROLE_HEADER: "viewer",
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"] == {
+        "code": "permission_denied",
+        "message": "Permission denied.",
+        "details": {"permission": "read:tenant"},
+    }
