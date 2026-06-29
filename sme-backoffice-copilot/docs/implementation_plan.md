@@ -47,8 +47,8 @@ logic too early.
 Goal: represent the important business and workflow concepts before building AI
 logic.
 
-- [ ] Define `Organization` model.
-- [ ] Define `User` and `Membership` models.
+- [x] Define `Organization` model.
+- [x] Define `User` and `Membership` models.
 - [ ] Define `Document` model.
 - [ ] Define `DocumentArtifact` or object reference model.
 - [ ] Define `ProcessingRun` model.
@@ -69,8 +69,8 @@ logic.
 - [ ] Define `ReviewTask` model.
 - [ ] Define `Insight` model.
 - [ ] Define `AuditEvent` model.
-- [ ] Add tenant ID to every tenant-owned table.
-- [ ] Add created/updated timestamps.
+- [x] Add tenant ID to every tenant-owned table.
+- [x] Add created/updated timestamps.
 - [ ] Add immutable versioning strategy for proposals and approvals.
 - [ ] Add initial Alembic migration.
 
