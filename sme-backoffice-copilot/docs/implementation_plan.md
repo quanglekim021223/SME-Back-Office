@@ -37,10 +37,10 @@ logic too early.
 - [x] Add API response/error conventions.
 - [x] Add request correlation ID middleware.
 - [x] Add tenant context placeholder.
-- [ ] Add authentication placeholder.
-- [ ] Add authorization policy placeholder.
-- [ ] Add unit test scaffold.
-- [ ] Add integration test scaffold.
+- [x] Add authentication placeholder.
+- [x] Add authorization policy placeholder.
+- [x] Add unit test scaffold.
+- [x] Add integration test scaffold.
 
 ## Phase 2 — Data model foundation
 

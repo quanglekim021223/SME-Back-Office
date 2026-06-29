@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: install format lint test db-upgrade db-downgrade
+.PHONY: install format lint test test-unit test-integration db-upgrade db-downgrade
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -16,6 +16,12 @@ lint:
 
 test:
 	$(PYTHON) -m pytest
+
+test-unit:
+	$(PYTHON) -m pytest tests/unit -m "not integration"
+
+test-integration:
+	$(PYTHON) -m pytest tests/integration -m integration
 
 db-upgrade:
 	alembic upgrade head

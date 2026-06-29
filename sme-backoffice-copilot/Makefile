@@ -1,4 +1,4 @@
-.PHONY: install format lint test backend-install backend-format backend-lint backend-test frontend-install frontend-format frontend-lint frontend-test
+.PHONY: install format lint test backend-install backend-format backend-lint backend-test backend-test-unit backend-test-integration frontend-install frontend-format frontend-lint frontend-test
 
 install: backend-install frontend-install
 
@@ -19,6 +19,12 @@ backend-lint:
 
 backend-test:
 	$(MAKE) -C backend test
+
+backend-test-unit:
+	$(MAKE) -C backend test-unit
+
+backend-test-integration:
+	$(MAKE) -C backend test-integration
 
 frontend-format:
 	npm --prefix frontend run format
