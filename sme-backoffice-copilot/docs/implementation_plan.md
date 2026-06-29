@@ -34,9 +34,9 @@ logic too early.
 - [x] Add database connection module.
 - [x] Add SQLAlchemy/Alembic setup.
 - [x] Add base repository pattern or data-access convention.
-- [ ] Add API response/error conventions.
-- [ ] Add request correlation ID middleware.
-- [ ] Add tenant context placeholder.
+- [x] Add API response/error conventions.
+- [x] Add request correlation ID middleware.
+- [x] Add tenant context placeholder.
 - [ ] Add authentication placeholder.
 - [ ] Add authorization policy placeholder.
 - [ ] Add unit test scaffold.
