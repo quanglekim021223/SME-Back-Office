@@ -1,4 +1,11 @@
-from app.models import Membership, Organization, User
+from app.models import (
+    Document,
+    DocumentArtifact,
+    Membership,
+    Organization,
+    ProcessingRun,
+    User,
+)
 from app.models.base import Base
 
 
@@ -52,7 +59,12 @@ def test_membership_has_unique_tenant_user_constraint() -> None:
 
 
 def test_current_tenant_owned_tables_have_tenant_id() -> None:
-    tenant_owned_tables = [Membership.__table__]
+    tenant_owned_tables = [
+        Membership.__table__,
+        Document.__table__,
+        DocumentArtifact.__table__,
+        ProcessingRun.__table__,
+    ]
 
     for table in tenant_owned_tables:
         assert "tenant_id" in table.c

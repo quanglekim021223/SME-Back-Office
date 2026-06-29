@@ -49,9 +49,9 @@ logic.
 
 - [x] Define `Organization` model.
 - [x] Define `User` and `Membership` models.
-- [ ] Define `Document` model.
-- [ ] Define `DocumentArtifact` or object reference model.
-- [ ] Define `ProcessingRun` model.
+- [x] Define `Document` model.
+- [x] Define `DocumentArtifact` or object reference model.
+- [x] Define `ProcessingRun` model.
 - [ ] Define `WorkflowRun` model.
 - [ ] Define `AgentDefinition` model.
 - [ ] Define `AgentStepExecution` model.
