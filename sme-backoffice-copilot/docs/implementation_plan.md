@@ -47,32 +47,32 @@ logic too early.
 Goal: represent the important business and workflow concepts before building AI
 logic.
 
-- [ ] Define `Organization` model.
-- [ ] Define `User` and `Membership` models.
-- [ ] Define `Document` model.
-- [ ] Define `DocumentArtifact` or object reference model.
-- [ ] Define `ProcessingRun` model.
-- [ ] Define `WorkflowRun` model.
-- [ ] Define `AgentDefinition` model.
-- [ ] Define `AgentStepExecution` model.
-- [ ] Define `AgentHandoff` model.
-- [ ] Define `Invoice` model.
-- [ ] Define `InvoiceLineItem` model.
-- [ ] Define `InvoiceFieldEvidence` model.
-- [ ] Define `BankAccount` model.
-- [ ] Define `StatementImport` model.
-- [ ] Define `Transaction` model.
-- [ ] Define `Category` model.
-- [ ] Define `ClassificationProposal` model.
-- [ ] Define `Reconciliation` model.
-- [ ] Define `ReconciliationAllocation` model.
-- [ ] Define `ReviewTask` model.
-- [ ] Define `Insight` model.
-- [ ] Define `AuditEvent` model.
-- [ ] Add tenant ID to every tenant-owned table.
-- [ ] Add created/updated timestamps.
-- [ ] Add immutable versioning strategy for proposals and approvals.
-- [ ] Add initial Alembic migration.
+- [x] Define `Organization` model.
+- [x] Define `User` and `Membership` models.
+- [x] Define `Document` model.
+- [x] Define `DocumentArtifact` or object reference model.
+- [x] Define `ProcessingRun` model.
+- [x] Define `WorkflowRun` model.
+- [x] Define `AgentDefinition` model.
+- [x] Define `AgentStepExecution` model.
+- [x] Define `AgentHandoff` model.
+- [x] Define `Invoice` model.
+- [x] Define `InvoiceLineItem` model.
+- [x] Define `InvoiceFieldEvidence` model.
+- [x] Define `BankAccount` model.
+- [x] Define `StatementImport` model.
+- [x] Define `Transaction` model.
+- [x] Define `Category` model.
+- [x] Define `ClassificationProposal` model.
+- [x] Define `Reconciliation` model.
+- [x] Define `ReconciliationAllocation` model.
+- [x] Define `ReviewTask` model.
+- [x] Define `Insight` model.
+- [x] Define `AuditEvent` model.
+- [x] Add tenant ID to every tenant-owned table.
+- [x] Add created/updated timestamps.
+- [x] Add immutable versioning strategy for proposals and approvals.
+- [x] Add initial Alembic migration.
 
 ## Phase 3 — Local document ingestion
 

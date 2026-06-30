@@ -52,5 +52,73 @@
 - Agent outputs cannot directly mutate approved financial records; approval must
   pass through deterministic policy or human review.
 
-Physical schema, indexes, partitioning, and retention fields should be formalized
-through architecture decisions before the first migration.
+Physical schema, indexes, partitioning, and retention fields are formalized
+through Alembic migrations and architecture decisions as the system evolves.
+
+## Immutable versioning strategy for proposals and approvals
+
+Financial records must be treated as append-first data. AI-generated outputs and
+human decisions should be traceable without losing the original machine proposal.
+
+### Versioned records
+
+The following records are versioned and must not be overwritten in place after
+they become approved or externally visible:
+
+- `Invoice`
+- `ClassificationProposal`
+- `Reconciliation`
+- `Insight`
+
+Each versioned record has:
+
+- a stable primary key for that version;
+- a `version` field where applicable;
+- a `supersedes_*_id` pointer to the previous version where applicable;
+- a lifecycle `status`, such as `proposed`, `pending_review`, `approved`,
+  `rejected`, or `superseded`;
+- evidence, rationale, confidence, source agent, and source agent version fields
+  where relevant.
+
+### Approval rule
+
+Approving a proposal must not mutate the proposal payload. The approval decision
+is represented by:
+
+1. updating only controlled lifecycle fields needed for queue/query behavior;
+2. resolving the related `ReviewTask`, when one exists;
+3. appending an `AuditEvent` that records actor, action, resource, correlation
+   ID, and before/after state;
+4. creating a new superseding version for any correction.
+
+Payload fields such as extracted amounts, category choice, match rationale,
+allocations, insight text, evidence references, and confidence are immutable
+once approved.
+
+### Correction rule
+
+Corrections create a new record version instead of editing the previous approved
+version. The previous version becomes `superseded`, and the new version points to
+it through the appropriate `supersedes_*_id` field.
+
+Examples:
+
+- correcting a classification creates a new `ClassificationProposal`;
+- correcting a reconciliation creates a new `Reconciliation` with new
+  `ReconciliationAllocation` rows;
+- regenerating an insight creates a new `Insight`;
+- correcting extracted invoice data creates a new `Invoice` version.
+
+### Audit rule
+
+Every approval, rejection, correction, supersession, auto-approval, and manual
+override must append an `AuditEvent`. Audit events are append-only and must be
+queryable by `tenant_id`, actor, action, resource type, resource ID, and
+correlation ID.
+
+### Agent rule
+
+Agents can create proposals, evidence, handoffs, and review tasks. They cannot
+directly mutate approved financial truth. Any side effect that changes approval
+state must pass through deterministic policy or human review and must append an
+audit event.
