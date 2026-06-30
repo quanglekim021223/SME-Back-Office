@@ -1,11 +1,13 @@
 from app.models import (
     AgentHandoff,
     AgentStepExecution,
+    AuditEvent,
     BankAccount,
     Category,
     ClassificationProposal,
     Document,
     DocumentArtifact,
+    Insight,
     Invoice,
     InvoiceFieldEvidence,
     InvoiceLineItem,
@@ -14,6 +16,7 @@ from app.models import (
     ProcessingRun,
     Reconciliation,
     ReconciliationAllocation,
+    ReviewTask,
     StatementImport,
     Transaction,
     User,
@@ -90,6 +93,9 @@ def test_current_tenant_owned_tables_have_tenant_id() -> None:
         ClassificationProposal.__table__,
         Reconciliation.__table__,
         ReconciliationAllocation.__table__,
+        ReviewTask.__table__,
+        Insight.__table__,
+        AuditEvent.__table__,
     ]
 
     for table in tenant_owned_tables:

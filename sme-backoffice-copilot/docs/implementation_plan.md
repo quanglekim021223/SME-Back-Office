@@ -66,9 +66,9 @@ logic.
 - [x] Define `ClassificationProposal` model.
 - [x] Define `Reconciliation` model.
 - [x] Define `ReconciliationAllocation` model.
-- [ ] Define `ReviewTask` model.
-- [ ] Define `Insight` model.
-- [ ] Define `AuditEvent` model.
+- [x] Define `ReviewTask` model.
+- [x] Define `Insight` model.
+- [x] Define `AuditEvent` model.
 - [x] Add tenant ID to every tenant-owned table.
 - [x] Add created/updated timestamps.
 - [ ] Add immutable versioning strategy for proposals and approvals.

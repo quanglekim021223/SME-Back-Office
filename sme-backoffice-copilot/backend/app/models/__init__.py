@@ -38,6 +38,20 @@ from app.models.invoice import (
     InvoiceLineItem,
     InvoiceStatus,
 )
+from app.models.operations import (
+    AuditActorType,
+    AuditEvent,
+    AuditEventSeverity,
+    Insight,
+    InsightSeverity,
+    InsightStatus,
+    InsightType,
+    ReviewTargetType,
+    ReviewTask,
+    ReviewTaskPriority,
+    ReviewTaskStatus,
+    ReviewTaskType,
+)
 from app.models.organization import Organization
 from app.models.user import Membership, User
 from app.models.workflow import (
@@ -56,6 +70,9 @@ __all__ = [
     "AgentStepExecution",
     "AgentStepStatus",
     "ArtifactType",
+    "AuditActorType",
+    "AuditEvent",
+    "AuditEventSeverity",
     "BankAccount",
     "BankAccountType",
     "Base",
@@ -69,6 +86,10 @@ __all__ = [
     "DocumentStatus",
     "DocumentType",
     "HandoffStatus",
+    "Insight",
+    "InsightSeverity",
+    "InsightStatus",
+    "InsightType",
     "Invoice",
     "InvoiceDirection",
     "InvoiceFieldEvidence",
@@ -83,6 +104,11 @@ __all__ = [
     "ReconciliationAllocationStatus",
     "ReconciliationMatchType",
     "ReconciliationStatus",
+    "ReviewTargetType",
+    "ReviewTask",
+    "ReviewTaskPriority",
+    "ReviewTaskStatus",
+    "ReviewTaskType",
     "StatementImport",
     "StatementImportStatus",
     "Transaction",
