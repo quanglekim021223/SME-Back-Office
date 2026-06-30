@@ -21,6 +21,10 @@ from app.models.base import (
 )
 
 if TYPE_CHECKING:
+    from app.models.accounting import (
+        ClassificationProposal,
+        ReconciliationAllocation,
+    )
     from app.models.document import Document, DocumentArtifact, ProcessingRun
 
 
@@ -118,6 +122,13 @@ class Invoice(TenantOwnedMixin, UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="invoice",
         cascade="all, delete-orphan",
     )
+    classification_proposals: Mapped[list[ClassificationProposal]] = relationship(
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+    )
+    reconciliation_allocations: Mapped[list[ReconciliationAllocation]] = relationship(
+        back_populates="invoice"
+    )
 
 
 class InvoiceLineItem(TenantOwnedMixin, UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -157,6 +168,10 @@ class InvoiceLineItem(TenantOwnedMixin, UUIDPrimaryKeyMixin, TimestampMixin, Bas
     invoice: Mapped[Invoice] = relationship(back_populates="line_items")
     field_evidence: Mapped[list[InvoiceFieldEvidence]] = relationship(
         back_populates="line_item"
+    )
+    classification_proposals: Mapped[list[ClassificationProposal]] = relationship(
+        back_populates="invoice_line_item",
+        cascade="all, delete-orphan",
     )
 
 

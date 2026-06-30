@@ -1,5 +1,17 @@
 """Persistence models and ORM mappings."""
 
+from app.models.accounting import (
+    Category,
+    CategoryType,
+    ClassificationProposal,
+    ClassificationProposalStatus,
+    ClassificationTargetType,
+    Reconciliation,
+    ReconciliationAllocation,
+    ReconciliationAllocationStatus,
+    ReconciliationMatchType,
+    ReconciliationStatus,
+)
 from app.models.banking import (
     BankAccount,
     BankAccountType,
@@ -47,6 +59,11 @@ __all__ = [
     "BankAccount",
     "BankAccountType",
     "Base",
+    "Category",
+    "CategoryType",
+    "ClassificationProposal",
+    "ClassificationProposalStatus",
+    "ClassificationTargetType",
     "Document",
     "DocumentArtifact",
     "DocumentStatus",
@@ -61,6 +78,11 @@ __all__ = [
     "Organization",
     "ProcessingRun",
     "ProcessingRunStatus",
+    "Reconciliation",
+    "ReconciliationAllocation",
+    "ReconciliationAllocationStatus",
+    "ReconciliationMatchType",
+    "ReconciliationStatus",
     "StatementImport",
     "StatementImportStatus",
     "Transaction",

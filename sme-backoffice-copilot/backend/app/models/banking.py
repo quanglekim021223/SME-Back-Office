@@ -29,6 +29,10 @@ from app.models.base import (
 )
 
 if TYPE_CHECKING:
+    from app.models.accounting import (
+        ClassificationProposal,
+        ReconciliationAllocation,
+    )
     from app.models.document import Document, ProcessingRun
 
 
@@ -227,4 +231,11 @@ class Transaction(TenantOwnedMixin, UUIDPrimaryKeyMixin, TimestampMixin, Base):
     bank_account: Mapped[BankAccount] = relationship(back_populates="transactions")
     statement_import: Mapped[StatementImport | None] = relationship(
         back_populates="transactions"
+    )
+    classification_proposals: Mapped[list[ClassificationProposal]] = relationship(
+        back_populates="transaction",
+        cascade="all, delete-orphan",
+    )
+    reconciliation_allocations: Mapped[list[ReconciliationAllocation]] = relationship(
+        back_populates="transaction"
     )

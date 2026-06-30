@@ -62,10 +62,10 @@ logic.
 - [x] Define `BankAccount` model.
 - [x] Define `StatementImport` model.
 - [x] Define `Transaction` model.
-- [ ] Define `Category` model.
-- [ ] Define `ClassificationProposal` model.
-- [ ] Define `Reconciliation` model.
-- [ ] Define `ReconciliationAllocation` model.
+- [x] Define `Category` model.
+- [x] Define `ClassificationProposal` model.
+- [x] Define `Reconciliation` model.
+- [x] Define `ReconciliationAllocation` model.
 - [ ] Define `ReviewTask` model.
 - [ ] Define `Insight` model.
 - [ ] Define `AuditEvent` model.
