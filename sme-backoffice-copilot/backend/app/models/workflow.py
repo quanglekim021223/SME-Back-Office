@@ -50,7 +50,7 @@ class HandoffStatus(StrEnum):
 
     CREATED = "created"
     CONSUMED = "consumed"
-    
+
     REJECTED = "rejected"
     SUPERSEDED = "superseded"
 

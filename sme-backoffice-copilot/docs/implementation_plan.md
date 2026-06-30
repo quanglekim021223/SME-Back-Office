@@ -56,9 +56,9 @@ logic.
 - [x] Define `AgentDefinition` model.
 - [x] Define `AgentStepExecution` model.
 - [x] Define `AgentHandoff` model.
-- [ ] Define `Invoice` model.
-- [ ] Define `InvoiceLineItem` model.
-- [ ] Define `InvoiceFieldEvidence` model.
+- [x] Define `Invoice` model.
+- [x] Define `InvoiceLineItem` model.
+- [x] Define `InvoiceFieldEvidence` model.
 - [ ] Define `BankAccount` model.
 - [ ] Define `StatementImport` model.
 - [ ] Define `Transaction` model.

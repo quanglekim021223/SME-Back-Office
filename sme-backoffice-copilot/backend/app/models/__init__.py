@@ -10,6 +10,13 @@ from app.models.document import (
     ProcessingRun,
     ProcessingRunStatus,
 )
+from app.models.invoice import (
+    Invoice,
+    InvoiceDirection,
+    InvoiceFieldEvidence,
+    InvoiceLineItem,
+    InvoiceStatus,
+)
 from app.models.organization import Organization
 from app.models.user import Membership, User
 from app.models.workflow import (
@@ -34,6 +41,11 @@ __all__ = [
     "DocumentStatus",
     "DocumentType",
     "HandoffStatus",
+    "Invoice",
+    "InvoiceDirection",
+    "InvoiceFieldEvidence",
+    "InvoiceLineItem",
+    "InvoiceStatus",
     "Membership",
     "Organization",
     "ProcessingRun",
