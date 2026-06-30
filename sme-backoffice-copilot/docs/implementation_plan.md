@@ -71,8 +71,8 @@ logic.
 - [x] Define `AuditEvent` model.
 - [x] Add tenant ID to every tenant-owned table.
 - [x] Add created/updated timestamps.
-- [ ] Add immutable versioning strategy for proposals and approvals.
-- [ ] Add initial Alembic migration.
+- [x] Add immutable versioning strategy for proposals and approvals.
+- [x] Add initial Alembic migration.
 
 ## Phase 3 — Local document ingestion
 
