@@ -79,11 +79,11 @@ logic.
 Goal: support safe local upload and document tracking.
 
 - [ ] Add document upload API endpoint.
-- [ ] Store uploaded files in local filesystem or local object-storage adapter.
-- [ ] Compute content hash for uploaded files.
+- [x] Store uploaded files in local filesystem or local object-storage adapter.
+- [x] Compute content hash for uploaded files.
 - [ ] Detect duplicate documents within a tenant.
-- [ ] Validate file size.
-- [ ] Validate MIME type.
+- [x] Validate file size.
+- [x] Validate MIME type.
 - [ ] Add placeholder malware scan result.
 - [ ] Create `DocumentIngested` event or equivalent workflow trigger.
 - [ ] Add document status lifecycle.

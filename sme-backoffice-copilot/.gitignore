@@ -22,3 +22,5 @@ data/raw_statements/*
 !data/raw_statements/.gitkeep
 data/labelled/*
 !data/labelled/.gitkeep
+data/uploads/*
+!data/uploads/.gitkeep
