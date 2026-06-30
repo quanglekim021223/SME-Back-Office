@@ -16,12 +16,22 @@ from app.models.document import (
     DocumentType,
 )
 from app.repositories.documents import DocumentRepository
+from app.services.document_events import (
+    DocumentEventPublisher,
+    DocumentIngested,
+    NoopDocumentEventPublisher,
+)
 from app.services.document_storage import (
     LocalDocumentStorage,
     StoredFile,
     compute_content_hash,
     validate_file_size,
     validate_mime_type,
+)
+from app.services.malware_scan import (
+    MalwareScanner,
+    MalwareScanResult,
+    PlaceholderMalwareScanner,
 )
 
 
@@ -89,6 +99,8 @@ class DocumentUploadResult:
     document: Document
     artifact: DocumentArtifact
     stored_file: StoredFile
+    malware_scan_result: MalwareScanResult
+    document_ingested_event: DocumentIngested
 
 
 class DuplicateDocumentError(Exception):
@@ -107,9 +119,13 @@ class DocumentIngestionService:
         *,
         persistence: DocumentPersistence,
         storage: LocalDocumentStorage,
+        malware_scanner: MalwareScanner | None = None,
+        event_publisher: DocumentEventPublisher | None = None,
     ) -> None:
         self.persistence = persistence
         self.storage = storage
+        self.malware_scanner = malware_scanner or PlaceholderMalwareScanner()
+        self.event_publisher = event_publisher or NoopDocumentEventPublisher()
 
     async def upload_document(
         self,
@@ -136,6 +152,12 @@ class DocumentIngestionService:
         )
         if existing_document is not None:
             raise DuplicateDocumentError(existing_document)
+
+        malware_scan_result = await self.malware_scanner.scan(
+            filename=filename,
+            content=content,
+            media_type=normalized_media_type,
+        )
 
         document_id = uuid4()
         stored_file = self.storage.store(
@@ -168,6 +190,7 @@ class DocumentIngestionService:
             metadata_={
                 "object_key": stored_file.object_key,
                 "filename": stored_file.filename,
+                "malware_scan": malware_scan_result.to_metadata(),
             },
         )
 
@@ -175,8 +198,20 @@ class DocumentIngestionService:
         self.persistence.add_artifact(artifact)
         await self.persistence.commit()
 
+        document_ingested_event = DocumentIngested(
+            tenant_id=tenant_id,
+            document_id=document_id,
+            document_type=document.document_type,
+            content_hash=document.content_hash,
+            storage_uri=artifact.storage_uri,
+            malware_scan_status=malware_scan_result.status.value,
+        )
+        await self.event_publisher.publish_document_ingested(document_ingested_event)
+
         return DocumentUploadResult(
             document=document,
             artifact=artifact,
             stored_file=stored_file,
+            malware_scan_result=malware_scan_result,
+            document_ingested_event=document_ingested_event,
         )

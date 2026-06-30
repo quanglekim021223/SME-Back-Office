@@ -10,6 +10,7 @@ from app.models.document import (
     DocumentStatus,
     DocumentType,
 )
+from app.services.document_events import DocumentIngested
 from app.services.document_ingestion import (
     DocumentIngestionService,
     DuplicateDocumentError,
@@ -19,6 +20,7 @@ from app.services.document_storage import (
     LocalDocumentStorage,
     compute_content_hash,
 )
+from app.services.malware_scan import MalwareScanStatus
 
 
 class FakeDocumentPersistence:
@@ -49,18 +51,31 @@ class FakeDocumentPersistence:
         self.committed = True
 
 
+class FakeDocumentEventPublisher:
+    def __init__(self) -> None:
+        self.events: list[DocumentIngested] = []
+
+    async def publish_document_ingested(self, event: DocumentIngested) -> None:
+        self.events.append(event)
+
+
 def create_service(
     *,
     root_path: Path,
     persistence: FakeDocumentPersistence,
     allowed_mime_types: set[str] | None = None,
+    event_publisher: FakeDocumentEventPublisher | None = None,
 ) -> DocumentIngestionService:
     storage = LocalDocumentStorage(
         root_path=root_path,
         max_size_bytes=1024,
         allowed_mime_types=allowed_mime_types or {"application/pdf"},
     )
-    return DocumentIngestionService(persistence=persistence, storage=storage)
+    return DocumentIngestionService(
+        persistence=persistence,
+        storage=storage,
+        event_publisher=event_publisher,
+    )
 
 
 @pytest.mark.asyncio
@@ -68,7 +83,12 @@ async def test_document_ingestion_stores_file_and_creates_accepted_document(
     tmp_path,
 ) -> None:
     persistence = FakeDocumentPersistence()
-    service = create_service(root_path=tmp_path, persistence=persistence)
+    event_publisher = FakeDocumentEventPublisher()
+    service = create_service(
+        root_path=tmp_path,
+        persistence=persistence,
+        event_publisher=event_publisher,
+    )
     tenant_id = uuid4()
     content = b"%PDF-1.4 sample"
 
@@ -90,7 +110,17 @@ async def test_document_ingestion_stores_file_and_creates_accepted_document(
     assert result.artifact.document_id == result.document.id
     assert result.artifact.artifact_type == ArtifactType.ORIGINAL.value
     assert result.artifact.storage_uri.startswith("local://")
+    assert result.malware_scan_result.status == MalwareScanStatus.NOT_SCANNED
+    assert result.artifact.metadata_ is not None
+    malware_scan_metadata = result.artifact.metadata_["malware_scan"]
+    assert isinstance(malware_scan_metadata, dict)
+    assert malware_scan_metadata["status"] == MalwareScanStatus.NOT_SCANNED.value
     assert persistence.committed is True
+    assert event_publisher.events == [result.document_ingested_event]
+    assert result.document_ingested_event.event_name == "DocumentIngested"
+    assert result.document_ingested_event.tenant_id == tenant_id
+    assert result.document_ingested_event.document_id == result.document.id
+    assert result.document_ingested_event.storage_uri == result.artifact.storage_uri
 
 
 @pytest.mark.asyncio
@@ -108,7 +138,12 @@ async def test_document_ingestion_rejects_duplicate_before_storing_file(
         content_hash="existing-hash",
     )
     persistence = FakeDocumentPersistence(existing_document=existing_document)
-    service = create_service(root_path=tmp_path, persistence=persistence)
+    event_publisher = FakeDocumentEventPublisher()
+    service = create_service(
+        root_path=tmp_path,
+        persistence=persistence,
+        event_publisher=event_publisher,
+    )
 
     with pytest.raises(DuplicateDocumentError) as exc_info:
         await service.upload_document(
@@ -124,6 +159,7 @@ async def test_document_ingestion_rejects_duplicate_before_storing_file(
     assert persistence.artifacts == []
     assert persistence.committed is False
     assert list(tmp_path.rglob("*")) == []
+    assert event_publisher.events == []
 
 
 @pytest.mark.asyncio

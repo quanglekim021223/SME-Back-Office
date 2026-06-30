@@ -7,8 +7,10 @@ from fastapi.testclient import TestClient
 
 from app.api.routers.documents import get_document_ingestion_service
 from app.models.document import ArtifactType, Document, DocumentArtifact, DocumentStatus
+from app.services.document_events import DocumentIngested
 from app.services.document_ingestion import DocumentUploadResult, DuplicateDocumentError
 from app.services.document_storage import FileValidationError, StoredFile
+from app.services.malware_scan import MalwareScanResult, MalwareScanStatus
 
 
 class FakeDocumentIngestionService:
@@ -86,10 +88,25 @@ def build_upload_result(tenant_id: UUID) -> DocumentUploadResult:
         size_bytes=12,
         content_hash="hash-123",
     )
+    malware_scan_result = MalwareScanResult(
+        status=MalwareScanStatus.NOT_SCANNED,
+        scanner_name="placeholder",
+        scanner_version="0.0.0",
+    )
+    document_ingested_event = DocumentIngested(
+        tenant_id=tenant_id,
+        document_id=document_id,
+        document_type=document.document_type,
+        content_hash=document.content_hash,
+        storage_uri=artifact.storage_uri,
+        malware_scan_status=malware_scan_result.status.value,
+    )
     return DocumentUploadResult(
         document=document,
         artifact=artifact,
         stored_file=stored_file,
+        malware_scan_result=malware_scan_result,
+        document_ingested_event=document_ingested_event,
     )
 
 
@@ -123,6 +140,9 @@ def test_upload_document_endpoint_accepts_raw_file_body(
     assert (
         payload["storage_uri"] == "local://tenants/t/documents/d/original/invoice.pdf"
     )
+    assert payload["malware_scan"]["status"] == MalwareScanStatus.NOT_SCANNED.value
+    assert payload["malware_scan"]["scanner_name"] == "placeholder"
+    assert payload["workflow_trigger"]["event_name"] == "DocumentIngested"
     assert payload["duplicate"] is False
     assert fake_service.calls[0]["content"] == b"invoice body"
 

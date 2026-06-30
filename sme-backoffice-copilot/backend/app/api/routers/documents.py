@@ -13,7 +13,11 @@ from app.core.config import Settings
 from app.core.db import get_db_session
 from app.core.tenant import TenantContext
 from app.models.document import DocumentType
-from app.schemas.document import DocumentUploadResponse
+from app.schemas.document import (
+    DocumentUploadResponse,
+    DocumentWorkflowTriggerResponse,
+    MalwareScanResponse,
+)
 from app.services.document_ingestion import (
     DocumentIngestionService,
     DuplicateDocumentError,
@@ -127,6 +131,8 @@ async def upload_document(
         raise map_file_validation_error(exc) from exc
 
     document = result.document
+    malware_scan_result = result.malware_scan_result
+    document_ingested_event = result.document_ingested_event
     return DocumentUploadResponse(
         id=document.id,
         tenant_id=document.tenant_id,
@@ -137,4 +143,18 @@ async def upload_document(
         size_bytes=document.size_bytes,
         content_hash=document.content_hash,
         storage_uri=result.artifact.storage_uri,
+        malware_scan=MalwareScanResponse(
+            status=malware_scan_result.status.value,
+            scanner_name=malware_scan_result.scanner_name,
+            scanner_version=malware_scan_result.scanner_version,
+            scanned_at=malware_scan_result.scanned_at,
+            signature_version=malware_scan_result.signature_version,
+            threats=list(malware_scan_result.threats),
+            details=malware_scan_result.details,
+        ),
+        workflow_trigger=DocumentWorkflowTriggerResponse(
+            event_id=document_ingested_event.event_id,
+            event_name=document_ingested_event.event_name,
+            document_id=document_ingested_event.document_id,
+        ),
     )
