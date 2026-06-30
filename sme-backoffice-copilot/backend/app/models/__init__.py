@@ -1,5 +1,14 @@
 """Persistence models and ORM mappings."""
 
+from app.models.banking import (
+    BankAccount,
+    BankAccountType,
+    StatementImport,
+    StatementImportStatus,
+    Transaction,
+    TransactionDirection,
+    TransactionStatus,
+)
 from app.models.base import Base
 from app.models.document import (
     ArtifactType,
@@ -35,6 +44,8 @@ __all__ = [
     "AgentStepExecution",
     "AgentStepStatus",
     "ArtifactType",
+    "BankAccount",
+    "BankAccountType",
     "Base",
     "Document",
     "DocumentArtifact",
@@ -50,6 +61,11 @@ __all__ = [
     "Organization",
     "ProcessingRun",
     "ProcessingRunStatus",
+    "StatementImport",
+    "StatementImportStatus",
+    "Transaction",
+    "TransactionDirection",
+    "TransactionStatus",
     "User",
     "WorkflowRun",
     "WorkflowRunStatus",

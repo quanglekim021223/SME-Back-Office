@@ -59,9 +59,9 @@ logic.
 - [x] Define `Invoice` model.
 - [x] Define `InvoiceLineItem` model.
 - [x] Define `InvoiceFieldEvidence` model.
-- [ ] Define `BankAccount` model.
-- [ ] Define `StatementImport` model.
-- [ ] Define `Transaction` model.
+- [x] Define `BankAccount` model.
+- [x] Define `StatementImport` model.
+- [x] Define `Transaction` model.
 - [ ] Define `Category` model.
 - [ ] Define `ClassificationProposal` model.
 - [ ] Define `Reconciliation` model.

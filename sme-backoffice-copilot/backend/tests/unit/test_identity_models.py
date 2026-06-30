@@ -1,6 +1,7 @@
 from app.models import (
     AgentHandoff,
     AgentStepExecution,
+    BankAccount,
     Document,
     DocumentArtifact,
     Invoice,
@@ -9,6 +10,8 @@ from app.models import (
     Membership,
     Organization,
     ProcessingRun,
+    StatementImport,
+    Transaction,
     User,
     WorkflowRun,
 )
@@ -76,6 +79,9 @@ def test_current_tenant_owned_tables_have_tenant_id() -> None:
         Invoice.__table__,
         InvoiceLineItem.__table__,
         InvoiceFieldEvidence.__table__,
+        BankAccount.__table__,
+        StatementImport.__table__,
+        Transaction.__table__,
     ]
 
     for table in tenant_owned_tables:

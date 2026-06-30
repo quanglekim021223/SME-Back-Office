@@ -19,6 +19,7 @@ from app.models.base import (
 )
 
 if TYPE_CHECKING:
+    from app.models.banking import StatementImport
     from app.models.invoice import Invoice
     from app.models.organization import Organization
     from app.models.workflow import WorkflowRun
@@ -95,6 +96,9 @@ class Document(TenantOwnedMixin, UUIDPrimaryKeyMixin, TimestampMixin, Base):
         cascade="all, delete-orphan",
     )
     invoices: Mapped[list[Invoice]] = relationship(back_populates="document")
+    statement_imports: Mapped[list[StatementImport]] = relationship(
+        back_populates="document"
+    )
 
 
 class DocumentArtifact(TenantOwnedMixin, UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -155,5 +159,8 @@ class ProcessingRun(TenantOwnedMixin, UUIDPrimaryKeyMixin, TimestampMixin, Base)
         back_populates="processing_run"
     )
     invoices: Mapped[list[Invoice]] = relationship(
+        back_populates="source_processing_run"
+    )
+    statement_imports: Mapped[list[StatementImport]] = relationship(
         back_populates="source_processing_run"
     )
