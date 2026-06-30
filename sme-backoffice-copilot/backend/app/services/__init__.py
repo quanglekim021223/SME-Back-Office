@@ -1,5 +1,11 @@
 """Deterministic application and domain services."""
 
+from app.services.document_ingestion import (
+    DocumentIngestionService,
+    DocumentUploadResult,
+    DuplicateDocumentError,
+    SqlAlchemyDocumentPersistence,
+)
 from app.services.document_storage import (
     FileValidationError,
     LocalDocumentStorage,
@@ -11,8 +17,12 @@ from app.services.document_storage import (
 )
 
 __all__ = [
+    "DocumentIngestionService",
+    "DocumentUploadResult",
+    "DuplicateDocumentError",
     "FileValidationError",
     "LocalDocumentStorage",
+    "SqlAlchemyDocumentPersistence",
     "StoredFile",
     "compute_content_hash",
     "sanitize_filename",

@@ -15,6 +15,7 @@ def test_default_placeholder_permissions_for_member_role() -> None:
         {
             Permission.READ_HEALTH,
             Permission.READ_TENANT,
+            Permission.WRITE_DOCUMENTS,
         }
     )
 

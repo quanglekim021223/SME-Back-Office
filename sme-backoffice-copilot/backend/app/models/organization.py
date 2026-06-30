@@ -29,4 +29,7 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="organization",
         cascade="all, delete-orphan",
     )
-    documents: Mapped[list[Document]] = relationship(cascade="all, delete-orphan")
+    documents: Mapped[list[Document]] = relationship(
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )

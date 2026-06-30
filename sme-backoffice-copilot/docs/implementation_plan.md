@@ -78,17 +78,17 @@ logic.
 
 Goal: support safe local upload and document tracking.
 
-- [ ] Add document upload API endpoint.
+- [x] Add document upload API endpoint.
 - [x] Store uploaded files in local filesystem or local object-storage adapter.
 - [x] Compute content hash for uploaded files.
-- [ ] Detect duplicate documents within a tenant.
+- [x] Detect duplicate documents within a tenant.
 - [x] Validate file size.
 - [x] Validate MIME type.
 - [ ] Add placeholder malware scan result.
 - [ ] Create `DocumentIngested` event or equivalent workflow trigger.
-- [ ] Add document status lifecycle.
-- [ ] Add tests for duplicate upload behavior.
-- [ ] Add tests for unsupported file type behavior.
+- [x] Add document status lifecycle.
+- [x] Add tests for duplicate upload behavior.
+- [x] Add tests for unsupported file type behavior.
 
 ## Phase 4 — Controlled multi-agent workflow skeleton
 
