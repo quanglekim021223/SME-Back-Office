@@ -14,6 +14,14 @@ class Settings(BaseSettings):
     app_api_prefix: str = "/api/v1"
     database_url: str = "postgresql+asyncpg://sme:sme@localhost:5432/sme_backoffice"
     database_echo: bool = False
+    upload_storage_root: str = "../data/uploads"
+    upload_max_size_bytes: int = 20 * 1024 * 1024
+    upload_allowed_mime_types: list[str] = [
+        "application/pdf",
+        "image/png",
+        "image/jpeg",
+        "text/csv",
+    ]
     cors_origins: list[str] = ["http://localhost:3000"]
 
     model_config = SettingsConfigDict(

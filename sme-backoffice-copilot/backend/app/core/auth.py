@@ -13,6 +13,7 @@ class Permission(StrEnum):
 
     READ_HEALTH = "read:health"
     READ_TENANT = "read:tenant"
+    WRITE_DOCUMENTS = "write:documents"
 
 
 @dataclass(frozen=True)

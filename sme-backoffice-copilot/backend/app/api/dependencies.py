@@ -28,6 +28,7 @@ def default_placeholder_permissions(roles: frozenset[str]) -> frozenset[Permissi
     permissions = {Permission.READ_HEALTH}
     if "admin" in roles or "member" in roles:
         permissions.add(Permission.READ_TENANT)
+        permissions.add(Permission.WRITE_DOCUMENTS)
     return frozenset(permissions)
 
 

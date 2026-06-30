@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 
 from app.api.exception_handlers import register_exception_handlers
+from app.api.routers.documents import router as documents_router
 from app.api.routers.health import router as health_router
 from app.core.config import Settings, get_settings
 from app.core.middleware import register_middleware
@@ -26,6 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     register_middleware(app)
     register_exception_handlers(app)
+    app.include_router(documents_router, prefix=resolved_settings.app_api_prefix)
     app.include_router(health_router)
 
     return app

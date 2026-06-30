@@ -86,7 +86,7 @@ class Document(TenantOwnedMixin, UUIDPrimaryKeyMixin, TimestampMixin, Base):
     source_system: Mapped[str | None] = mapped_column(String(128), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    organization: Mapped[Organization] = relationship()
+    organization: Mapped[Organization] = relationship(back_populates="documents")
     artifacts: Mapped[list[DocumentArtifact]] = relationship(
         back_populates="document",
         cascade="all, delete-orphan",
