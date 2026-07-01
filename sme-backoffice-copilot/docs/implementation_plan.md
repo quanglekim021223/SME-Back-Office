@@ -109,10 +109,10 @@ Goal: implement the workflow shape before connecting real OCR/LLM providers.
 - [x] Implement `Invoice Assembly Node` skeleton.
 - [x] Implement `QA & Validation Agent` skeleton.
 - [x] Implement targeted self-correction routing.
-- [ ] Implement `Classification Agent` skeleton.
-- [ ] Implement `Reconciliation Agent` skeleton.
-- [ ] Implement `Review Coordinator` skeleton.
-- [ ] Implement `Business Insight Agent` skeleton.
+- [x] Implement `Classification Agent` skeleton.
+- [x] Implement `Reconciliation Agent` skeleton.
+- [x] Implement `Review Coordinator` skeleton.
+- [x] Implement `Business Insight Agent` skeleton.
 - [x] Persist every agent step execution.
 - [x] Persist every handoff.
 - [x] Add retry count tracking.
