@@ -90,5 +90,6 @@ def test_agent_handoff_links_to_workflow_and_source_step() -> None:
 
 def test_workflow_enums_expose_stable_values() -> None:
     assert WorkflowRunStatus.REVIEW_REQUIRED.value == "review_required"
+    assert WorkflowRunStatus.DEAD_LETTERED.value == "dead_lettered"
     assert AgentStepStatus.RETRYING.value == "retrying"
     assert HandoffStatus.SUPERSEDED.value == "superseded"

@@ -94,34 +94,34 @@ Goal: support safe local upload and document tracking.
 
 Goal: implement the workflow shape before connecting real OCR/LLM providers.
 
-- [ ] Define shared workflow state schema.
-- [ ] Define agent handoff envelope schema.
-- [ ] Define structured QA error signal schema.
-- [ ] Define base agent interface.
-- [ ] Define tool interface convention.
-- [ ] Implement `Document Intake Agent` skeleton.
-- [ ] Implement `Privacy & Policy Gate` skeleton.
-- [ ] Implement `Document Layout Analyzer` skeleton.
-- [ ] Define invoice extraction group contracts.
-- [ ] Implement `Metadata Extractor Agent` skeleton.
-- [ ] Implement `Table Extractor Agent` skeleton.
-- [ ] Implement `Totals Extractor Agent` skeleton.
-- [ ] Implement `Invoice Assembly Node` skeleton.
-- [ ] Implement `QA & Validation Agent` skeleton.
-- [ ] Implement targeted self-correction routing.
-- [ ] Implement `Classification Agent` skeleton.
-- [ ] Implement `Reconciliation Agent` skeleton.
-- [ ] Implement `Review Coordinator` skeleton.
-- [ ] Implement `Business Insight Agent` skeleton.
-- [ ] Persist every agent step execution.
-- [ ] Persist every handoff.
-- [ ] Add retry count tracking.
-- [ ] Add workflow status tracking.
-- [ ] Add dead-letter/failure state.
-- [ ] Add workflow replay command for local testing.
-- [ ] Add tests for successful workflow path.
-- [ ] Add tests for failed validation path.
-- [ ] Add tests for retry exhaustion path.
+- [x] Define shared workflow state schema.
+- [x] Define agent handoff envelope schema.
+- [x] Define structured QA error signal schema.
+- [x] Define base agent interface.
+- [x] Define tool interface convention.
+- [x] Implement `Document Intake Agent` skeleton.
+- [x] Implement `Privacy & Policy Gate` skeleton.
+- [x] Implement `Document Layout Analyzer` skeleton.
+- [x] Define invoice extraction group contracts.
+- [x] Implement `Metadata Extractor Agent` skeleton.
+- [x] Implement `Table Extractor Agent` skeleton.
+- [x] Implement `Totals Extractor Agent` skeleton.
+- [x] Implement `Invoice Assembly Node` skeleton.
+- [x] Implement `QA & Validation Agent` skeleton.
+- [x] Implement targeted self-correction routing.
+- [x] Implement `Classification Agent` skeleton.
+- [x] Implement `Reconciliation Agent` skeleton.
+- [x] Implement `Review Coordinator` skeleton.
+- [x] Implement `Business Insight Agent` skeleton.
+- [x] Persist every agent step execution.
+- [x] Persist every handoff.
+- [x] Add retry count tracking.
+- [x] Add workflow status tracking.
+- [x] Add dead-letter/failure state.
+- [x] Add workflow replay command for local testing.
+- [x] Add tests for successful workflow path.
+- [x] Add tests for failed validation path.
+- [x] Add tests for retry exhaustion path.
 
 ## Phase 5 — Mock-first AI and deterministic tools
 
