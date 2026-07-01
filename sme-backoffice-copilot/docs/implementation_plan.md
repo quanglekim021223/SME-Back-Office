@@ -99,9 +99,9 @@ Goal: implement the workflow shape before connecting real OCR/LLM providers.
 - [x] Define structured QA error signal schema.
 - [x] Define base agent interface.
 - [x] Define tool interface convention.
-- [ ] Implement `Document Intake Agent` skeleton.
-- [ ] Implement `Privacy & Policy Gate` skeleton.
-- [ ] Implement `Document Layout Analyzer` skeleton.
+- [x] Implement `Document Intake Agent` skeleton.
+- [x] Implement `Privacy & Policy Gate` skeleton.
+- [x] Implement `Document Layout Analyzer` skeleton.
 - [ ] Define invoice extraction group contracts.
 - [ ] Implement `Metadata Extractor Agent` skeleton.
 - [ ] Implement `Table Extractor Agent` skeleton.
