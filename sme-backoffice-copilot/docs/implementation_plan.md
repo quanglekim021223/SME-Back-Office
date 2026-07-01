@@ -118,10 +118,10 @@ Goal: implement the workflow shape before connecting real OCR/LLM providers.
 - [x] Add retry count tracking.
 - [x] Add workflow status tracking.
 - [x] Add dead-letter/failure state.
-- [ ] Add workflow replay command for local testing.
-- [ ] Add tests for successful workflow path.
-- [ ] Add tests for failed validation path.
-- [ ] Add tests for retry exhaustion path.
+- [x] Add workflow replay command for local testing.
+- [x] Add tests for successful workflow path.
+- [x] Add tests for failed validation path.
+- [x] Add tests for retry exhaustion path.
 
 ## Phase 5 — Mock-first AI and deterministic tools
 
