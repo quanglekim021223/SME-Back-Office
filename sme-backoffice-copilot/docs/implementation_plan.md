@@ -102,13 +102,13 @@ Goal: implement the workflow shape before connecting real OCR/LLM providers.
 - [x] Implement `Document Intake Agent` skeleton.
 - [x] Implement `Privacy & Policy Gate` skeleton.
 - [x] Implement `Document Layout Analyzer` skeleton.
-- [ ] Define invoice extraction group contracts.
-- [ ] Implement `Metadata Extractor Agent` skeleton.
-- [ ] Implement `Table Extractor Agent` skeleton.
-- [ ] Implement `Totals Extractor Agent` skeleton.
-- [ ] Implement `Invoice Assembly Node` skeleton.
-- [ ] Implement `QA & Validation Agent` skeleton.
-- [ ] Implement targeted self-correction routing.
+- [x] Define invoice extraction group contracts.
+- [x] Implement `Metadata Extractor Agent` skeleton.
+- [x] Implement `Table Extractor Agent` skeleton.
+- [x] Implement `Totals Extractor Agent` skeleton.
+- [x] Implement `Invoice Assembly Node` skeleton.
+- [x] Implement `QA & Validation Agent` skeleton.
+- [x] Implement targeted self-correction routing.
 - [ ] Implement `Classification Agent` skeleton.
 - [ ] Implement `Reconciliation Agent` skeleton.
 - [ ] Implement `Review Coordinator` skeleton.
