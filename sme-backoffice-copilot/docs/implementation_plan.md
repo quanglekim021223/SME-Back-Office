@@ -94,11 +94,11 @@ Goal: support safe local upload and document tracking.
 
 Goal: implement the workflow shape before connecting real OCR/LLM providers.
 
-- [ ] Define shared workflow state schema.
-- [ ] Define agent handoff envelope schema.
-- [ ] Define structured QA error signal schema.
-- [ ] Define base agent interface.
-- [ ] Define tool interface convention.
+- [x] Define shared workflow state schema.
+- [x] Define agent handoff envelope schema.
+- [x] Define structured QA error signal schema.
+- [x] Define base agent interface.
+- [x] Define tool interface convention.
 - [ ] Implement `Document Intake Agent` skeleton.
 - [ ] Implement `Privacy & Policy Gate` skeleton.
 - [ ] Implement `Document Layout Analyzer` skeleton.
