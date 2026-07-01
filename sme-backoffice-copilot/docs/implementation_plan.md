@@ -113,11 +113,11 @@ Goal: implement the workflow shape before connecting real OCR/LLM providers.
 - [ ] Implement `Reconciliation Agent` skeleton.
 - [ ] Implement `Review Coordinator` skeleton.
 - [ ] Implement `Business Insight Agent` skeleton.
-- [ ] Persist every agent step execution.
-- [ ] Persist every handoff.
-- [ ] Add retry count tracking.
-- [ ] Add workflow status tracking.
-- [ ] Add dead-letter/failure state.
+- [x] Persist every agent step execution.
+- [x] Persist every handoff.
+- [x] Add retry count tracking.
+- [x] Add workflow status tracking.
+- [x] Add dead-letter/failure state.
 - [ ] Add workflow replay command for local testing.
 - [ ] Add tests for successful workflow path.
 - [ ] Add tests for failed validation path.

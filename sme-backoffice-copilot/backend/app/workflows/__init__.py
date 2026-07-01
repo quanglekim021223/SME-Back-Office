@@ -20,6 +20,14 @@ from app.workflows.contracts import (
     WorkflowState,
     WorkflowStateStatus,
 )
+from app.workflows.runtime import (
+    RetryDecision,
+    WorkflowRuntimePersistence,
+    WorkflowRuntimeService,
+    agent_result_status_to_step_status,
+    serialize_workflow_state,
+    workflow_status_to_model_status,
+)
 from app.workflows.tools import (
     ToolCall,
     ToolDefinitionSpec,
@@ -42,6 +50,7 @@ __all__ = [
     "QACorrectionTarget",
     "QAErrorSeverity",
     "QAErrorSignal",
+    "RetryDecision",
     "ToolCall",
     "ToolDefinitionSpec",
     "ToolExecutionContext",
@@ -52,4 +61,9 @@ __all__ = [
     "WorkflowState",
     "WorkflowStateStatus",
     "WorkflowTool",
+    "WorkflowRuntimePersistence",
+    "WorkflowRuntimeService",
+    "agent_result_status_to_step_status",
+    "serialize_workflow_state",
+    "workflow_status_to_model_status",
 ]

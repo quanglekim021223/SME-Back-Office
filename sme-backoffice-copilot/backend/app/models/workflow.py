@@ -31,6 +31,7 @@ class WorkflowRunStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    DEAD_LETTERED = "dead_lettered"
 
 
 class AgentStepStatus(StrEnum):
