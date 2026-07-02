@@ -158,11 +158,11 @@ depend on model randomness.
 Goal: validate AI outputs with deterministic Python logic instead of trusting
 model output blindly.
 
-- [ ] Create deterministic arithmetic validator.
-- [ ] Create deterministic date validator.
-- [ ] Create deterministic currency validator.
-- [ ] Create deterministic duplicate detector.
-- [ ] Add tests for validators.
+- [x] Create deterministic arithmetic validator.
+- [x] Create deterministic date validator.
+- [x] Create deterministic currency validator.
+- [x] Create deterministic duplicate detector.
+- [x] Add tests for validators.
 
 ### Phase 5.4 — Rule-based classification
 
