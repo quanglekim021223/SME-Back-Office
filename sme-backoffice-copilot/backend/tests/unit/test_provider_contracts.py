@@ -83,6 +83,7 @@ def test_settings_include_ai_provider_selection_defaults() -> None:
     assert settings.tesseract_binary_path == "tesseract"
     assert settings.tesseract_language == "eng"
     assert settings.paddleocr_language == "en"
+    assert settings.chandraocr_language == "en"
     assert settings.ollama_base_url == "http://localhost:11434"
     assert settings.ollama_model == "llama3.1:8b"
 
@@ -99,6 +100,18 @@ def test_settings_can_select_local_free_providers(
     assert settings.ocr_provider == OCRProviderType.PADDLEOCR
     assert settings.llm_provider == LLMProviderType.OLLAMA
     assert settings.ollama_model == "qwen2.5:7b"
+
+
+def test_settings_can_select_chandraocr_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OCR_PROVIDER", "chandraocr")
+    monkeypatch.setenv("CHANDRAOCR_LANGUAGE", "en")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.ocr_provider == OCRProviderType.CHANDRAOCR
+    assert settings.chandraocr_language == "en"
 
 
 @pytest.mark.asyncio

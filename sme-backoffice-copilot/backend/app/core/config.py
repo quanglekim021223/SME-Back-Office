@@ -12,6 +12,7 @@ class OCRProviderType(StrEnum):
     MOCK = "mock"
     TESSERACT = "tesseract"
     PADDLEOCR = "paddleocr"
+    CHANDRAOCR = "chandraocr"
 
 
 class LLMProviderType(StrEnum):
@@ -44,6 +45,7 @@ class Settings(BaseSettings):
     tesseract_binary_path: str = "tesseract"
     tesseract_language: str = "eng"
     paddleocr_language: str = "en"
+    chandraocr_language: str = "en"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
     cors_origins: list[str] = ["http://localhost:3000"]

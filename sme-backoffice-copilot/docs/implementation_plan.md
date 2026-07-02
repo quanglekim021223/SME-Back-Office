@@ -140,6 +140,7 @@ implementations.
 - [x] Create mock LLM provider.
 - [x] Create optional local Tesseract OCR provider adapter.
 - [x] Create optional local PaddleOCR provider adapter.
+- [x] Create optional local Chandra OCR provider adapter.
 - [x] Create optional local Ollama LLM provider adapter.
 - [x] Add tests for provider contracts.
 
@@ -176,9 +177,9 @@ Goal: classify common SME revenue and expense records without an LLM dependency.
 Goal: generate and score invoice-to-transaction match candidates using stable
 rules.
 
-- [ ] Create deterministic reconciliation candidate generator.
-- [ ] Create basic match scorer using amount/date/reference.
-- [ ] Add tests for reconciliation matching.
+- [x] Create deterministic reconciliation candidate generator.
+- [x] Create basic match scorer using amount/date/reference.
+- [x] Add tests for reconciliation matching.
 
 ### Phase 5.6 — Aggregates and grounded insight generation
 

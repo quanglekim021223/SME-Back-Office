@@ -16,6 +16,7 @@ from app.providers.llm import (
     LLMResponseFormat,
 )
 from app.providers.local_ocr import (
+    ChandraOCRProvider,
     PaddleOCRProvider,
     TesseractOCRProvider,
 )
@@ -45,6 +46,7 @@ __all__ = [
     "LLMResponseFormat",
     "DEFAULT_MOCK_OCR_TEXT",
     "DEFAULT_STRUCTURED_OUTPUTS",
+    "ChandraOCRProvider",
     "MOCK_PROVIDER_VERSION",
     "MockLLMProvider",
     "MockOCRProvider",

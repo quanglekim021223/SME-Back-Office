@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.providers import (
+    ChandraOCRProvider,
     LLMGenerationRequest,
     LLMMessage,
     LLMMessageRole,
@@ -154,6 +155,25 @@ class FakePaddleEngine:
         ]
 
 
+class FakeChandraEngine:
+    def extract_text(self, local_path: str) -> object:
+        assert local_path == "/tmp/original.png"
+        return {
+            "text_blocks": [
+                {
+                    "text": "Invoice #INV-001",
+                    "confidence": 0.95,
+                    "bbox": [0, 0, 100, 20],
+                },
+                {
+                    "text": "Total 110.00",
+                    "score": 92,
+                    "bounding_box": [0, 30, 100, 50],
+                },
+            ]
+        }
+
+
 @pytest.mark.asyncio
 async def test_paddleocr_provider_normalizes_common_output_shape() -> None:
     provider = PaddleOCRProvider(language="en", engine=FakePaddleEngine())
@@ -189,6 +209,61 @@ async def test_paddleocr_provider_normalizes_common_output_shape() -> None:
 @pytest.mark.asyncio
 async def test_paddleocr_provider_requires_local_path() -> None:
     provider = PaddleOCRProvider(engine=FakePaddleEngine())
+
+    with pytest.raises(ProviderConfigurationError):
+        await provider.extract_text(
+            input_data=OCRInput(artifact_uri="local://document/original.png"),
+            context=create_ocr_context(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_chandraocr_provider_normalizes_common_output_shape() -> None:
+    provider = ChandraOCRProvider(language="en", engine=FakeChandraEngine())
+
+    assert isinstance(provider, OCRProvider)
+
+    result = await provider.extract_text(
+        input_data=OCRInput(
+            artifact_uri="local://document/original.png",
+            media_type="image/png",
+            content_hash="hash-123",
+            local_path="/tmp/original.png",
+        ),
+        context=create_ocr_context(),
+    )
+
+    assert result.provider_name == "chandraocr"
+    assert result.full_text == "Invoice #INV-001\nTotal 110.00"
+    assert result.text_blocks[0].bounding_box == [0.0, 0.0, 100.0, 20.0]
+    assert result.text_blocks[1].confidence == pytest.approx(0.92)
+    assert result.confidence == pytest.approx(0.935)
+
+
+@pytest.mark.asyncio
+async def test_chandraocr_provider_accepts_string_output() -> None:
+    provider = ChandraOCRProvider(
+        engine=lambda local_path: "Invoice #INV-001\nTotal 110.00\n",
+    )
+
+    result = await provider.extract_text(
+        input_data=OCRInput(
+            artifact_uri="local://document/original.png",
+            local_path="/tmp/original.png",
+        ),
+        context=create_ocr_context(),
+    )
+
+    assert result.provider_name == "chandraocr"
+    assert [block.text for block in result.text_blocks] == [
+        "Invoice #INV-001",
+        "Total 110.00",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_chandraocr_provider_requires_local_path() -> None:
+    provider = ChandraOCRProvider(engine=FakeChandraEngine())
 
     with pytest.raises(ProviderConfigurationError):
         await provider.extract_text(
