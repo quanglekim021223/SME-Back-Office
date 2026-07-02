@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -112,4 +113,52 @@ class ReviewTaskDecisionResponse(BaseModel):
     resource_type: str
     resource_id: UUID
     resource_status: str
+    audit_event_id: UUID
+
+
+class ExtractedFieldsCorrectionRequest(BaseModel):
+    """Request body for correcting extracted invoice fields."""
+
+    corrected_fields: dict[str, object] = Field(default_factory=dict)
+    comment: str | None = Field(default=None, max_length=2000)
+    reason_code: str | None = Field(default=None, max_length=128)
+
+
+class ClassificationCorrectionRequest(BaseModel):
+    """Request body for correcting a classification proposal."""
+
+    proposed_category_id: UUID | None = None
+    confidence: str | None = Field(default=None, max_length=32)
+    rationale: str | None = Field(default=None, max_length=4000)
+    evidence_refs: list[str] | None = None
+    metadata: dict[str, object] | None = None
+    comment: str | None = Field(default=None, max_length=2000)
+    reason_code: str | None = Field(default=None, max_length=128)
+
+
+class ReconciliationCorrectionRequest(BaseModel):
+    """Request body for correcting a reconciliation proposal."""
+
+    match_type: str | None = Field(default=None, max_length=64)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    invoice_total_amount: Decimal | None = None
+    transaction_total_amount: Decimal | None = None
+    difference_amount: Decimal | None = None
+    confidence: str | None = Field(default=None, max_length=32)
+    rationale: str | None = Field(default=None, max_length=4000)
+    evidence_refs: list[str] | None = None
+    metadata: dict[str, object] | None = None
+    comment: str | None = Field(default=None, max_length=2000)
+    reason_code: str | None = Field(default=None, max_length=128)
+
+
+class ReviewTaskCorrectionResponse(BaseModel):
+    """Response returned after a review correction creates a new version."""
+
+    action: str
+    review_task: ReviewTaskDetailResponse
+    resource_type: str
+    superseded_resource_id: UUID
+    replacement_resource_id: UUID
+    replacement_resource_status: str
     audit_event_id: UUID

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from decimal import Decimal
+from typing import Protocol, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -30,7 +31,16 @@ from app.models.operations import (
     ReviewTaskType,
 )
 from app.repositories.review_tasks import ReviewTaskRepository
-from app.review import ReviewAction
+from app.review import (
+    ReviewAction,
+    SupersedableRecord,
+    SupersessionPlan,
+    build_classification_supersession_plan,
+    build_invoice_extraction_supersession_plan,
+    build_reconciliation_supersession_plan,
+    mark_record_superseded,
+)
+from app.validation import parse_decimal, parse_iso_date
 
 
 @dataclass(frozen=True)
@@ -55,6 +65,19 @@ class ReviewTaskDecisionResult:
     audit_event: AuditEvent
 
 
+@dataclass(frozen=True)
+class ReviewTaskCorrectionResult:
+    """Result returned after a review correction creates a new resource version."""
+
+    action: ReviewAction
+    review_task: ReviewTask
+    resource_type: str
+    superseded_resource_id: UUID
+    replacement_resource_id: UUID
+    replacement_resource_status: str
+    audit_event: AuditEvent
+
+
 class ReviewTaskDecisionError(Exception):
     """Base error for review task decision failures."""
 
@@ -73,6 +96,10 @@ class ReviewResourceNotFoundError(ReviewTaskDecisionError):
 
 class UnsupportedReviewActionError(ReviewTaskDecisionError):
     """Raised when a task does not support approve/reject decisions."""
+
+
+class InvalidReviewCorrectionError(ReviewTaskDecisionError):
+    """Raised when correction input cannot be applied safely."""
 
 
 class ReviewTaskDecisionPersistence(Protocol):
@@ -120,6 +147,18 @@ class ReviewTaskDecisionPersistence(Protocol):
 
     def add_audit_event(self, audit_event: AuditEvent) -> AuditEvent:
         """Stage an audit event for insertion."""
+
+    def add_invoice(self, invoice: Invoice) -> Invoice:
+        """Stage a replacement invoice for insertion."""
+
+    def add_classification_proposal(
+        self,
+        proposal: ClassificationProposal,
+    ) -> ClassificationProposal:
+        """Stage a replacement classification proposal for insertion."""
+
+    def add_reconciliation(self, reconciliation: Reconciliation) -> Reconciliation:
+        """Stage a replacement reconciliation for insertion."""
 
     async def flush(self) -> None:
         """Flush staged persistence changes."""
@@ -213,6 +252,27 @@ class SqlAlchemyReviewTaskDecisionPersistence:
 
         self.session.add(audit_event)
         return audit_event
+
+    def add_invoice(self, invoice: Invoice) -> Invoice:
+        """Stage a replacement invoice for insertion."""
+
+        self.session.add(invoice)
+        return invoice
+
+    def add_classification_proposal(
+        self,
+        proposal: ClassificationProposal,
+    ) -> ClassificationProposal:
+        """Stage a replacement classification proposal for insertion."""
+
+        self.session.add(proposal)
+        return proposal
+
+    def add_reconciliation(self, reconciliation: Reconciliation) -> Reconciliation:
+        """Stage a replacement reconciliation for insertion."""
+
+        self.session.add(reconciliation)
+        return reconciliation
 
     async def flush(self) -> None:
         """Flush staged changes."""
@@ -334,6 +394,78 @@ class ReviewTaskDecisionService:
             correlation_id=correlation_id,
         )
 
+    async def correct_extracted_fields(
+        self,
+        *,
+        tenant_id: UUID,
+        review_task_id: UUID,
+        actor: Principal,
+        corrected_fields: dict[str, object],
+        comment: str | None = None,
+        reason_code: str | None = None,
+        correlation_id: str | None = None,
+    ) -> ReviewTaskCorrectionResult:
+        """Correct extracted invoice fields by creating a new invoice version."""
+
+        return await self._correct(
+            tenant_id=tenant_id,
+            review_task_id=review_task_id,
+            action=ReviewAction.CORRECT_EXTRACTION,
+            actor=actor,
+            corrected_payload=corrected_fields,
+            comment=comment,
+            reason_code=reason_code,
+            correlation_id=correlation_id,
+        )
+
+    async def correct_classification(
+        self,
+        *,
+        tenant_id: UUID,
+        review_task_id: UUID,
+        actor: Principal,
+        corrected_fields: dict[str, object],
+        comment: str | None = None,
+        reason_code: str | None = None,
+        correlation_id: str | None = None,
+    ) -> ReviewTaskCorrectionResult:
+        """Correct a classification proposal by creating a new version."""
+
+        return await self._correct(
+            tenant_id=tenant_id,
+            review_task_id=review_task_id,
+            action=ReviewAction.CORRECT_CLASSIFICATION,
+            actor=actor,
+            corrected_payload=corrected_fields,
+            comment=comment,
+            reason_code=reason_code,
+            correlation_id=correlation_id,
+        )
+
+    async def correct_reconciliation(
+        self,
+        *,
+        tenant_id: UUID,
+        review_task_id: UUID,
+        actor: Principal,
+        corrected_fields: dict[str, object],
+        comment: str | None = None,
+        reason_code: str | None = None,
+        correlation_id: str | None = None,
+    ) -> ReviewTaskCorrectionResult:
+        """Correct a reconciliation proposal by creating a new version."""
+
+        return await self._correct(
+            tenant_id=tenant_id,
+            review_task_id=review_task_id,
+            action=ReviewAction.CORRECT_RECONCILIATION,
+            actor=actor,
+            corrected_payload=corrected_fields,
+            comment=comment,
+            reason_code=reason_code,
+            correlation_id=correlation_id,
+        )
+
     async def _decide(
         self,
         *,
@@ -411,6 +543,111 @@ class ReviewTaskDecisionService:
             resource_type=resource.resource_type,
             resource_id=resource.resource_id,
             resource_status=resource_status,
+            audit_event=audit_event,
+        )
+
+    async def _correct(
+        self,
+        *,
+        tenant_id: UUID,
+        review_task_id: UUID,
+        action: ReviewAction,
+        actor: Principal,
+        corrected_payload: dict[str, object],
+        comment: str | None,
+        reason_code: str | None,
+        correlation_id: str | None,
+    ) -> ReviewTaskCorrectionResult:
+        """Apply a correction by superseding the old resource with a new version."""
+
+        task = await self.persistence.get_review_task_for_tenant(
+            tenant_id=tenant_id,
+            review_task_id=review_task_id,
+        )
+        if task is None:
+            raise ReviewTaskNotFoundError("Review task was not found.")
+        if task.status not in {
+            ReviewTaskStatus.OPEN.value,
+            ReviewTaskStatus.IN_PROGRESS.value,
+        }:
+            raise ReviewTaskNotActionableError(
+                "Review task is not open or in progress."
+            )
+
+        resource = await self._load_reviewable_resource(
+            tenant_id=tenant_id,
+            task=task,
+        )
+        plan = build_correction_supersession_plan(
+            resource=resource,
+            action=action,
+        )
+        before_state = {
+            "review_task": review_task_audit_state(task),
+            "resource": review_resource_audit_state(resource),
+        }
+
+        replacement_resource = create_corrected_resource(
+            resource=resource,
+            plan=plan,
+            corrected_payload=corrected_payload,
+        )
+        mark_record_superseded(cast(SupersedableRecord, resource.record), plan)
+        add_replacement_resource(self.persistence, replacement_resource)
+        update_review_task_target(task=task, replacement_resource=replacement_resource)
+
+        now = utc_now()
+        task.status = ReviewTaskStatus.RESOLVED.value
+        task.resolved_at = now
+        task.resolved_by_user_id = parse_optional_uuid(actor.user_id)
+
+        replacement_reviewable_resource = ReviewableResource(
+            resource_type=resource.resource_type,
+            resource_id=get_resource_id(replacement_resource),
+            record=replacement_resource,
+        )
+        after_state = {
+            "review_task": review_task_audit_state(task),
+            "superseded_resource": review_resource_audit_state(resource),
+            "replacement_resource": review_resource_audit_state(
+                replacement_reviewable_resource
+            ),
+        }
+        audit_event = AuditEvent(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            actor_user_id=parse_optional_uuid(actor.user_id),
+            actor_type=AuditActorType.USER.value,
+            severity=AuditEventSeverity.INFO.value,
+            action=review_action_to_audit_action(action),
+            resource_type=resource.resource_type,
+            resource_id=get_resource_id(replacement_resource),
+            correlation_id=correlation_id,
+            before_state=before_state,
+            after_state=after_state,
+            metadata_={
+                "review_task_id": str(task.id),
+                "review_task_type": task.task_type,
+                "review_target_type": task.target_type,
+                "actor_subject": actor.subject,
+                "comment": comment,
+                "reason_code": reason_code,
+                "superseded_resource_id": str(resource.resource_id),
+                "replacement_resource_id": str(get_resource_id(replacement_resource)),
+                "corrected_fields": corrected_payload,
+            },
+        )
+        self.persistence.add_audit_event(audit_event)
+        await self.persistence.flush()
+        await self.persistence.commit()
+
+        return ReviewTaskCorrectionResult(
+            action=action,
+            review_task=task,
+            resource_type=resource.resource_type,
+            superseded_resource_id=resource.resource_id,
+            replacement_resource_id=get_resource_id(replacement_resource),
+            replacement_resource_status=get_resource_status(replacement_resource),
             audit_event=audit_event,
         )
 
@@ -534,6 +771,311 @@ def apply_resource_decision(
     return status
 
 
+def build_correction_supersession_plan(
+    *,
+    resource: ReviewableResource,
+    action: ReviewAction,
+) -> SupersessionPlan:
+    """Build a supersession plan for a supported correction action."""
+
+    if (
+        isinstance(resource.record, Invoice)
+        and action == ReviewAction.CORRECT_EXTRACTION
+    ):
+        return build_invoice_extraction_supersession_plan(resource.record)
+    if (
+        isinstance(resource.record, ClassificationProposal)
+        and action == ReviewAction.CORRECT_CLASSIFICATION
+    ):
+        return build_classification_supersession_plan(resource.record)
+    if (
+        isinstance(resource.record, Reconciliation)
+        and action == ReviewAction.CORRECT_RECONCILIATION
+    ):
+        return build_reconciliation_supersession_plan(resource.record)
+    raise UnsupportedReviewActionError(
+        "Review task resource does not support this correction action."
+    )
+
+
+def create_corrected_resource(
+    *,
+    resource: ReviewableResource,
+    plan: SupersessionPlan,
+    corrected_payload: dict[str, object],
+) -> Invoice | ClassificationProposal | Reconciliation:
+    """Create a corrected replacement resource from the old resource."""
+
+    if isinstance(resource.record, Invoice):
+        return create_corrected_invoice(
+            current=resource.record,
+            plan=plan,
+            corrected_fields=corrected_payload,
+        )
+    if isinstance(resource.record, ClassificationProposal):
+        return create_corrected_classification_proposal(
+            current=resource.record,
+            plan=plan,
+            corrected_fields=corrected_payload,
+        )
+    if isinstance(resource.record, Reconciliation):
+        return create_corrected_reconciliation(
+            current=resource.record,
+            plan=plan,
+            corrected_fields=corrected_payload,
+        )
+    raise UnsupportedReviewActionError("Unsupported correction resource.")
+
+
+def create_corrected_invoice(
+    *,
+    current: Invoice,
+    plan: SupersessionPlan,
+    corrected_fields: dict[str, object],
+) -> Invoice:
+    """Create a new corrected invoice version."""
+
+    replacement = Invoice(
+        id=uuid4(),
+        tenant_id=current.tenant_id,
+        document_id=current.document_id,
+        source_processing_run_id=current.source_processing_run_id,
+        supersedes_invoice_id=current.id,
+        version=plan.new_version,
+        status=plan.new_record_status,
+        direction=current.direction,
+        invoice_number=current.invoice_number,
+        supplier_name=current.supplier_name,
+        supplier_tax_id=current.supplier_tax_id,
+        customer_name=current.customer_name,
+        customer_tax_id=current.customer_tax_id,
+        issue_date=current.issue_date,
+        due_date=current.due_date,
+        currency=current.currency,
+        subtotal_amount=current.subtotal_amount,
+        tax_amount=current.tax_amount,
+        total_amount=current.total_amount,
+        confidence=current.confidence,
+        notes=current.notes,
+    )
+    apply_invoice_field_corrections(replacement, corrected_fields)
+    return replacement
+
+
+def create_corrected_classification_proposal(
+    *,
+    current: ClassificationProposal,
+    plan: SupersessionPlan,
+    corrected_fields: dict[str, object],
+) -> ClassificationProposal:
+    """Create a new corrected classification proposal version."""
+
+    replacement = ClassificationProposal(
+        id=uuid4(),
+        tenant_id=current.tenant_id,
+        proposed_category_id=current.proposed_category_id,
+        invoice_id=current.invoice_id,
+        invoice_line_item_id=current.invoice_line_item_id,
+        transaction_id=current.transaction_id,
+        supersedes_proposal_id=current.id,
+        target_type=current.target_type,
+        status=plan.new_record_status,
+        version=plan.new_version,
+        confidence=current.confidence,
+        source_agent=current.source_agent,
+        source_agent_version=current.source_agent_version,
+        rationale=current.rationale,
+        evidence_refs=current.evidence_refs,
+        policy_flags=current.policy_flags,
+        metadata_=current.metadata_,
+    )
+    apply_classification_corrections(replacement, corrected_fields)
+    return replacement
+
+
+def create_corrected_reconciliation(
+    *,
+    current: Reconciliation,
+    plan: SupersessionPlan,
+    corrected_fields: dict[str, object],
+) -> Reconciliation:
+    """Create a new corrected reconciliation version."""
+
+    replacement = Reconciliation(
+        id=uuid4(),
+        tenant_id=current.tenant_id,
+        supersedes_reconciliation_id=current.id,
+        status=plan.new_record_status,
+        match_type=current.match_type,
+        version=plan.new_version,
+        currency=current.currency,
+        invoice_total_amount=current.invoice_total_amount,
+        transaction_total_amount=current.transaction_total_amount,
+        difference_amount=current.difference_amount,
+        confidence=current.confidence,
+        source_agent=current.source_agent,
+        source_agent_version=current.source_agent_version,
+        rationale=current.rationale,
+        evidence_refs=current.evidence_refs,
+        metadata_=current.metadata_,
+    )
+    apply_reconciliation_corrections(replacement, corrected_fields)
+    return replacement
+
+
+def apply_invoice_field_corrections(
+    invoice: Invoice,
+    corrected_fields: dict[str, object],
+) -> None:
+    """Apply allowed invoice field corrections to a replacement invoice."""
+
+    allowed_fields = {
+        "direction",
+        "invoice_number",
+        "supplier_name",
+        "supplier_tax_id",
+        "customer_name",
+        "customer_tax_id",
+        "issue_date",
+        "due_date",
+        "currency",
+        "subtotal_amount",
+        "tax_amount",
+        "total_amount",
+        "confidence",
+        "notes",
+    }
+    unknown_fields = set(corrected_fields) - allowed_fields
+    if unknown_fields:
+        raise InvalidReviewCorrectionError(
+            f"Unsupported invoice correction fields: {sorted(unknown_fields)}"
+        )
+
+    for field_name, value in corrected_fields.items():
+        if field_name in {"issue_date", "due_date"}:
+            setattr(invoice, field_name, parse_iso_date(value))
+        elif field_name in {"subtotal_amount", "tax_amount", "total_amount"}:
+            setattr(invoice, field_name, parse_decimal(value))
+        else:
+            setattr(invoice, field_name, value)
+
+
+def apply_classification_corrections(
+    proposal: ClassificationProposal,
+    corrected_fields: dict[str, object],
+) -> None:
+    """Apply allowed classification corrections to a replacement proposal."""
+
+    allowed_fields = {
+        "proposed_category_id",
+        "confidence",
+        "rationale",
+        "evidence_refs",
+        "policy_flags",
+        "metadata",
+    }
+    unknown_fields = set(corrected_fields) - allowed_fields
+    if unknown_fields:
+        raise InvalidReviewCorrectionError(
+            f"Unsupported classification correction fields: {sorted(unknown_fields)}"
+        )
+
+    for field_name, value in corrected_fields.items():
+        if field_name == "metadata":
+            proposal.metadata_ = cast(dict[str, object] | None, value)
+        else:
+            setattr(proposal, field_name, value)
+
+
+def apply_reconciliation_corrections(
+    reconciliation: Reconciliation,
+    corrected_fields: dict[str, object],
+) -> None:
+    """Apply allowed reconciliation corrections to a replacement record."""
+
+    allowed_fields = {
+        "match_type",
+        "currency",
+        "invoice_total_amount",
+        "transaction_total_amount",
+        "difference_amount",
+        "confidence",
+        "rationale",
+        "evidence_refs",
+        "metadata",
+    }
+    unknown_fields = set(corrected_fields) - allowed_fields
+    if unknown_fields:
+        raise InvalidReviewCorrectionError(
+            f"Unsupported reconciliation correction fields: {sorted(unknown_fields)}"
+        )
+
+    for field_name, value in corrected_fields.items():
+        if field_name in {
+            "invoice_total_amount",
+            "transaction_total_amount",
+            "difference_amount",
+        }:
+            setattr(reconciliation, field_name, coerce_decimal(value))
+        elif field_name == "metadata":
+            reconciliation.metadata_ = cast(dict[str, object] | None, value)
+        else:
+            setattr(reconciliation, field_name, value)
+
+
+def add_replacement_resource(
+    persistence: ReviewTaskDecisionPersistence,
+    replacement: Invoice | ClassificationProposal | Reconciliation,
+) -> None:
+    """Stage a corrected replacement resource for persistence."""
+
+    if isinstance(replacement, Invoice):
+        persistence.add_invoice(replacement)
+    elif isinstance(replacement, ClassificationProposal):
+        persistence.add_classification_proposal(replacement)
+    elif isinstance(replacement, Reconciliation):
+        persistence.add_reconciliation(replacement)
+    else:
+        raise UnsupportedReviewActionError("Unsupported replacement resource.")
+
+
+def update_review_task_target(
+    *,
+    task: ReviewTask,
+    replacement_resource: Invoice | ClassificationProposal | Reconciliation,
+) -> None:
+    """Point the resolved review task at the corrected replacement resource."""
+
+    if isinstance(replacement_resource, Invoice):
+        task.invoice_id = replacement_resource.id
+    elif isinstance(replacement_resource, ClassificationProposal):
+        task.classification_proposal_id = replacement_resource.id
+    elif isinstance(replacement_resource, Reconciliation):
+        task.reconciliation_id = replacement_resource.id
+
+
+def get_resource_id(
+    resource: Invoice | ClassificationProposal | Reconciliation,
+) -> UUID:
+    """Return id from a supported corrected resource."""
+
+    return resource.id
+
+
+def get_resource_status(
+    resource: Invoice | ClassificationProposal | Reconciliation,
+) -> str:
+    """Return status from a supported corrected resource."""
+
+    return resource.status
+
+
+def coerce_decimal(value: object) -> Decimal | None:
+    """Coerce request values into Decimal for money fields."""
+
+    return parse_decimal(value)
+
+
 def review_task_audit_state(task: ReviewTask) -> dict[str, object]:
     """Return a compact audit snapshot for a review task."""
 
@@ -569,6 +1111,12 @@ def review_action_to_audit_action(action: ReviewAction) -> str:
         return "review_task.approved"
     if action == ReviewAction.REJECT_PROPOSAL:
         return "review_task.rejected"
+    if action == ReviewAction.CORRECT_EXTRACTION:
+        return "review_task.extraction_corrected"
+    if action == ReviewAction.CORRECT_CLASSIFICATION:
+        return "review_task.classification_corrected"
+    if action == ReviewAction.CORRECT_RECONCILIATION:
+        return "review_task.reconciliation_corrected"
     return f"review_task.{action.value}"
 
 

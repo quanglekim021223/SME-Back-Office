@@ -11,6 +11,7 @@ from app.review.contracts import (
 from app.review.versioning import (
     ImmutableProposalVersioningError,
     ReviewVersionedResource,
+    SupersedableRecord,
     SupersessionPlan,
     build_classification_supersession_plan,
     build_invoice_extraction_supersession_plan,
@@ -24,6 +25,7 @@ __all__ = [
     "ReviewAction",
     "ReviewTaskTypeDefinition",
     "ReviewVersionedResource",
+    "SupersedableRecord",
     "SupersessionPlan",
     "allowed_actions_for_task_type",
     "build_classification_supersession_plan",

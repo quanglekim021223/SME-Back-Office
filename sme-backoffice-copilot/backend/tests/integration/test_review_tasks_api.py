@@ -19,6 +19,8 @@ from app.models.operations import (
 )
 from app.review import ReviewAction
 from app.services.review_tasks import (
+    InvalidReviewCorrectionError,
+    ReviewTaskCorrectionResult,
     ReviewTaskDecisionResult,
     ReviewTaskListResult,
     ReviewTaskNotActionableError,
@@ -86,13 +88,16 @@ class FakeReviewTaskDecisionService:
     def __init__(
         self,
         *,
-        result: ReviewTaskDecisionResult | None = None,
+        result: ReviewTaskDecisionResult | ReviewTaskCorrectionResult | None = None,
         error: Exception | None = None,
     ) -> None:
         self.result = result
         self.error = error
         self.approve_calls: list[dict[str, object]] = []
         self.reject_calls: list[dict[str, object]] = []
+        self.correct_extraction_calls: list[dict[str, object]] = []
+        self.correct_classification_calls: list[dict[str, object]] = []
+        self.correct_reconciliation_calls: list[dict[str, object]] = []
 
     async def approve_review_task(self, **kwargs) -> ReviewTaskDecisionResult:
         self.approve_calls.append(kwargs)
@@ -106,6 +111,27 @@ class FakeReviewTaskDecisionService:
         if self.error is not None:
             raise self.error
         assert self.result is not None
+        return self.result
+
+    async def correct_extracted_fields(self, **kwargs) -> ReviewTaskCorrectionResult:
+        self.correct_extraction_calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
+        assert isinstance(self.result, ReviewTaskCorrectionResult)
+        return self.result
+
+    async def correct_classification(self, **kwargs) -> ReviewTaskCorrectionResult:
+        self.correct_classification_calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
+        assert isinstance(self.result, ReviewTaskCorrectionResult)
+        return self.result
+
+    async def correct_reconciliation(self, **kwargs) -> ReviewTaskCorrectionResult:
+        self.correct_reconciliation_calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
+        assert isinstance(self.result, ReviewTaskCorrectionResult)
         return self.result
 
 
@@ -182,6 +208,34 @@ def build_decision_result(
         resource_status="approved"
         if action == ReviewAction.APPROVE_PROPOSAL
         else "rejected",
+        audit_event=audit_event,
+    )
+
+
+def build_correction_result(
+    *,
+    task: ReviewTask,
+    action: ReviewAction,
+) -> ReviewTaskCorrectionResult:
+    superseded_resource_id = task.classification_proposal_id or uuid4()
+    replacement_resource_id = uuid4()
+    task.status = ReviewTaskStatus.RESOLVED.value
+    task.resolved_at = utc_now()
+    task.classification_proposal_id = replacement_resource_id
+    audit_event = AuditEvent(
+        id=uuid4(),
+        tenant_id=task.tenant_id,
+        action=f"review_task.{action.value}",
+        resource_type=task.target_type,
+        resource_id=replacement_resource_id,
+    )
+    return ReviewTaskCorrectionResult(
+        action=action,
+        review_task=task,
+        resource_type=task.target_type,
+        superseded_resource_id=superseded_resource_id,
+        replacement_resource_id=replacement_resource_id,
+        replacement_resource_status="proposed",
         audit_event=audit_event,
     )
 
@@ -345,4 +399,74 @@ def test_reject_review_task_endpoint_maps_not_actionable_to_conflict(
     assert response.status_code == 409
     payload = response.json()
     assert payload["error"]["code"] == "review_task_not_actionable"
+    assert payload["error"]["details"] == {"review_task_id": str(task.id)}
+
+
+def test_correct_classification_endpoint_returns_correction_payload(
+    app: FastAPI,
+    client: TestClient,
+) -> None:
+    tenant_id = uuid4()
+    task = build_review_task(tenant_id=tenant_id)
+    fake_service = FakeReviewTaskDecisionService(
+        result=build_correction_result(
+            task=task,
+            action=ReviewAction.CORRECT_CLASSIFICATION,
+        )
+    )
+    override_review_decision_service(app, fake_service)
+    new_category_id = uuid4()
+
+    response = client.post(
+        f"/api/v1/review-tasks/{task.id}/correct-classification",
+        headers=auth_headers(tenant_id),
+        json={
+            "proposed_category_id": str(new_category_id),
+            "confidence": "high",
+            "rationale": "Corrected category.",
+            "comment": "Move to the right category.",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["action"] == ReviewAction.CORRECT_CLASSIFICATION.value
+    assert payload["review_task"]["id"] == str(task.id)
+    assert payload["review_task"]["status"] == ReviewTaskStatus.RESOLVED.value
+    assert payload["resource_type"] == ReviewTargetType.CLASSIFICATION_PROPOSAL.value
+    assert payload["superseded_resource_id"]
+    assert payload["replacement_resource_id"]
+    assert payload["replacement_resource_status"] == "proposed"
+    assert payload["audit_event_id"]
+    call = fake_service.correct_classification_calls[0]
+    assert call["tenant_id"] == tenant_id
+    assert call["comment"] == "Move to the right category."
+    assert call["corrected_fields"]["proposed_category_id"] == new_category_id
+    assert call["corrected_fields"]["confidence"] == "high"
+
+
+def test_correct_extraction_endpoint_maps_invalid_correction_to_bad_request(
+    app: FastAPI,
+    client: TestClient,
+) -> None:
+    tenant_id = uuid4()
+    task = build_review_task(
+        tenant_id=tenant_id,
+        task_type=ReviewTaskType.EXTRACTION,
+        target_type=ReviewTargetType.INVOICE,
+    )
+    fake_service = FakeReviewTaskDecisionService(
+        error=InvalidReviewCorrectionError("Unsupported invoice correction fields.")
+    )
+    override_review_decision_service(app, fake_service)
+
+    response = client.post(
+        f"/api/v1/review-tasks/{task.id}/correct-extraction",
+        headers=auth_headers(tenant_id),
+        json={"corrected_fields": {"tenant_id": str(uuid4())}},
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"]["code"] == "invalid_review_correction"
     assert payload["error"]["details"] == {"review_task_id": str(task.id)}
