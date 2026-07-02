@@ -4,16 +4,25 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.routers.review_tasks import get_review_task_query_service
+from app.api.routers.review_tasks import (
+    get_review_task_decision_service,
+    get_review_task_query_service,
+)
 from app.models.base import utc_now
 from app.models.operations import (
+    AuditEvent,
     ReviewTargetType,
     ReviewTask,
     ReviewTaskPriority,
     ReviewTaskStatus,
     ReviewTaskType,
 )
-from app.services.review_tasks import ReviewTaskListResult
+from app.review import ReviewAction
+from app.services.review_tasks import (
+    ReviewTaskDecisionResult,
+    ReviewTaskListResult,
+    ReviewTaskNotActionableError,
+)
 
 
 class FakeReviewTaskQueryService:
@@ -73,6 +82,33 @@ class FakeReviewTaskQueryService:
         )
 
 
+class FakeReviewTaskDecisionService:
+    def __init__(
+        self,
+        *,
+        result: ReviewTaskDecisionResult | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self.result = result
+        self.error = error
+        self.approve_calls: list[dict[str, object]] = []
+        self.reject_calls: list[dict[str, object]] = []
+
+    async def approve_review_task(self, **kwargs) -> ReviewTaskDecisionResult:
+        self.approve_calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
+        assert self.result is not None
+        return self.result
+
+    async def reject_review_task(self, **kwargs) -> ReviewTaskDecisionResult:
+        self.reject_calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
+        assert self.result is not None
+        return self.result
+
+
 def auth_headers(tenant_id: UUID):
     return {
         "X-Tenant-ID": str(tenant_id),
@@ -113,6 +149,41 @@ def build_review_task(
 
 def override_review_service(app: FastAPI, service: FakeReviewTaskQueryService) -> None:
     app.dependency_overrides[get_review_task_query_service] = lambda: service
+
+
+def override_review_decision_service(
+    app: FastAPI,
+    service: FakeReviewTaskDecisionService,
+) -> None:
+    app.dependency_overrides[get_review_task_decision_service] = lambda: service
+
+
+def build_decision_result(
+    *,
+    task: ReviewTask,
+    action: ReviewAction,
+) -> ReviewTaskDecisionResult:
+    task.status = ReviewTaskStatus.RESOLVED.value
+    task.resolved_at = utc_now()
+    audit_event = AuditEvent(
+        id=uuid4(),
+        tenant_id=task.tenant_id,
+        action="review_task.approved"
+        if action == ReviewAction.APPROVE_PROPOSAL
+        else "review_task.rejected",
+        resource_type=task.target_type,
+        resource_id=task.classification_proposal_id,
+    )
+    return ReviewTaskDecisionResult(
+        action=action,
+        review_task=task,
+        resource_type=task.target_type,
+        resource_id=task.classification_proposal_id or uuid4(),
+        resource_status="approved"
+        if action == ReviewAction.APPROVE_PROPOSAL
+        else "rejected",
+        audit_event=audit_event,
+    )
 
 
 def test_list_review_tasks_endpoint_returns_tenant_scoped_queue(
@@ -215,3 +286,63 @@ def test_list_review_tasks_endpoint_requires_authenticated_user(
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "unauthenticated"
+
+
+def test_approve_review_task_endpoint_returns_decision_payload(
+    app: FastAPI,
+    client: TestClient,
+) -> None:
+    tenant_id = uuid4()
+    task = build_review_task(tenant_id=tenant_id)
+    fake_service = FakeReviewTaskDecisionService(
+        result=build_decision_result(
+            task=task,
+            action=ReviewAction.APPROVE_PROPOSAL,
+        )
+    )
+    override_review_decision_service(app, fake_service)
+
+    response = client.post(
+        f"/api/v1/review-tasks/{task.id}/approve",
+        headers=auth_headers(tenant_id),
+        json={
+            "comment": "Looks good.",
+            "reason_code": "APPROVED_BY_ACCOUNTANT",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["action"] == ReviewAction.APPROVE_PROPOSAL.value
+    assert payload["review_task"]["id"] == str(task.id)
+    assert payload["review_task"]["status"] == ReviewTaskStatus.RESOLVED.value
+    assert payload["resource_type"] == ReviewTargetType.CLASSIFICATION_PROPOSAL.value
+    assert payload["resource_id"] == str(task.classification_proposal_id)
+    assert payload["resource_status"] == "approved"
+    assert payload["audit_event_id"]
+    assert fake_service.approve_calls[0]["comment"] == "Looks good."
+    assert fake_service.approve_calls[0]["reason_code"] == "APPROVED_BY_ACCOUNTANT"
+    assert fake_service.approve_calls[0]["tenant_id"] == tenant_id
+
+
+def test_reject_review_task_endpoint_maps_not_actionable_to_conflict(
+    app: FastAPI,
+    client: TestClient,
+) -> None:
+    tenant_id = uuid4()
+    task = build_review_task(tenant_id=tenant_id)
+    fake_service = FakeReviewTaskDecisionService(
+        error=ReviewTaskNotActionableError("already resolved")
+    )
+    override_review_decision_service(app, fake_service)
+
+    response = client.post(
+        f"/api/v1/review-tasks/{task.id}/reject",
+        headers=auth_headers(tenant_id),
+        json={"comment": "Too late."},
+    )
+
+    assert response.status_code == 409
+    payload = response.json()
+    assert payload["error"]["code"] == "review_task_not_actionable"
+    assert payload["error"]["details"] == {"review_task_id": str(task.id)}

@@ -117,6 +117,7 @@ def test_authentication_placeholder_reads_user_headers(app: FastAPI) -> None:
             "read:review_tasks",
             "read:tenant",
             "write:documents",
+            "write:review_tasks",
         ],
         "is_authenticated": True,
     }

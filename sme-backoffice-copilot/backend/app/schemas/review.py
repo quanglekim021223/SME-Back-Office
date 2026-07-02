@@ -95,3 +95,21 @@ class ReviewTaskListResponse(BaseModel):
     total: int = Field(ge=0)
     limit: int = Field(ge=1)
     offset: int = Field(ge=0)
+
+
+class ReviewTaskDecisionRequest(BaseModel):
+    """Request body for approving or rejecting a review task proposal."""
+
+    comment: str | None = Field(default=None, max_length=2000)
+    reason_code: str | None = Field(default=None, max_length=128)
+
+
+class ReviewTaskDecisionResponse(BaseModel):
+    """Response returned after a review task decision action."""
+
+    action: str
+    review_task: ReviewTaskDetailResponse
+    resource_type: str
+    resource_id: UUID
+    resource_status: str
+    audit_event_id: UUID
