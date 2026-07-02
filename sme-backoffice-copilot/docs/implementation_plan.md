@@ -136,11 +136,11 @@ implementations.
 - [x] Define OCR provider interface.
 - [x] Define LLM provider interface.
 - [x] Add provider selection configuration.
-- [ ] Create mock OCR provider.
-- [ ] Create mock LLM provider.
+- [x] Create mock OCR provider.
+- [x] Create mock LLM provider.
 - [ ] Create optional local Tesseract OCR provider adapter.
 - [ ] Create optional local Ollama LLM provider adapter.
-- [ ] Add tests for provider contracts.
+- [x] Add tests for provider contracts.
 
 ### Phase 5.2 — Fixtures and repeatable AI outputs
 

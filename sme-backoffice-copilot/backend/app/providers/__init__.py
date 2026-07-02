@@ -9,6 +9,13 @@ from app.providers.llm import (
     LLMProviderRunContext,
     LLMResponseFormat,
 )
+from app.providers.mock import (
+    DEFAULT_MOCK_OCR_TEXT,
+    DEFAULT_STRUCTURED_OUTPUTS,
+    MOCK_PROVIDER_VERSION,
+    MockLLMProvider,
+    MockOCRProvider,
+)
 from app.providers.ocr import (
     OCRInput,
     OCRProvider,
@@ -25,6 +32,11 @@ __all__ = [
     "LLMProvider",
     "LLMProviderRunContext",
     "LLMResponseFormat",
+    "DEFAULT_MOCK_OCR_TEXT",
+    "DEFAULT_STRUCTURED_OUTPUTS",
+    "MOCK_PROVIDER_VERSION",
+    "MockLLMProvider",
+    "MockOCRProvider",
     "OCRInput",
     "OCRProvider",
     "OCRProviderRunContext",
