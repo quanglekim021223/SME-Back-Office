@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 from decimal import Decimal
+from enum import Enum
 from typing import Protocol, cast
 from uuid import UUID, uuid4
 
@@ -613,6 +615,7 @@ class ReviewTaskDecisionService:
                 replacement_reviewable_resource
             ),
         }
+        json_safe_corrected_payload = make_json_safe(corrected_payload)
         audit_event = AuditEvent(
             id=uuid4(),
             tenant_id=tenant_id,
@@ -634,7 +637,7 @@ class ReviewTaskDecisionService:
                 "reason_code": reason_code,
                 "superseded_resource_id": str(resource.resource_id),
                 "replacement_resource_id": str(get_resource_id(replacement_resource)),
-                "corrected_fields": corrected_payload,
+                "corrected_fields": json_safe_corrected_payload,
             },
         )
         self.persistence.add_audit_event(audit_event)
@@ -1118,6 +1121,24 @@ def review_action_to_audit_action(action: ReviewAction) -> str:
     if action == ReviewAction.CORRECT_RECONCILIATION:
         return "review_task.reconciliation_corrected"
     return f"review_task.{action.value}"
+
+
+def make_json_safe(value: object) -> object:
+    """Convert common Python domain values into JSONB-safe audit metadata."""
+
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, datetime | date):
+        return value.isoformat()
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        return {str(key): make_json_safe(item) for key, item in value.items()}
+    if isinstance(value, list | tuple | set):
+        return [make_json_safe(item) for item in value]
+    return value
 
 
 def parse_optional_uuid(value: str | None) -> UUID | None:

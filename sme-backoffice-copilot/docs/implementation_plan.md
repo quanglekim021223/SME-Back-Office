@@ -205,10 +205,10 @@ Goal: make uncertain outputs reviewable instead of pretending AI is always right
 - [x] Add API endpoint to correct reconciliation.
 - [x] Record audit events for review actions.
 - [x] Supersede old proposals instead of overwriting them.
-- [ ] Add tests for approval flow.
-- [ ] Add tests for correction flow.
-- [ ] Add tests for audit trail behavior.
-`
+- [x] Add tests for approval flow.
+- [x] Add tests for correction flow.
+- [x] Add tests for audit trail behavior.
+
 ## Phase 7 — Frontend MVP
 
 Goal: provide a minimal usable interface for upload, review, and dashboard.

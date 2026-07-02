@@ -412,6 +412,90 @@ async def test_correct_reconciliation_supersedes_old_reconciliation() -> None:
 
 
 @pytest.mark.asyncio
+async def test_correction_audit_trail_records_before_after_and_metadata() -> None:
+    tenant_id = uuid4()
+    actor_id = uuid4()
+    corrected_category_id = uuid4()
+    proposal = ClassificationProposal(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        target_type=ClassificationTargetType.TRANSACTION.value,
+        status=ClassificationProposalStatus.PENDING_REVIEW.value,
+        version=1,
+        confidence="low",
+        rationale="Original classifier proposal.",
+    )
+    task = build_review_task(
+        tenant_id=tenant_id,
+        target_type=ReviewTargetType.CLASSIFICATION_PROPOSAL,
+        task_type=ReviewTaskType.CLASSIFICATION,
+        classification_proposal_id=proposal.id,
+    )
+    persistence = FakeDecisionPersistence(tasks=[task], proposals=[proposal])
+
+    result = await ReviewTaskDecisionService(persistence).correct_classification(
+        tenant_id=tenant_id,
+        review_task_id=task.id,
+        actor=principal(actor_id),
+        corrected_fields={
+            "proposed_category_id": corrected_category_id,
+            "confidence": "high",
+            "rationale": "Corrected during human review.",
+        },
+        comment="Move to corrected category.",
+        reason_code="MANUAL_CATEGORY_FIX",
+        correlation_id="corr-audit-001",
+    )
+
+    replacement = persistence.proposals[-1]
+    audit_event = result.audit_event
+    assert audit_event == persistence.audit_events[0]
+    assert audit_event.action == "review_task.classification_corrected"
+    assert audit_event.tenant_id == tenant_id
+    assert audit_event.actor_user_id == actor_id
+    assert audit_event.resource_type == ReviewTargetType.CLASSIFICATION_PROPOSAL.value
+    assert audit_event.resource_id == replacement.id
+    assert audit_event.correlation_id == "corr-audit-001"
+
+    assert audit_event.before_state["review_task"]["status"] == (
+        ReviewTaskStatus.OPEN.value
+    )
+    assert audit_event.before_state["review_task"]["resolved_by_user_id"] is None
+    assert audit_event.before_state["resource"]["id"] == str(proposal.id)
+    assert audit_event.before_state["resource"]["status"] == (
+        ClassificationProposalStatus.PENDING_REVIEW.value
+    )
+    assert audit_event.before_state["resource"]["version"] == 1
+
+    assert audit_event.after_state["review_task"]["status"] == (
+        ReviewTaskStatus.RESOLVED.value
+    )
+    assert audit_event.after_state["review_task"]["resolved_by_user_id"] == str(
+        actor_id
+    )
+    assert audit_event.after_state["superseded_resource"]["id"] == str(proposal.id)
+    assert audit_event.after_state["superseded_resource"]["status"] == (
+        ClassificationProposalStatus.SUPERSEDED.value
+    )
+    assert audit_event.after_state["replacement_resource"]["id"] == str(replacement.id)
+    assert audit_event.after_state["replacement_resource"]["status"] == (
+        ClassificationProposalStatus.PROPOSED.value
+    )
+    assert audit_event.after_state["replacement_resource"]["version"] == 2
+
+    assert audit_event.metadata_["review_task_id"] == str(task.id)
+    assert audit_event.metadata_["comment"] == "Move to corrected category."
+    assert audit_event.metadata_["reason_code"] == "MANUAL_CATEGORY_FIX"
+    assert audit_event.metadata_["superseded_resource_id"] == str(proposal.id)
+    assert audit_event.metadata_["replacement_resource_id"] == str(replacement.id)
+    assert audit_event.metadata_["corrected_fields"] == {
+        "proposed_category_id": str(corrected_category_id),
+        "confidence": "high",
+        "rationale": "Corrected during human review.",
+    }
+
+
+@pytest.mark.asyncio
 async def test_correction_rejects_unsupported_fields() -> None:
     tenant_id = uuid4()
     invoice = Invoice(
