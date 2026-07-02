@@ -112,7 +112,12 @@ def test_authentication_placeholder_reads_user_headers(app: FastAPI) -> None:
     assert response.json() == {
         "user_id": "user_123",
         "roles": ["finance", "member"],
-        "permissions": ["read:health", "read:tenant", "write:documents"],
+        "permissions": [
+            "read:health",
+            "read:review_tasks",
+            "read:tenant",
+            "write:documents",
+        ],
         "is_authenticated": True,
     }
 

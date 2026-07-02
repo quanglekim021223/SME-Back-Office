@@ -2,6 +2,7 @@
 
 from collections.abc import Awaitable, Callable
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import Depends, Header, Request, status
 
@@ -28,6 +29,7 @@ def default_placeholder_permissions(roles: frozenset[str]) -> frozenset[Permissi
     permissions = {Permission.READ_HEALTH}
     if "admin" in roles or "member" in roles:
         permissions.add(Permission.READ_TENANT)
+        permissions.add(Permission.READ_REVIEW_TASKS)
         permissions.add(Permission.WRITE_DOCUMENTS)
     return frozenset(permissions)
 
@@ -70,6 +72,26 @@ async def get_tenant_context(
     tenant_context = TenantContext(tenant_id=tenant_id, principal=principal)
     request.state.tenant_context = tenant_context
     return tenant_context
+
+
+def resolve_tenant_uuid(tenant_context: TenantContext) -> UUID:
+    """Return a validated tenant UUID from the request tenant context."""
+
+    if tenant_context.tenant_id is None:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="tenant_required",
+            message="Tenant header is required.",
+        )
+
+    try:
+        return UUID(tenant_context.tenant_id)
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_tenant_id",
+            message="Tenant header must be a valid UUID.",
+        ) from exc
 
 
 def require_permission(
