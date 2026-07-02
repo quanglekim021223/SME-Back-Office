@@ -123,26 +123,71 @@ Goal: implement the workflow shape before connecting real OCR/LLM providers.
 - [x] Add tests for failed validation path.
 - [x] Add tests for retry exhaustion path.
 
-## Phase 5 — Mock-first AI and deterministic tools
+## Phase 5 — Mock-first AI, local-free providers, and deterministic tools
 
-Goal: build the system without paying for external AI APIs yet.
+Goal: make the workflow testable without paid external AI APIs, while keeping a
+clean path to test with free local models on a developer machine.
 
+### Phase 5.1 — Provider interfaces and local-free adapters
+
+Goal: define stable provider boundaries before wiring agents to real OCR/LLM
+implementations.
+
+- [x] Define OCR provider interface.
+- [x] Define LLM provider interface.
+- [x] Add provider selection configuration.
 - [ ] Create mock OCR provider.
 - [ ] Create mock LLM provider.
+- [ ] Create optional local Tesseract OCR provider adapter.
+- [ ] Create optional local Ollama LLM provider adapter.
+- [ ] Add tests for provider contracts.
+
+### Phase 5.2 — Fixtures and repeatable AI outputs
+
+Goal: provide deterministic invoice and statement examples so tests do not
+depend on model randomness.
+
 - [ ] Create fixture-based invoice extraction output.
 - [ ] Create fixture-based statement parsing output.
+- [ ] Create fixture loader utility.
+- [ ] Add tests for fixture loading and schema compatibility.
+
+### Phase 5.3 — Deterministic validators
+
+Goal: validate AI outputs with deterministic Python logic instead of trusting
+model output blindly.
+
 - [ ] Create deterministic arithmetic validator.
 - [ ] Create deterministic date validator.
 - [ ] Create deterministic currency validator.
 - [ ] Create deterministic duplicate detector.
+- [ ] Add tests for validators.
+
+### Phase 5.4 — Rule-based classification
+
+Goal: classify common SME revenue and expense records without an LLM dependency.
+
 - [ ] Create rule-based category classifier.
+- [ ] Add tests for rule-based classification.
+
+### Phase 5.5 — Deterministic reconciliation
+
+Goal: generate and score invoice-to-transaction match candidates using stable
+rules.
+
 - [ ] Create deterministic reconciliation candidate generator.
 - [ ] Create basic match scorer using amount/date/reference.
+- [ ] Add tests for reconciliation matching.
+
+### Phase 5.6 — Aggregates and grounded insight generation
+
+Goal: compute basic business metrics and produce mock insights grounded in
+traceable source data.
+
 - [ ] Create deterministic financial aggregate service.
 - [ ] Create grounded insight mock generator.
-- [ ] Add tests for validators.
-- [ ] Add tests for rule-based classification.
-- [ ] Add tests for reconciliation matching.
+- [ ] Add tests for financial aggregates.
+- [ ] Add tests for grounded insight generation.
 
 ## Phase 6 — Human review workflow
 
