@@ -148,10 +148,10 @@ implementations.
 Goal: provide deterministic invoice and statement examples so tests do not
 depend on model randomness.
 
-- [ ] Create fixture-based invoice extraction output.
-- [ ] Create fixture-based statement parsing output.
-- [ ] Create fixture loader utility.
-- [ ] Add tests for fixture loading and schema compatibility.
+- [x] Create fixture-based invoice extraction output.
+- [x] Create fixture-based statement parsing output.
+- [x] Create fixture loader utility.
+- [x] Add tests for fixture loading and schema compatibility.
 
 ### Phase 5.3 — Deterministic validators
 
