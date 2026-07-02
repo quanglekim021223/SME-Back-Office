@@ -195,7 +195,7 @@ traceable source data.
 
 Goal: make uncertain outputs reviewable instead of pretending AI is always right.
 
-- [ ] Define review task types.
+- [x] Define review task types.
 - [ ] Add API endpoint to list review tasks.
 - [ ] Add API endpoint to inspect review task details.
 - [ ] Add API endpoint to approve a proposal.
@@ -204,7 +204,7 @@ Goal: make uncertain outputs reviewable instead of pretending AI is always right
 - [ ] Add API endpoint to correct classification.
 - [ ] Add API endpoint to correct reconciliation.
 - [ ] Record audit events for review actions.
-- [ ] Supersede old proposals instead of overwriting them.
+- [x] Supersede old proposals instead of overwriting them.
 - [ ] Add tests for approval flow.
 - [ ] Add tests for correction flow.
 - [ ] Add tests for audit trail behavior.

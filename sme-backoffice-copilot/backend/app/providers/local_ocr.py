@@ -328,7 +328,7 @@ class ChandraOCRProvider:
             factory = getattr(chandra_module, factory_name, None)
             if callable(factory):
                 self._engine = instantiate_chandraocr_engine(
-                    factory=cast(Callable[..., object], factory),
+                    factory=factory,
                     language=self.language,
                 )
                 return self._engine
