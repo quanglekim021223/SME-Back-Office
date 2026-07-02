@@ -1431,6 +1431,12 @@ textarea:focus-visible {
     linear-gradient(180deg, rgb(15 118 110 / 5%), transparent), var(--surface);
 }
 
+.upload-dropzone-is-dragging {
+  border-color: var(--primary);
+  background:
+    linear-gradient(180deg, rgb(15 118 110 / 10%), transparent), var(--surface);
+}
+
 .upload-icon {
   width: 3.25rem;
   height: 3.25rem;
@@ -1447,14 +1453,119 @@ textarea:focus-visible {
   border-radius: var(--radius-md);
 }
 
+.upload-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem;
+}
+
 .toolbar-chip,
 .file-type-row span {
   border-radius: var(--radius-sm);
 }
 
+.toolbar-chip {
+  border: 0;
+  cursor: pointer;
+}
+
+.upload-status-card {
+  display: grid;
+  width: min(100%, 34rem);
+  gap: 0.7rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgb(248 250 252 / 88%);
+  text-align: left;
+}
+
+.upload-status-card p {
+  margin-top: 0.2rem;
+  font-size: 0.85rem;
+}
+
+.upload-status-card dl {
+  display: grid;
+  gap: 1px;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--border);
+}
+
+.upload-status-card dl div {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.55rem 0.65rem;
+  background: var(--surface);
+}
+
+.upload-status-card dt {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.upload-status-card dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.upload-status-card-uploaded {
+  border-color: rgb(4 120 87 / 24%);
+  background: var(--positive-soft);
+}
+
+.upload-status-card-duplicate,
+.upload-status-card-unsupported {
+  border-color: rgb(183 121 31 / 26%);
+  background: var(--warning-soft);
+}
+
+.upload-status-card-error {
+  border-color: rgb(180 35 24 / 20%);
+  background: var(--danger-soft);
+}
+
 .activity-row,
 .evidence-preview {
   border-radius: var(--radius-md);
+}
+
+.activity-status {
+  display: inline-flex;
+  min-height: 1.55rem;
+  align-items: center;
+  padding: 0.2rem 0.52rem;
+  border-radius: var(--radius-sm);
+}
+
+.activity-status-positive {
+  background: var(--positive-soft);
+  color: var(--positive);
+}
+
+.activity-status-warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.activity-status-danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.activity-status-neutral {
+  background: var(--surface-muted);
+  color: var(--text-muted);
 }
 
 .data-table th {
@@ -1516,6 +1627,13 @@ textarea:focus-visible {
   box-shadow: none;
 }
 
+.button:disabled,
+.button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.48;
+  transform: none;
+}
+
 .button-secondary {
   background: var(--surface);
 }
@@ -1565,6 +1683,72 @@ textarea:focus-visible {
 .loading-copy {
   display: grid;
   gap: 0.22rem;
+}
+
+.lifecycle-panel {
+  display: grid;
+  gap: 0.7rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+}
+
+.lifecycle-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.lifecycle-row {
+  display: grid;
+  grid-template-columns: 1.2rem minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: start;
+}
+
+.lifecycle-row > span {
+  display: block;
+  width: 0.72rem;
+  height: 0.72rem;
+  margin-top: 0.25rem;
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.lifecycle-row strong {
+  display: block;
+  font-size: 0.86rem;
+}
+
+.lifecycle-row small {
+  display: block;
+  margin-top: 0.12rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.lifecycle-row-done > span {
+  border-color: var(--positive);
+  background: var(--positive);
+}
+
+.lifecycle-row-current > span {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.lifecycle-row-error > span {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 @keyframes skeleton-shimmer {

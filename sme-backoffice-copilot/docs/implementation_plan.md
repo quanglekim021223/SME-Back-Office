@@ -215,9 +215,9 @@ Goal: provide a minimal usable interface for upload, review, and dashboard.
 
 - [x] Create application shell layout.
 - [x] Create organization selector placeholder.
-- [ ] Create upload page.
-- [ ] Show upload status.
-- [ ] Show document processing status.
+- [x] Create upload page.
+- [x] Show upload status.
+- [x] Show document processing status.
 - [ ] Create review queue page.
 - [ ] Create review detail page.
 - [ ] Show source evidence placeholder.

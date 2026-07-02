@@ -21,6 +21,40 @@ type ApiRequestOptions = Omit<RequestInit, "body" | "headers"> & {
   headers?: HeadersInit;
 };
 
+export type DocumentType = "invoice" | "bank_statement" | "other";
+
+export type MalwareScanResponse = {
+  status: string;
+  scanner_name: string;
+  scanner_version: string | null;
+  scanned_at: string | null;
+  signature_version: string | null;
+  threats: string[];
+  details: Record<string, string>;
+};
+
+export type DocumentWorkflowTriggerResponse = {
+  event_id: string;
+  event_name: string;
+  document_id: string;
+  status: string;
+};
+
+export type DocumentUploadResponse = {
+  id: string;
+  tenant_id: string;
+  document_type: DocumentType;
+  status: string;
+  original_filename: string;
+  mime_type: string;
+  size_bytes: number;
+  content_hash: string;
+  storage_uri: string;
+  malware_scan: MalwareScanResponse;
+  workflow_trigger: DocumentWorkflowTriggerResponse;
+  duplicate: boolean;
+};
+
 export class ApiClientError extends Error {
   readonly status: number;
   readonly code: string;
@@ -92,6 +126,29 @@ export function apiPost<TResponse>(
   });
 }
 
+export function uploadDocument({
+  documentType,
+  file,
+}: {
+  documentType: DocumentType;
+  file: File;
+}) {
+  const params = new URLSearchParams({
+    document_type: documentType,
+    filename: file.name,
+  });
+
+  return apiPost<DocumentUploadResponse>(
+    `/documents/upload?${params.toString()}`,
+    file,
+    {
+      headers: {
+        "Content-Type": inferUploadMediaType(file),
+      },
+    },
+  );
+}
+
 export function formatApiError(error: unknown) {
   if (error instanceof ApiClientError) {
     return `${error.message} (${error.code}, ${error.status})`;
@@ -107,6 +164,28 @@ export function formatApiError(error: unknown) {
 function buildApiUrl(path: string) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${API_BASE_URL}${API_PREFIX}${normalizedPath}`;
+}
+
+function inferUploadMediaType(file: File) {
+  const extension = file.name.split(".").pop()?.toLowerCase();
+
+  if (extension === "pdf") {
+    return "application/pdf";
+  }
+
+  if (extension === "png") {
+    return "image/png";
+  }
+
+  if (extension === "jpg" || extension === "jpeg") {
+    return "image/jpeg";
+  }
+
+  if (extension === "csv") {
+    return "text/csv";
+  }
+
+  return file.type || "application/octet-stream";
 }
 
 function getDevAuthHeaders() {

@@ -37,6 +37,25 @@ def test_correlation_id_reuses_incoming_header(client: TestClient) -> None:
     assert response.headers[CORRELATION_ID_HEADER] == "test-correlation-id"
 
 
+def test_cors_preflight_allows_frontend_upload_request(
+    client: TestClient,
+) -> None:
+    response = client.options(
+        "/api/v1/documents/upload?filename=invoice.pdf&document_type=invoice",
+        headers={
+            "Access-Control-Request-Headers": (
+                "content-type,x-tenant-id,x-user-id,x-user-role"
+            ),
+            "Access-Control-Request-Method": "POST",
+            "Origin": "http://localhost:3000",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert "POST" in response.headers["access-control-allow-methods"]
+
+
 def test_api_error_uses_standard_error_envelope(app: FastAPI) -> None:
     @app.get("/test-error")
     async def test_error() -> None:

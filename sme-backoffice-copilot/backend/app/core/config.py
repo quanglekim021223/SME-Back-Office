@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     app_env: str = "local"
     app_debug: bool = False
     app_api_prefix: str = "/api/v1"
-    database_url: str = "postgresql+asyncpg://sme:sme@localhost:5432/sme_backoffice"
+    database_url: str = "postgresql+asyncpg://sme:sme@localhost:5433/sme_backoffice"
     database_echo: bool = False
     upload_storage_root: str = "../data/uploads"
     upload_max_size_bytes: int = 20 * 1024 * 1024
@@ -48,7 +48,11 @@ class Settings(BaseSettings):
     chandraocr_language: str = "en"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: list[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://192.168.30.69:3000",
+    ]
 
     model_config = SettingsConfigDict(
         env_file=".env",

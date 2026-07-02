@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: install format lint test test-unit test-integration db-upgrade db-downgrade
+.PHONY: install format lint test test-unit test-integration db-upgrade db-downgrade seed-dev
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -28,3 +28,6 @@ db-upgrade:
 
 db-downgrade:
 	alembic downgrade -1
+
+seed-dev:
+	$(PYTHON) -m app.dev_seed
