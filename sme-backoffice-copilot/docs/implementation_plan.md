@@ -168,8 +168,8 @@ model output blindly.
 
 Goal: classify common SME revenue and expense records without an LLM dependency.
 
-- [ ] Create rule-based category classifier.
-- [ ] Add tests for rule-based classification.
+- [x] Create rule-based category classifier.
+- [x] Add tests for rule-based classification.
 
 ### Phase 5.5 — Deterministic reconciliation
 
