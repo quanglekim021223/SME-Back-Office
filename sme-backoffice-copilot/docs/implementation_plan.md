@@ -186,10 +186,10 @@ rules.
 Goal: compute basic business metrics and produce mock insights grounded in
 traceable source data.
 
-- [ ] Create deterministic financial aggregate service.
-- [ ] Create grounded insight mock generator.
-- [ ] Add tests for financial aggregates.
-- [ ] Add tests for grounded insight generation.
+- [x] Create deterministic financial aggregate service.
+- [x] Create grounded insight mock generator.
+- [x] Add tests for financial aggregates.
+- [x] Add tests for grounded insight generation.
 
 ## Phase 6 — Human review workflow
 
