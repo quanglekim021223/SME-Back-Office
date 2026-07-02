@@ -195,19 +195,19 @@ traceable source data.
 
 Goal: make uncertain outputs reviewable instead of pretending AI is always right.
 
-- [ ] Define review task types.
-- [ ] Add API endpoint to list review tasks.
-- [ ] Add API endpoint to inspect review task details.
-- [ ] Add API endpoint to approve a proposal.
-- [ ] Add API endpoint to reject a proposal.
-- [ ] Add API endpoint to correct extracted fields.
-- [ ] Add API endpoint to correct classification.
-- [ ] Add API endpoint to correct reconciliation.
-- [ ] Record audit events for review actions.
-- [ ] Supersede old proposals instead of overwriting them.
-- [ ] Add tests for approval flow.
-- [ ] Add tests for correction flow.
-- [ ] Add tests for audit trail behavior.
+- [x] Define review task types.
+- [x] Add API endpoint to list review tasks.
+- [x] Add API endpoint to inspect review task details.
+- [x] Add API endpoint to approve a proposal.
+- [x] Add API endpoint to reject a proposal.
+- [x] Add API endpoint to correct extracted fields.
+- [x] Add API endpoint to correct classification.
+- [x] Add API endpoint to correct reconciliation.
+- [x] Record audit events for review actions.
+- [x] Supersede old proposals instead of overwriting them.
+- [x] Add tests for approval flow.
+- [x] Add tests for correction flow.
+- [x] Add tests for audit trail behavior.
 
 ## Phase 7 — Frontend MVP
 

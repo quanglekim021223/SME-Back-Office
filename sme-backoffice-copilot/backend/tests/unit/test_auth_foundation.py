@@ -14,8 +14,10 @@ def test_default_placeholder_permissions_for_member_role() -> None:
     assert permissions == frozenset(
         {
             Permission.READ_HEALTH,
+            Permission.READ_REVIEW_TASKS,
             Permission.READ_TENANT,
             Permission.WRITE_DOCUMENTS,
+            Permission.WRITE_REVIEW_TASKS,
         }
     )
 

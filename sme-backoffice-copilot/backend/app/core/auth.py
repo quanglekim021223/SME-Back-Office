@@ -13,7 +13,9 @@ class Permission(StrEnum):
 
     READ_HEALTH = "read:health"
     READ_TENANT = "read:tenant"
+    READ_REVIEW_TASKS = "read:review_tasks"
     WRITE_DOCUMENTS = "write:documents"
+    WRITE_REVIEW_TASKS = "write:review_tasks"
 
 
 @dataclass(frozen=True)
