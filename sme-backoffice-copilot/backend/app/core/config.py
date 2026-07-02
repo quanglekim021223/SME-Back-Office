@@ -11,6 +11,7 @@ class OCRProviderType(StrEnum):
 
     MOCK = "mock"
     TESSERACT = "tesseract"
+    PADDLEOCR = "paddleocr"
 
 
 class LLMProviderType(StrEnum):
@@ -41,8 +42,10 @@ class Settings(BaseSettings):
     llm_provider: LLMProviderType = LLMProviderType.MOCK
     provider_timeout_seconds: float = 30.0
     tesseract_binary_path: str = "tesseract"
+    tesseract_language: str = "eng"
+    paddleocr_language: str = "en"
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.2:3b"
+    ollama_model: str = "llama3.1:8b"
     cors_origins: list[str] = ["http://localhost:3000"]
 
     model_config = SettingsConfigDict(

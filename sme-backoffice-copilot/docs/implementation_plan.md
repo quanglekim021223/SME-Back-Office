@@ -138,8 +138,9 @@ implementations.
 - [x] Add provider selection configuration.
 - [x] Create mock OCR provider.
 - [x] Create mock LLM provider.
-- [ ] Create optional local Tesseract OCR provider adapter.
-- [ ] Create optional local Ollama LLM provider adapter.
+- [x] Create optional local Tesseract OCR provider adapter.
+- [x] Create optional local PaddleOCR provider adapter.
+- [x] Create optional local Ollama LLM provider adapter.
 - [x] Add tests for provider contracts.
 
 ### Phase 5.2 — Fixtures and repeatable AI outputs

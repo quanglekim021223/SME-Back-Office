@@ -81,20 +81,22 @@ def test_settings_include_ai_provider_selection_defaults() -> None:
     assert settings.llm_provider == LLMProviderType.MOCK
     assert settings.provider_timeout_seconds == 30.0
     assert settings.tesseract_binary_path == "tesseract"
+    assert settings.tesseract_language == "eng"
+    assert settings.paddleocr_language == "en"
     assert settings.ollama_base_url == "http://localhost:11434"
-    assert settings.ollama_model == "llama3.2:3b"
+    assert settings.ollama_model == "llama3.1:8b"
 
 
 def test_settings_can_select_local_free_providers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("OCR_PROVIDER", "tesseract")
+    monkeypatch.setenv("OCR_PROVIDER", "paddleocr")
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5:7b")
 
     settings = Settings(_env_file=None)
 
-    assert settings.ocr_provider == OCRProviderType.TESSERACT
+    assert settings.ocr_provider == OCRProviderType.PADDLEOCR
     assert settings.llm_provider == LLMProviderType.OLLAMA
     assert settings.ollama_model == "qwen2.5:7b"
 

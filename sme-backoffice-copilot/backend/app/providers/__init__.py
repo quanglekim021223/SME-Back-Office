@@ -1,5 +1,11 @@
 """Provider contracts for OCR, LLM, and future external AI adapters."""
 
+from app.providers.errors import (
+    ProviderConfigurationError,
+    ProviderDependencyError,
+    ProviderError,
+    ProviderExecutionError,
+)
 from app.providers.llm import (
     LLMGenerationRequest,
     LLMGenerationResult,
@@ -8,6 +14,10 @@ from app.providers.llm import (
     LLMProvider,
     LLMProviderRunContext,
     LLMResponseFormat,
+)
+from app.providers.local_ocr import (
+    PaddleOCRProvider,
+    TesseractOCRProvider,
 )
 from app.providers.mock import (
     DEFAULT_MOCK_OCR_TEXT,
@@ -23,6 +33,7 @@ from app.providers.ocr import (
     OCRResult,
     OCRTextBlock,
 )
+from app.providers.ollama import OllamaLLMProvider
 
 __all__ = [
     "LLMGenerationRequest",
@@ -38,8 +49,15 @@ __all__ = [
     "MockLLMProvider",
     "MockOCRProvider",
     "OCRInput",
+    "OllamaLLMProvider",
     "OCRProvider",
     "OCRProviderRunContext",
     "OCRResult",
     "OCRTextBlock",
+    "PaddleOCRProvider",
+    "ProviderConfigurationError",
+    "ProviderDependencyError",
+    "ProviderError",
+    "ProviderExecutionError",
+    "TesseractOCRProvider",
 ]
