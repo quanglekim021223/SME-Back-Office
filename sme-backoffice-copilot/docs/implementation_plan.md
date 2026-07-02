@@ -123,26 +123,73 @@ Goal: implement the workflow shape before connecting real OCR/LLM providers.
 - [x] Add tests for failed validation path.
 - [x] Add tests for retry exhaustion path.
 
-## Phase 5 — Mock-first AI and deterministic tools
+## Phase 5 — Mock-first AI, local-free providers, and deterministic tools
 
-Goal: build the system without paying for external AI APIs yet.
+Goal: make the workflow testable without paid external AI APIs, while keeping a
+clean path to test with free local models on a developer machine.
 
-- [ ] Create mock OCR provider.
-- [ ] Create mock LLM provider.
-- [ ] Create fixture-based invoice extraction output.
-- [ ] Create fixture-based statement parsing output.
-- [ ] Create deterministic arithmetic validator.
-- [ ] Create deterministic date validator.
-- [ ] Create deterministic currency validator.
-- [ ] Create deterministic duplicate detector.
-- [ ] Create rule-based category classifier.
-- [ ] Create deterministic reconciliation candidate generator.
-- [ ] Create basic match scorer using amount/date/reference.
-- [ ] Create deterministic financial aggregate service.
-- [ ] Create grounded insight mock generator.
-- [ ] Add tests for validators.
-- [ ] Add tests for rule-based classification.
-- [ ] Add tests for reconciliation matching.
+### Phase 5.1 — Provider interfaces and local-free adapters
+
+Goal: define stable provider boundaries before wiring agents to real OCR/LLM
+implementations.
+
+- [x] Define OCR provider interface.
+- [x] Define LLM provider interface.
+- [x] Add provider selection configuration.
+- [x] Create mock OCR provider.
+- [x] Create mock LLM provider.
+- [x] Create optional local Tesseract OCR provider adapter.
+- [x] Create optional local PaddleOCR provider adapter.
+- [x] Create optional local Chandra OCR provider adapter.
+- [x] Create optional local Ollama LLM provider adapter.
+- [x] Add tests for provider contracts.
+
+### Phase 5.2 — Fixtures and repeatable AI outputs
+
+Goal: provide deterministic invoice and statement examples so tests do not
+depend on model randomness.
+
+- [x] Create fixture-based invoice extraction output.
+- [x] Create fixture-based statement parsing output.
+- [x] Create fixture loader utility.
+- [x] Add tests for fixture loading and schema compatibility.
+
+### Phase 5.3 — Deterministic validators
+
+Goal: validate AI outputs with deterministic Python logic instead of trusting
+model output blindly.
+
+- [x] Create deterministic arithmetic validator.
+- [x] Create deterministic date validator.
+- [x] Create deterministic currency validator.
+- [x] Create deterministic duplicate detector.
+- [x] Add tests for validators.
+
+### Phase 5.4 — Rule-based classification
+
+Goal: classify common SME revenue and expense records without an LLM dependency.
+
+- [x] Create rule-based category classifier.
+- [x] Add tests for rule-based classification.
+
+### Phase 5.5 — Deterministic reconciliation
+
+Goal: generate and score invoice-to-transaction match candidates using stable
+rules.
+
+- [x] Create deterministic reconciliation candidate generator.
+- [x] Create basic match scorer using amount/date/reference.
+- [x] Add tests for reconciliation matching.
+
+### Phase 5.6 — Aggregates and grounded insight generation
+
+Goal: compute basic business metrics and produce mock insights grounded in
+traceable source data.
+
+- [x] Create deterministic financial aggregate service.
+- [x] Create grounded insight mock generator.
+- [x] Add tests for financial aggregates.
+- [x] Add tests for grounded insight generation.
 
 ## Phase 6 — Human review workflow
 

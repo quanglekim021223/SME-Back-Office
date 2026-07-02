@@ -1,0 +1,91 @@
+{
+  "schema_version": "fixture.statement-parsing.v1",
+  "fixture_name": "sample_statement_parsing",
+  "source_document_type": "bank_statement",
+  "bank_account": {
+    "institution_name": "Demo Bank",
+    "account_name": "Operating Account",
+    "account_type": "checking",
+    "currency": "USD",
+    "masked_account_number": "****1234",
+    "account_identifier_hash": "fixture-bank-account-hash"
+  },
+  "statement_import": {
+    "status": "parsed",
+    "source_filename": "demo-bank-july-2026.csv",
+    "statement_start_date": "2026-07-01",
+    "statement_end_date": "2026-07-31",
+    "currency": "USD",
+    "opening_balance": "1000.00",
+    "closing_balance": "1215.00",
+    "parser_name": "fixture_statement_parser",
+    "parser_version": "0.1.0",
+    "row_count": 3,
+    "duplicate_count": 0
+  },
+  "transactions": [
+    {
+      "status": "posted",
+      "direction": "inflow",
+      "posted_at": "2026-07-03",
+      "value_at": "2026-07-03",
+      "raw_description": "ACH CREDIT NORTHWIND INV-FIX-001",
+      "normalized_description": "northwind inv-fix-001",
+      "counterparty_name": "Northwind Consulting LLC",
+      "reference": "INV-FIX-001",
+      "amount": "110.00",
+      "currency": "USD",
+      "running_balance": "1110.00",
+      "external_transaction_id": "demo-bank-txn-001",
+      "content_hash": "fixture-transaction-hash-001",
+      "confidence": "high",
+      "metadata": {
+        "source_row_number": 1
+      }
+    },
+    {
+      "status": "posted",
+      "direction": "outflow",
+      "posted_at": "2026-07-05",
+      "value_at": "2026-07-05",
+      "raw_description": "CARD PAYMENT CLOUD HOSTING",
+      "normalized_description": "cloud hosting",
+      "counterparty_name": "Cloud Hosting Co",
+      "reference": "HOST-JUL-2026",
+      "amount": "-45.00",
+      "currency": "USD",
+      "running_balance": "1065.00",
+      "external_transaction_id": "demo-bank-txn-002",
+      "content_hash": "fixture-transaction-hash-002",
+      "confidence": "high",
+      "metadata": {
+        "source_row_number": 2
+      }
+    },
+    {
+      "status": "posted",
+      "direction": "inflow",
+      "posted_at": "2026-07-09",
+      "value_at": "2026-07-09",
+      "raw_description": "WIRE CREDIT RETAINER JULY",
+      "normalized_description": "retainer july",
+      "counterparty_name": "Acme Retail Group",
+      "reference": "RET-JUL-2026",
+      "amount": "150.00",
+      "currency": "USD",
+      "running_balance": "1215.00",
+      "external_transaction_id": "demo-bank-txn-003",
+      "content_hash": "fixture-transaction-hash-003",
+      "confidence": "medium",
+      "metadata": {
+        "source_row_number": 3
+      }
+    }
+  ],
+  "expected_metrics": {
+    "transaction_count": 3,
+    "total_inflow": "260.00",
+    "total_outflow": "-45.00",
+    "net_change": "215.00"
+  }
+}

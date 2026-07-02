@@ -1,0 +1,64 @@
+{
+  "schema_version": "fixture.invoice-extraction.v1",
+  "fixture_name": "sample_invoice_extraction",
+  "source_document_type": "invoice",
+  "ocr_text": "Invoice #INV-FIX-001\nSupplier: Northwind Consulting LLC\nSupplier Tax ID: US-12-3456789\nCustomer: SME Demo Company\nCustomer Tax ID: US-98-7654321\nIssue Date: 2026-07-01\nDue Date: 2026-07-15\nCurrency: USD\nDescription | Qty | Unit Price | Tax | Line Total\nAdvisory retainer | 1 | 100.00 | 10.00 | 110.00\nSubtotal: 100.00\nTax: 10.00\nTotal: 110.00",
+  "extraction_groups": {
+    "schema_version": "invoice-extraction-groups.v1",
+    "metadata": {
+      "schema_version": "invoice-metadata-group.v1",
+      "extraction_status": "extracted",
+      "invoice_number": "INV-FIX-001",
+      "supplier_name": "Northwind Consulting LLC",
+      "supplier_tax_id": "US-12-3456789",
+      "customer_name": "SME Demo Company",
+      "customer_tax_id": "US-98-7654321",
+      "issue_date": "2026-07-01",
+      "due_date": "2026-07-15",
+      "currency": "USD",
+      "evidence_refs": [
+        "fixture:invoice:page:1:metadata"
+      ],
+      "confidence": "high"
+    },
+    "table": {
+      "schema_version": "invoice-table-group.v1",
+      "extraction_status": "extracted",
+      "line_items": [
+        {
+          "line_number": 1,
+          "description": "Advisory retainer",
+          "quantity": "1",
+          "unit_price": "100.00",
+          "tax_amount": "10.00",
+          "line_total": "110.00",
+          "evidence_refs": [
+            "fixture:invoice:page:1:table:row:1"
+          ],
+          "confidence": "high"
+        }
+      ],
+      "table_region_ref": "fixture:invoice:page:1:table",
+      "evidence_refs": [
+        "fixture:invoice:page:1:table"
+      ],
+      "confidence": "high"
+    },
+    "totals": {
+      "schema_version": "invoice-totals-group.v1",
+      "extraction_status": "extracted",
+      "subtotal_amount": "100.00",
+      "tax_amount": "10.00",
+      "total_amount": "110.00",
+      "currency": "USD",
+      "evidence_refs": [
+        "fixture:invoice:page:1:totals"
+      ],
+      "confidence": "high"
+    }
+  },
+  "expected_validation": {
+    "subtotal_plus_tax_equals_total": true,
+    "expected_total_amount": "110.00"
+  }
+}

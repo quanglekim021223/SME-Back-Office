@@ -1,8 +1,25 @@
 """Typed application configuration loaded from environment variables."""
 
+from enum import StrEnum
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class OCRProviderType(StrEnum):
+    """Supported OCR provider selections."""
+
+    MOCK = "mock"
+    TESSERACT = "tesseract"
+    PADDLEOCR = "paddleocr"
+    CHANDRAOCR = "chandraocr"
+
+
+class LLMProviderType(StrEnum):
+    """Supported LLM provider selections."""
+
+    MOCK = "mock"
+    OLLAMA = "ollama"
 
 
 class Settings(BaseSettings):
@@ -22,6 +39,15 @@ class Settings(BaseSettings):
         "image/jpeg",
         "text/csv",
     ]
+    ocr_provider: OCRProviderType = OCRProviderType.MOCK
+    llm_provider: LLMProviderType = LLMProviderType.MOCK
+    provider_timeout_seconds: float = 30.0
+    tesseract_binary_path: str = "tesseract"
+    tesseract_language: str = "eng"
+    paddleocr_language: str = "en"
+    chandraocr_language: str = "en"
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.1:8b"
     cors_origins: list[str] = ["http://localhost:3000"]
 
     model_config = SettingsConfigDict(
