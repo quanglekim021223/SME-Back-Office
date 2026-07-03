@@ -241,10 +241,10 @@ Goal: make quality measurable before using real AI providers.
 - [x] Add expected classification labels.
 - [x] Add expected reconciliation labels.
 - [x] Add expected review-routing labels.
-- [ ] Implement extraction scorer.
-- [ ] Implement statement parsing scorer.
-- [ ] Implement classification scorer.
-- [ ] Implement reconciliation scorer.
+- [x] Implement extraction scorer.
+- [x] Implement statement parsing scorer.
+- [x] Implement classification scorer.
+- [x] Implement reconciliation scorer.
 - [ ] Implement insight groundedness scorer.
 - [ ] Implement review-routing scorer.
 - [ ] Implement workflow replay evaluation.

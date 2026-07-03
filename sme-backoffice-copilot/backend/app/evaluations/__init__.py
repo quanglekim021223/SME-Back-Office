@@ -29,6 +29,16 @@ from app.evaluations.datasets import (
     load_expected_reconciliation_label,
     load_expected_review_routing_label,
 )
+from app.evaluations.scorers import (
+    EvaluationCheck,
+    EvaluationScore,
+    StatementParsingExpectedRow,
+    parse_statement_csv_expected_rows,
+    score_classification,
+    score_extraction,
+    score_reconciliation,
+    score_statement_parsing,
+)
 
 __all__ = [
     "DEFAULT_DATASET_ID",
@@ -58,4 +68,12 @@ __all__ = [
     "load_expected_label_payload",
     "load_expected_reconciliation_label",
     "load_expected_review_routing_label",
+    "EvaluationCheck",
+    "EvaluationScore",
+    "StatementParsingExpectedRow",
+    "parse_statement_csv_expected_rows",
+    "score_classification",
+    "score_extraction",
+    "score_reconciliation",
+    "score_statement_parsing",
 ]
