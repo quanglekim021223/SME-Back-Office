@@ -1,0 +1,35 @@
+{
+  "schema_version": "evaluation.expected-extraction.v1",
+  "case_id": "invoice_revenue_services_001",
+  "invoice_number": "INV-EVAL-001",
+  "direction": "receivable",
+  "supplier_name": "Demo Advisory Studio LLC",
+  "supplier_tax_id": "SYN-TAX-1001",
+  "customer_name": "Example Retail Group",
+  "customer_tax_id": "SYN-TAX-2001",
+  "issue_date": "2026-07-01",
+  "due_date": "2026-07-15",
+  "currency": "USD",
+  "subtotal_amount": "1000.00",
+  "tax_amount": "100.00",
+  "total_amount": "1100.00",
+  "line_items": [
+    {
+      "line_number": 1,
+      "description": "Monthly bookkeeping advisory",
+      "quantity": "1",
+      "unit_price": "1000.00",
+      "tax_amount": "100.00",
+      "line_total": "1100.00"
+    }
+  ],
+  "required_fields": [
+    "invoice_number",
+    "supplier_name",
+    "customer_name",
+    "issue_date",
+    "currency",
+    "total_amount"
+  ],
+  "amount_tolerance": "0.01"
+}

@@ -1,0 +1,7 @@
+{
+  "schema_version": "evaluation.expected-review-routing.v1",
+  "case_id": "invoice_revenue_services_001",
+  "should_create_review_task": false,
+  "expected_tasks": [],
+  "notes": "Clean outbound invoice: totals match, required fields are present, and a bank transaction match is expected."
+}

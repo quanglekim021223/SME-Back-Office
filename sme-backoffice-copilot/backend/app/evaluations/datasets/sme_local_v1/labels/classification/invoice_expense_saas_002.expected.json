@@ -1,0 +1,18 @@
+{
+  "schema_version": "evaluation.expected-classification.v1",
+  "case_id": "invoice_expense_saas_002",
+  "records": [
+    {
+      "source_ref": "invoice:BILL-EVAL-002",
+      "target_type": "invoice",
+      "category_code": "software_subscription",
+      "category_type": "expense",
+      "expected_direction": "expense",
+      "confidence_floor": "medium",
+      "rationale_keywords": [
+        "subscription",
+        "usage"
+      ]
+    }
+  ]
+}

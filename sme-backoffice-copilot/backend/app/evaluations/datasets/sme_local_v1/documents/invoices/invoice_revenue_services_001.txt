@@ -1,0 +1,26 @@
+INVOICE
+
+Invoice Number: INV-EVAL-001
+Document Type: Outbound Service Invoice
+Supplier: Demo Advisory Studio LLC
+Supplier Tax ID: SYN-TAX-1001
+Supplier Address: 100 Synthetic Market Street, Example City
+Customer: Example Retail Group
+Customer Tax ID: SYN-TAX-2001
+Customer Address: 220 Placeholder Avenue, Example City
+
+Issue Date: 2026-07-01
+Due Date: 2026-07-15
+Currency: USD
+Payment Terms: Net 14
+
+Line Items
+Description,Quantity,Unit Price,Tax Rate,Tax Amount,Line Total
+Monthly bookkeeping advisory,1,1000.00,10%,100.00,1100.00
+
+Subtotal: 1000.00
+Tax: 100.00
+Total: 1100.00
+
+Payment Reference: INV-EVAL-001
+Notes: Synthetic invoice used only for evaluation. No real customer, bank, or tax data.

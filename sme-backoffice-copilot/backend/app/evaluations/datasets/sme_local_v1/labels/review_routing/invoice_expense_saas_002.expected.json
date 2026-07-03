@@ -1,0 +1,7 @@
+{
+  "schema_version": "evaluation.expected-review-routing.v1",
+  "case_id": "invoice_expense_saas_002",
+  "should_create_review_task": false,
+  "expected_tasks": [],
+  "notes": "Clean inbound SaaS invoice: required fields and line totals are present, so no review task is expected from the invoice alone."
+}

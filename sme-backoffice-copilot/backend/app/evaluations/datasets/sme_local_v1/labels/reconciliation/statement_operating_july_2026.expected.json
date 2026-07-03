@@ -1,0 +1,34 @@
+{
+  "schema_version": "evaluation.expected-reconciliation.v1",
+  "case_id": "statement_operating_july_2026",
+  "expected_matches": [
+    {
+      "invoice_case_id": "invoice_revenue_services_001",
+      "invoice_number": "INV-EVAL-001",
+      "statement_case_id": "statement_operating_july_2026",
+      "transaction_reference": "INV-EVAL-001",
+      "transaction_id": "statement_operating_july_2026:INV-EVAL-001",
+      "match_type": "one_to_one",
+      "amount": "1100.00",
+      "currency": "USD",
+      "min_score": 90,
+      "confidence_floor": "high"
+    },
+    {
+      "invoice_case_id": "invoice_expense_saas_002",
+      "invoice_number": "BILL-EVAL-002",
+      "statement_case_id": "statement_operating_july_2026",
+      "transaction_reference": "BILL-EVAL-002",
+      "transaction_id": "statement_operating_july_2026:BILL-EVAL-002",
+      "match_type": "one_to_one",
+      "amount": "150.00",
+      "currency": "USD",
+      "min_score": 90,
+      "confidence_floor": "high"
+    }
+  ],
+  "expected_unmatched_transaction_refs": [
+    "ADS-JUL-2026",
+    "RENT-JUL-2026"
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "schema_version": "evaluation.expected-extraction.v1",
+  "case_id": "invoice_expense_saas_002",
+  "invoice_number": "BILL-EVAL-002",
+  "direction": "payable",
+  "supplier_name": "Cloud Tools Example Inc.",
+  "supplier_tax_id": "SYN-TAX-3002",
+  "customer_name": "Demo Advisory Studio LLC",
+  "customer_tax_id": "SYN-TAX-1001",
+  "issue_date": "2026-07-05",
+  "due_date": "2026-07-05",
+  "currency": "USD",
+  "subtotal_amount": "150.00",
+  "tax_amount": "0.00",
+  "total_amount": "150.00",
+  "line_items": [
+    {
+      "line_number": 1,
+      "description": "Team workspace subscription",
+      "quantity": "5",
+      "unit_price": "24.00",
+      "tax_amount": "0.00",
+      "line_total": "120.00"
+    },
+    {
+      "line_number": 2,
+      "description": "Usage overage",
+      "quantity": "1",
+      "unit_price": "30.00",
+      "tax_amount": "0.00",
+      "line_total": "30.00"
+    }
+  ],
+  "required_fields": [
+    "invoice_number",
+    "supplier_name",
+    "customer_name",
+    "issue_date",
+    "currency",
+    "line_items",
+    "total_amount"
+  ],
+  "amount_tolerance": "0.01"
+}

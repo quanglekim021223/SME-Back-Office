@@ -1,0 +1,18 @@
+{
+  "schema_version": "evaluation.expected-classification.v1",
+  "case_id": "invoice_revenue_services_001",
+  "records": [
+    {
+      "source_ref": "invoice:INV-EVAL-001",
+      "target_type": "invoice",
+      "category_code": "professional_services",
+      "category_type": "revenue",
+      "expected_direction": "income",
+      "confidence_floor": "medium",
+      "rationale_keywords": [
+        "bookkeeping",
+        "advisory"
+      ]
+    }
+  ]
+}

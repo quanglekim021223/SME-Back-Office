@@ -35,6 +35,17 @@ make lint
 make test
 ```
 
+Run the local deterministic evaluation suite:
+
+```bash
+cd backend
+python -m app.evaluations.runner --format markdown
+python -m app.evaluations.runner --format json --output ../data/evaluation-report.json
+```
+
+The evaluation command currently checks the controlled workflow replay scenarios
+and applies the initial local release gate before real AI providers are enabled.
+
 ## Documentation
 
 - [Repository structure](docs/repository_structure.md)

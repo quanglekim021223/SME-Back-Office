@@ -234,23 +234,23 @@ Goal: provide a minimal usable interface for upload, review, and dashboard.
 
 Goal: make quality measurable before using real AI providers.
 
-- [ ] Define labelled dataset manifest format.
-- [ ] Add sample de-identified invoice fixtures.
-- [ ] Add sample de-identified statement fixtures.
-- [ ] Add expected extraction labels.
-- [ ] Add expected classification labels.
-- [ ] Add expected reconciliation labels.
-- [ ] Add expected review-routing labels.
-- [ ] Implement extraction scorer.
-- [ ] Implement statement parsing scorer.
-- [ ] Implement classification scorer.
-- [ ] Implement reconciliation scorer.
-- [ ] Implement insight groundedness scorer.
-- [ ] Implement review-routing scorer.
-- [ ] Implement workflow replay evaluation.
-- [ ] Add evaluation report output.
-- [ ] Add evaluation command to README.
-- [ ] Decide initial release gates.
+- [x] Define labelled dataset manifest format.
+- [x] Add sample de-identified invoice fixtures.
+- [x] Add sample de-identified statement fixtures.
+- [x] Add expected extraction labels.
+- [x] Add expected classification labels.
+- [x] Add expected reconciliation labels.
+- [x] Add expected review-routing labels.
+- [x] Implement extraction scorer.
+- [x] Implement statement parsing scorer.
+- [x] Implement classification scorer.
+- [x] Implement reconciliation scorer.
+- [x] Implement insight groundedness scorer.
+- [x] Implement review-routing scorer.
+- [x] Implement workflow replay evaluation.
+- [x] Add evaluation report output.
+- [x] Add evaluation command to README.
+- [x] Decide initial release gates.
 
 ## Phase 9 — Real AI provider integration
 
@@ -267,10 +267,18 @@ stable.
 - [ ] Add structured output validation.
 - [ ] Add OpenAI provider adapter or chosen first provider.
 - [ ] Add local/Ollama provider adapter if desired.
+- [ ] Add NVIDIA NIM provider configuration.
+- [ ] Add NVIDIA NIM LLM provider adapter.
+- [ ] Add NVIDIA NIM OCR/document parsing provider adapter.
+- [ ] Add NVIDIA NIM model routing options for LLM and OCR workloads.
+- [ ] Add NVIDIA NIM API key and endpoint environment variables.
+- [ ] Add cloud-provider privacy gate before sending financial data externally.
+- [ ] Add de-identified-only test policy for cloud provider evaluation.
 - [ ] Add provider redaction/minimization policy.
 - [ ] Add tests using mock provider.
 - [ ] Run evaluation before enabling provider in normal workflow.
 - [ ] Compare mock/rule baseline against real provider.
+- [ ] Compare local/Ollama baseline against NVIDIA NIM provider outputs.
 
 ## Phase 10 — Security and privacy hardening
 

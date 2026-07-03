@@ -79,3 +79,25 @@ eligibility.
   pinned and rollback-ready.
 
 Exact tolerances become architecture decision records after baseline evaluation.
+
+## Initial local release gates
+
+Before real OCR/LLM providers are enabled, the local foundation must pass a
+small deterministic gate:
+
+| Gate | Threshold | Why it matters |
+|---|---:|---|
+| `workflow_replay_must_be_deterministic` | `workflow_replay_scorer >= 1.00` | The controlled multi-agent skeleton must replay happy path, validation failure, and retry exhaustion paths predictably. |
+
+This first gate intentionally focuses on workflow correctness rather than model
+quality. Provider quality gates will be added after real OCR/LLM adapters are
+connected and labelled outputs exist for extraction, classification,
+reconciliation, review routing, and insight groundedness.
+
+Run locally:
+
+```bash
+cd backend
+python -m app.evaluations.runner --format markdown
+python -m app.evaluations.runner --format json --output ../data/evaluation-report.json
+```
