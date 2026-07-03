@@ -290,7 +290,7 @@ path.
 - [x] Build provider routing factory from settings.
 - [x] Wire selected OCR provider into document workflow.
 - [x] Wire selected LLM provider into invoice extraction workflow.
-- [ ] Trigger workflow from `DocumentIngested` event.
+- [x] Trigger workflow from `DocumentIngested` event.
 - [x] Convert OCR output into workflow state.
 - [x] Convert LLM output into invoice extraction group contracts.
 - [ ] Persist extracted invoice proposal.

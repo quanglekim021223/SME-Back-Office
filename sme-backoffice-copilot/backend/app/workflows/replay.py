@@ -8,7 +8,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import cast
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from app.models.workflow import AgentHandoff, AgentStepExecution, WorkflowRun
@@ -54,6 +54,7 @@ from app.workflows.invoice_extraction import (
 )
 from app.workflows.runtime import (
     RetryDecision,
+    WorkflowRuntimePersistence,
     WorkflowRuntimeService,
 )
 
@@ -146,10 +147,20 @@ class WorkflowReplayRunner:
 
     def __init__(
         self,
-        persistence: InMemoryWorkflowRuntimePersistence | None = None,
+        persistence: WorkflowRuntimePersistence | None = None,
+        provider_runtime: Any | None = None,
+        llm_provider: Any | None = None,
+        ocr_provider: Any | None = None,
+        provider_privacy_context: Any | None = None,
     ) -> None:
         self.persistence = persistence or InMemoryWorkflowRuntimePersistence()
         self.runtime = WorkflowRuntimeService(self.persistence)
+        self.step_executions: list[AgentStepExecution] = []
+        self.handoffs: list[AgentHandoff] = []
+        self.provider_runtime = provider_runtime
+        self.llm_provider = llm_provider
+        self.ocr_provider = ocr_provider
+        self.provider_privacy_context = provider_privacy_context
 
     async def run(
         self,
@@ -160,6 +171,8 @@ class WorkflowReplayRunner:
     ) -> WorkflowReplayResult:
         """Replay the controlled multi-agent workflow for one scenario."""
 
+        self.step_executions = []
+        self.handoffs = []
         workflow_run = self.runtime.start_workflow(
             state=state,
             workflow_name=WORKFLOW_REPLAY_NAME,
@@ -171,6 +184,10 @@ class WorkflowReplayRunner:
             document_id=state.document_id,
             workflow_run_id=workflow_run.id,
             max_retries=state.max_retries,
+            provider_runtime=self.provider_runtime,
+            llm_provider=self.llm_provider,
+            ocr_provider=self.ocr_provider,
+            provider_privacy_context=self.provider_privacy_context,
         )
         retry_decisions: list[RetryDecision] = []
 
@@ -376,13 +393,15 @@ class WorkflowReplayRunner:
             result=result,
             attempt=context.attempt,
         )
+        self.step_executions.append(step)
         for envelope in result.handoffs:
-            self.runtime.record_handoff(
+            recorded_handoff = self.runtime.record_handoff(
                 workflow_run=workflow_run,
                 state=state,
                 envelope=envelope,
                 source_step=step,
             )
+            self.handoffs.append(recorded_handoff)
         return result
 
     def _request_retries_for_correction_handoffs(
@@ -426,8 +445,8 @@ class WorkflowReplayRunner:
             scenario=scenario,
             state=state,
             workflow_run=workflow_run,
-            step_executions=list(self.persistence.step_executions),
-            handoffs=list(self.persistence.handoffs),
+            step_executions=list(self.step_executions),
+            handoffs=list(self.handoffs),
             retry_decisions=list(retry_decisions),
         )
 

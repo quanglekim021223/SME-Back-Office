@@ -1,0 +1,74 @@
+from uuid import uuid4
+
+from app.providers import (
+    MockLLMProvider,
+    MockOCRProvider,
+    ProviderRuntime,
+    build_default_provider_routing_config,
+)
+from app.services.document_events import DocumentIngested
+from app.workflows import OCR_FULL_TEXT_KEY, OCR_RESULT_KEY, WorkflowStateStatus
+from app.workflows.replay import WorkflowReplayRunner
+from app.workflows.triggers import (
+    DocumentIngestedWorkflowPublisher,
+    workflow_state_from_document_ingested,
+)
+
+
+def create_document_ingested_event() -> DocumentIngested:
+    return DocumentIngested(
+        tenant_id=uuid4(),
+        document_id=uuid4(),
+        document_type="invoice",
+        content_hash="hash-123",
+        storage_uri="local://tenants/t/documents/d/original/invoice.pdf",
+        malware_scan_status="not_scanned",
+        local_path="/tmp/invoice.pdf",
+    )
+
+
+def test_workflow_state_from_document_ingested_event_preserves_artifact_context() -> (
+    None
+):
+    event = create_document_ingested_event()
+
+    state = workflow_state_from_document_ingested(event)
+
+    assert state.tenant_id == event.tenant_id
+    assert state.document_id == event.document_id
+    assert state.document_type == "invoice"
+    assert state.policy_flags["malware_scan_status"] == "not_scanned"
+    assert state.policy_flags["source_event_id"] == str(event.event_id)
+    assert state.artifacts["original"].uri == event.storage_uri
+    assert state.artifacts["original"].content_hash == event.content_hash
+    assert state.artifacts["original"].metadata["local_path"] == "/tmp/invoice.pdf"
+
+
+async def test_document_ingested_publisher_triggers_local_workflow() -> None:
+    event = create_document_ingested_event()
+    commit_calls = 0
+
+    async def fake_commit() -> None:
+        nonlocal commit_calls
+        commit_calls += 1
+
+    publisher = DocumentIngestedWorkflowPublisher(
+        runner=WorkflowReplayRunner(
+            provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+            llm_provider=MockLLMProvider(),
+            ocr_provider=MockOCRProvider(),
+        ),
+        commit=fake_commit,
+    )
+
+    await publisher.publish_document_ingested(event)
+
+    assert publisher.last_result is not None
+    assert publisher.last_result.state.status == WorkflowStateStatus.COMPLETED
+    assert publisher.last_result.state.document_id == event.document_id
+    assert publisher.last_result.workflow_run.correlation_id == (
+        f"document-ingested:{event.event_id}"
+    )
+    assert OCR_RESULT_KEY in publisher.last_result.state.scratchpad
+    assert OCR_FULL_TEXT_KEY in publisher.last_result.state.scratchpad
+    assert commit_calls == 1

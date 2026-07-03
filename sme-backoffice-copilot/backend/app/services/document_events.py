@@ -18,6 +18,7 @@ class DocumentIngested:
     content_hash: str
     storage_uri: str
     malware_scan_status: str
+    local_path: str | None = None
     event_id: UUID = field(default_factory=uuid4)
     event_name: str = "DocumentIngested"
     occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -35,6 +36,7 @@ class DocumentIngested:
             "content_hash": self.content_hash,
             "storage_uri": self.storage_uri,
             "malware_scan_status": self.malware_scan_status,
+            "local_path": self.local_path,
         }
 
 

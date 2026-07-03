@@ -121,6 +121,7 @@ async def test_document_ingestion_stores_file_and_creates_accepted_document(
     assert result.document_ingested_event.tenant_id == tenant_id
     assert result.document_ingested_event.document_id == result.document.id
     assert result.document_ingested_event.storage_uri == result.artifact.storage_uri
+    assert result.document_ingested_event.local_path == str(result.stored_file.path)
 
 
 @pytest.mark.asyncio
