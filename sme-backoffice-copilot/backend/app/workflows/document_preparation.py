@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from app.workflows.agents import (
     AgentDefinitionSpec,
     AgentExecutionContext,
@@ -22,6 +24,9 @@ DOCUMENT_LAYOUT_ANALYZER_AGENT = "document_layout_analyzer"
 METADATA_EXTRACTOR_AGENT = "metadata_extractor"
 TABLE_EXTRACTOR_AGENT = "table_extractor"
 TOTALS_EXTRACTOR_AGENT = "totals_extractor"
+
+OCR_RESULT_KEY = "ocr_result"
+OCR_FULL_TEXT_KEY = "ocr_full_text"
 
 
 def validate_agent_context(
@@ -78,6 +83,25 @@ def summarize_artifacts(state: WorkflowState) -> dict[str, object]:
             "content_hash": artifact.content_hash,
         }
     return summary
+
+
+def original_artifact_input(state: WorkflowState) -> object | None:
+    """Build OCR input from the original workflow artifact when available."""
+
+    from app.providers.ocr import OCRInput
+
+    artifact = state.artifacts.get("original")
+    if artifact is None:
+        return None
+
+    local_path = artifact.metadata.get("local_path")
+    return OCRInput(
+        artifact_uri=artifact.uri,
+        media_type=artifact.media_type,
+        content_hash=artifact.content_hash,
+        local_path=local_path if isinstance(local_path, str) else None,
+        metadata=artifact.metadata,
+    )
 
 
 def build_control_handoff(
@@ -249,20 +273,33 @@ class DocumentLayoutAnalyzerAgent:
         if context_error is not None:
             return context_error
 
+        provider_output = await run_ocr_provider_if_available(
+            state=state,
+            context=context,
+        )
+        if isinstance(provider_output, AgentRunResult):
+            return provider_output
+
         layout_groups: dict[str, object] = {
             "metadata_region": None,
             "table_region": None,
             "totals_region": None,
-            "source": "placeholder",
+            "source": "ocr_provider" if provider_output is not None else "placeholder",
         }
         output: dict[str, object] = {
             "layout_detected": False,
             "layout_groups": layout_groups,
-            "requires_ocr": True,
+            "requires_ocr": provider_output is None,
+            "ocr_available": provider_output is not None,
         }
+        if provider_output is not None:
+            output["ocr_provider"] = provider_output["provider_name"]
+            output["ocr_text_chars"] = provider_output["full_text_length"]
         extraction_payload: dict[str, object] = {
             "document_type": state.document_type,
             "layout_groups": layout_groups,
+            "ocr_result_ref": OCR_RESULT_KEY if provider_output is not None else None,
+            "ocr_text_ref": OCR_FULL_TEXT_KEY if provider_output is not None else None,
         }
         handoffs = [
             build_control_handoff(
@@ -294,6 +331,67 @@ class DocumentLayoutAnalyzerAgent:
             status=AgentRunStatus.SUCCEEDED,
             output=output,
             handoffs=handoffs,
-            confidence=ConfidenceLevel.UNKNOWN,
+            confidence=(
+                ConfidenceLevel.MEDIUM
+                if provider_output is not None
+                else ConfidenceLevel.UNKNOWN
+            ),
             metrics={"layout_group_count": 3},
         )
+
+
+async def run_ocr_provider_if_available(
+    *,
+    state: WorkflowState,
+    context: AgentExecutionContext,
+) -> dict[str, object] | AgentRunResult | None:
+    """Run the selected OCR provider and store normalized OCR state when wired."""
+
+    from app.providers.errors import ProviderError
+    from app.providers.ocr import OCRProviderRunContext
+    from app.providers.routing import ProviderTaskType
+
+    if context.provider_runtime is None or context.ocr_provider is None:
+        return None
+
+    input_data = original_artifact_input(state)
+    if input_data is None:
+        return AgentRunResult(
+            status=AgentRunStatus.FAILED,
+            confidence=ConfidenceLevel.HIGH,
+            error_code="ERR_OCR_INPUT_MISSING",
+            error_message="Document layout analysis requires an original artifact.",
+        )
+
+    try:
+        invocation = await context.provider_runtime.extract_ocr(
+            provider=context.ocr_provider,
+            task_type=ProviderTaskType.DOCUMENT_OCR,
+            input_data=input_data,
+            context=OCRProviderRunContext(
+                tenant_id=context.tenant_id,
+                document_id=context.document_id,
+                workflow_run_id=context.workflow_run_id,
+                correlation_id=context.correlation_id,
+            ),
+            privacy_context=context.provider_privacy_context,
+        )
+    except ProviderError as exc:
+        return AgentRunResult(
+            status=AgentRunStatus.FAILED,
+            confidence=ConfidenceLevel.HIGH,
+            error_code="ERR_OCR_PROVIDER_FAILED",
+            error_message=str(exc),
+        )
+
+    ocr_result_payload = cast(
+        dict[str, object],
+        invocation.result.model_dump(mode="json"),
+    )
+    state.scratchpad[OCR_RESULT_KEY] = ocr_result_payload
+    state.scratchpad[OCR_FULL_TEXT_KEY] = invocation.result.full_text
+    return {
+        "provider_name": invocation.result.provider_name,
+        "full_text_length": len(invocation.result.full_text),
+        "text_block_count": len(invocation.result.text_blocks),
+    }

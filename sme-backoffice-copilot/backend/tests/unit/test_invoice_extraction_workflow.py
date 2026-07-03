@@ -3,6 +3,11 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
+from app.providers import (
+    MockLLMProvider,
+    ProviderRuntime,
+    build_default_provider_routing_config,
+)
 from app.workflows import (
     ASSEMBLED_INVOICE_DRAFT_KEY,
     CLASSIFICATION_AGENT,
@@ -11,6 +16,7 @@ from app.workflows import (
     INVOICE_TABLE_GROUP_KEY,
     INVOICE_TOTALS_GROUP_KEY,
     METADATA_EXTRACTOR_AGENT,
+    OCR_FULL_TEXT_KEY,
     QA_VALIDATION_AGENT,
     TABLE_EXTRACTOR_AGENT,
     TOTALS_EXTRACTOR_AGENT,
@@ -171,6 +177,73 @@ async def test_metadata_table_and_totals_extractors_route_to_invoice_assembly() 
 
     groups = collect_invoice_groups(state)
     assert groups.missing_group_names == []
+
+
+@pytest.mark.asyncio
+async def test_invoice_extractors_run_llm_provider_and_validate_contracts() -> None:
+    state = create_state()
+    state.scratchpad[OCR_FULL_TEXT_KEY] = (
+        "Invoice #INV-MOCK-001\n"
+        "Supplier: Mock Supplier Ltd\n"
+        "Customer: SME Demo Company\n"
+        "Subtotal: 100.00\n"
+        "Tax: 10.00\n"
+        "Total: 110.00\n"
+        "Currency: USD"
+    )
+    context = AgentExecutionContext(
+        tenant_id=state.tenant_id,
+        document_id=state.document_id,
+        workflow_run_id=state.workflow_run_id,
+        provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+        llm_provider=MockLLMProvider(),
+    )
+
+    metadata_result = await MetadataExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=METADATA_EXTRACTOR_AGENT,
+            stage=WorkflowStage.METADATA_EXTRACTION,
+        ),
+    )
+    table_result = await TableExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=TABLE_EXTRACTOR_AGENT,
+            stage=WorkflowStage.TABLE_EXTRACTION,
+        ),
+    )
+    totals_result = await TotalsExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=TOTALS_EXTRACTOR_AGENT,
+            stage=WorkflowStage.TOTALS_EXTRACTION,
+        ),
+    )
+
+    assert metadata_result.status == AgentRunStatus.SUCCEEDED
+    assert table_result.status == AgentRunStatus.SUCCEEDED
+    assert totals_result.status == AgentRunStatus.SUCCEEDED
+    assert metadata_result.confidence == ConfidenceLevel.HIGH
+    assert table_result.metrics == {"line_item_count": 1}
+
+    groups = collect_invoice_groups(state)
+
+    assert groups.metadata is not None
+    assert groups.metadata.extraction_status == InvoiceExtractionStatus.EXTRACTED
+    assert groups.metadata.invoice_number == "INV-MOCK-001"
+    assert groups.table is not None
+    assert groups.table.extraction_status == InvoiceExtractionStatus.EXTRACTED
+    assert groups.table.line_items[0].description == "Mock consulting service"
+    assert groups.totals is not None
+    assert groups.totals.extraction_status == InvoiceExtractionStatus.EXTRACTED
+    assert groups.totals.total_amount == "110.00"
 
 
 @pytest.mark.asyncio

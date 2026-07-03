@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.workflows.agents import (
     AgentDefinitionSpec,
@@ -27,6 +27,7 @@ from app.workflows.contracts import (
 )
 from app.workflows.document_preparation import (
     METADATA_EXTRACTOR_AGENT,
+    OCR_FULL_TEXT_KEY,
     TABLE_EXTRACTOR_AGENT,
     TOTALS_EXTRACTOR_AGENT,
     build_control_handoff,
@@ -261,6 +262,134 @@ def collect_invoice_groups(state: WorkflowState) -> InvoiceExtractionGroups:
     )
 
 
+async def run_llm_group_extraction_if_available(
+    *,
+    state: WorkflowState,
+    context: AgentExecutionContext,
+    agent_name: str,
+    task_type: Any,
+    schema_name: str,
+    instruction: str,
+    handoff: AgentHandoffEnvelope | None = None,
+) -> dict[str, object] | AgentRunResult | None:
+    """Run selected LLM provider for one invoice extraction group when wired."""
+
+    from app.providers.errors import ProviderError
+    from app.providers.llm import (
+        LLMGenerationRequest,
+        LLMProviderRunContext,
+        LLMResponseFormat,
+    )
+
+    if context.provider_runtime is None or context.llm_provider is None:
+        return None
+
+    ocr_text = state.scratchpad.get(OCR_FULL_TEXT_KEY)
+    if not isinstance(ocr_text, str) or not ocr_text.strip():
+        return AgentRunResult(
+            status=AgentRunStatus.FAILED,
+            confidence=ConfidenceLevel.HIGH,
+            error_code="ERR_LLM_INPUT_MISSING",
+            error_message=f"{agent_name} requires OCR text before LLM extraction.",
+        )
+
+    try:
+        invocation = await context.provider_runtime.generate_llm(
+            provider=context.llm_provider,
+            task_type=task_type,
+            request=LLMGenerationRequest(
+                messages=build_invoice_group_messages(
+                    instruction=instruction,
+                    ocr_text=ocr_text,
+                    schema_name=schema_name,
+                    handoff=handoff,
+                ),
+                response_format=LLMResponseFormat.JSON,
+                response_schema_name=schema_name,
+            ),
+            context=LLMProviderRunContext(
+                tenant_id=context.tenant_id,
+                document_id=context.document_id,
+                workflow_run_id=context.workflow_run_id,
+                agent_name=agent_name,
+                correlation_id=context.correlation_id,
+            ),
+            privacy_context=context.provider_privacy_context,
+        )
+    except ProviderError as exc:
+        return AgentRunResult(
+            status=AgentRunStatus.FAILED,
+            confidence=ConfidenceLevel.HIGH,
+            error_code="ERR_LLM_PROVIDER_FAILED",
+            error_message=str(exc),
+        )
+
+    if invocation.result.structured_output is None:
+        return AgentRunResult(
+            status=AgentRunStatus.FAILED,
+            confidence=ConfidenceLevel.HIGH,
+            error_code="ERR_LLM_OUTPUT_MISSING",
+            error_message=f"{agent_name} provider did not return structured JSON.",
+        )
+    return cast(dict[str, object], invocation.result.structured_output)
+
+
+def build_invoice_group_messages(
+    *,
+    instruction: str,
+    ocr_text: str,
+    schema_name: str,
+    handoff: AgentHandoffEnvelope | None,
+) -> list[Any]:
+    """Build compact provider-neutral messages for invoice group extraction."""
+
+    from app.providers.llm import LLMMessage, LLMMessageRole
+
+    correction_instruction = ""
+    if handoff is not None and handoff.qa_error_signal is not None:
+        correction_instruction = (
+            f"\nCorrection signal:\n{handoff.qa_error_signal.model_dump_json()}"
+        )
+
+    return [
+        LLMMessage(
+            role=LLMMessageRole.SYSTEM,
+            content=(
+                "You extract one invoice data group for SME finance workflows. "
+                f"Return JSON only matching schema {schema_name}. "
+                "Do not include markdown or commentary."
+            ),
+        ),
+        LLMMessage(
+            role=LLMMessageRole.USER,
+            content=(f"{instruction}\n\nOCR text:\n{ocr_text}{correction_instruction}"),
+        ),
+    ]
+
+
+def contract_validation_failure_result(
+    *,
+    agent_name: str,
+    exc: ValidationError,
+) -> AgentRunResult:
+    """Return a failed agent result for invalid provider contract output."""
+
+    return AgentRunResult(
+        status=AgentRunStatus.FAILED,
+        confidence=ConfidenceLevel.HIGH,
+        error_code="ERR_LLM_OUTPUT_SCHEMA",
+        error_message=f"{agent_name} provider output failed schema validation: {exc}",
+    )
+
+
+def provider_task_type(value: str) -> Any:
+    """Return provider task enum without importing provider package at module load."""
+
+    from app.providers.routing import ProviderTaskType
+
+    return ProviderTaskType(value)
+
+
 class MetadataExtractorAgent:
     """Skeleton agent for invoice metadata extraction."""
 
@@ -293,9 +422,31 @@ class MetadataExtractorAgent:
         if context_error is not None:
             return context_error
 
-        group = InvoiceMetadataGroup(
-            evidence_refs=get_handoff_evidence_refs(handoff),
+        provider_payload = await run_llm_group_extraction_if_available(
+            state=state,
+            context=context,
+            agent_name=METADATA_EXTRACTOR_AGENT,
+            task_type=provider_task_type("invoice_metadata_extraction"),
+            schema_name="invoice-metadata-group.v1",
+            instruction="Extract only invoice metadata and party fields.",
+            handoff=handoff,
         )
+        if isinstance(provider_payload, AgentRunResult):
+            return provider_payload
+
+        if provider_payload is None:
+            group = InvoiceMetadataGroup(
+                evidence_refs=get_handoff_evidence_refs(handoff),
+            )
+        else:
+            try:
+                group = InvoiceMetadataGroup.model_validate(provider_payload)
+            except ValidationError as exc:
+                return contract_validation_failure_result(
+                    agent_name=METADATA_EXTRACTOR_AGENT,
+                    exc=exc,
+                )
+
         group_payload = model_to_payload(group)
         state.scratchpad[INVOICE_METADATA_GROUP_KEY] = group_payload
         output: dict[str, object] = {
@@ -315,7 +466,7 @@ class MetadataExtractorAgent:
                     evidence_refs=group.evidence_refs,
                 )
             ],
-            confidence=ConfidenceLevel.UNKNOWN,
+            confidence=group.confidence,
         )
 
 
@@ -351,9 +502,31 @@ class TableExtractorAgent:
         if context_error is not None:
             return context_error
 
-        group = InvoiceTableGroup(
-            evidence_refs=get_handoff_evidence_refs(handoff),
+        provider_payload = await run_llm_group_extraction_if_available(
+            state=state,
+            context=context,
+            agent_name=TABLE_EXTRACTOR_AGENT,
+            task_type=provider_task_type("invoice_table_extraction"),
+            schema_name="invoice-table-group.v1",
+            instruction="Extract only invoice line-item table rows.",
+            handoff=handoff,
         )
+        if isinstance(provider_payload, AgentRunResult):
+            return provider_payload
+
+        if provider_payload is None:
+            group = InvoiceTableGroup(
+                evidence_refs=get_handoff_evidence_refs(handoff),
+            )
+        else:
+            try:
+                group = InvoiceTableGroup.model_validate(provider_payload)
+            except ValidationError as exc:
+                return contract_validation_failure_result(
+                    agent_name=TABLE_EXTRACTOR_AGENT,
+                    exc=exc,
+                )
+
         group_payload = model_to_payload(group)
         state.scratchpad[INVOICE_TABLE_GROUP_KEY] = group_payload
         output: dict[str, object] = {
@@ -373,7 +546,7 @@ class TableExtractorAgent:
                     evidence_refs=group.evidence_refs,
                 )
             ],
-            confidence=ConfidenceLevel.UNKNOWN,
+            confidence=group.confidence,
             metrics={"line_item_count": len(group.line_items)},
         )
 
@@ -410,9 +583,31 @@ class TotalsExtractorAgent:
         if context_error is not None:
             return context_error
 
-        group = InvoiceTotalsGroup(
-            evidence_refs=get_handoff_evidence_refs(handoff),
+        provider_payload = await run_llm_group_extraction_if_available(
+            state=state,
+            context=context,
+            agent_name=TOTALS_EXTRACTOR_AGENT,
+            task_type=provider_task_type("invoice_totals_extraction"),
+            schema_name="invoice-totals-group.v1",
+            instruction="Extract only invoice subtotal, tax, total, and currency.",
+            handoff=handoff,
         )
+        if isinstance(provider_payload, AgentRunResult):
+            return provider_payload
+
+        if provider_payload is None:
+            group = InvoiceTotalsGroup(
+                evidence_refs=get_handoff_evidence_refs(handoff),
+            )
+        else:
+            try:
+                group = InvoiceTotalsGroup.model_validate(provider_payload)
+            except ValidationError as exc:
+                return contract_validation_failure_result(
+                    agent_name=TOTALS_EXTRACTOR_AGENT,
+                    exc=exc,
+                )
+
         group_payload = model_to_payload(group)
         state.scratchpad[INVOICE_TOTALS_GROUP_KEY] = group_payload
         output: dict[str, object] = {
@@ -432,7 +627,7 @@ class TotalsExtractorAgent:
                     evidence_refs=group.evidence_refs,
                 )
             ],
-            confidence=ConfidenceLevel.UNKNOWN,
+            confidence=group.confidence,
         )
 
 
