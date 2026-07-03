@@ -272,9 +272,9 @@ stable.
 - [ ] Add NVIDIA NIM OCR/document parsing provider adapter.
 - [ ] Add NVIDIA NIM model routing options for LLM and OCR workloads.
 - [ ] Add NVIDIA NIM API key and endpoint environment variables.
-- [ ] Add cloud-provider privacy gate before sending financial data externally.
-- [ ] Add de-identified-only test policy for cloud provider evaluation.
-- [ ] Add provider redaction/minimization policy.
+- [x] Add cloud-provider privacy gate before sending financial data externally.
+- [x] Add de-identified-only test policy for cloud provider evaluation.
+- [x] Add provider redaction/minimization policy.
 - [x] Add tests using mock provider.
 - [ ] Run evaluation before enabling provider in normal workflow.
 - [ ] Compare mock/rule baseline against real provider.

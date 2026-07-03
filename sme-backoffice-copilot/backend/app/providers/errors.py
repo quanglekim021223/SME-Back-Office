@@ -23,3 +23,7 @@ class ProviderPromptError(ProviderConfigurationError):
 
 class ProviderStructuredOutputValidationError(ProviderExecutionError):
     """Raised when provider structured output does not match its schema."""
+
+
+class ProviderPrivacyPolicyError(ProviderExecutionError):
+    """Raised when provider privacy policy blocks a provider call."""

@@ -14,6 +14,7 @@ from app.providers.errors import (
     ProviderDependencyError,
     ProviderError,
     ProviderExecutionError,
+    ProviderPrivacyPolicyError,
     ProviderPromptError,
     ProviderStructuredOutputValidationError,
 )
@@ -48,6 +49,18 @@ from app.providers.ocr import (
     OCRTextBlock,
 )
 from app.providers.ollama import OllamaLLMProvider
+from app.providers.privacy import (
+    ProviderDataSensitivity,
+    ProviderDataUseCase,
+    ProviderPrivacyAction,
+    ProviderPrivacyContext,
+    ProviderPrivacyDecision,
+    ProviderPrivacyGate,
+    ProviderPrivacyPolicy,
+    ProviderRedactionResult,
+    build_provider_privacy_policy,
+    redact_and_minimize_text,
+)
 from app.providers.prompts import (
     DEFAULT_PROMPT_REGISTRY,
     PromptMessageTemplate,
@@ -112,6 +125,7 @@ __all__ = [
     "ProviderDependencyError",
     "ProviderError",
     "ProviderExecutionError",
+    "ProviderPrivacyPolicyError",
     "ProviderPromptError",
     "ProviderStructuredOutputValidationError",
     "TesseractOCRProvider",
@@ -130,12 +144,22 @@ __all__ = [
     "ProviderRuntimePolicy",
     "ProviderTaskType",
     "ProviderUsageCost",
+    "ProviderDataSensitivity",
+    "ProviderDataUseCase",
+    "ProviderPrivacyAction",
+    "ProviderPrivacyContext",
+    "ProviderPrivacyDecision",
+    "ProviderPrivacyGate",
+    "ProviderPrivacyPolicy",
+    "ProviderRedactionResult",
     "StructuredOutputValidationResult",
     "build_default_provider_routing_config",
     "build_default_prompt_registry",
+    "build_provider_privacy_policy",
     "estimate_llm_cost",
     "is_registered_output_schema",
     "parse_and_validate_structured_output",
+    "redact_and_minimize_text",
     "render_template",
     "validate_structured_output",
 ]

@@ -25,6 +25,7 @@ from app.providers import (
     ProviderDeploymentMode,
     ProviderHealthCheck,
     ProviderHealthStatus,
+    build_provider_privacy_policy,
 )
 
 
@@ -132,12 +133,32 @@ def test_settings_include_ai_provider_selection_defaults() -> None:
     assert settings.provider_retry_backoff_seconds == 0.0
     assert settings.llm_input_cost_per_1k_tokens_usd == 0
     assert settings.llm_output_cost_per_1k_tokens_usd == 0
+    assert settings.provider_allow_cloud is False
+    assert settings.provider_allow_sensitive_cloud_payloads is False
+    assert settings.provider_require_deidentified_cloud_evaluation is True
+    assert settings.provider_redaction_max_chars == 4000
     assert settings.tesseract_binary_path == "tesseract"
     assert settings.tesseract_language == "eng"
     assert settings.paddleocr_language == "en"
     assert settings.chandraocr_language == "en"
     assert settings.ollama_base_url == "http://localhost:11434"
     assert settings.ollama_model == "llama3.1:8b"
+
+    privacy_policy = build_provider_privacy_policy(
+        allow_cloud_providers=settings.provider_allow_cloud,
+        allow_sensitive_cloud_payloads=(
+            settings.provider_allow_sensitive_cloud_payloads
+        ),
+        require_deidentified_for_cloud_evaluation=(
+            settings.provider_require_deidentified_cloud_evaluation
+        ),
+        max_provider_text_chars=settings.provider_redaction_max_chars,
+    )
+
+    assert privacy_policy.allow_cloud_providers is False
+    assert privacy_policy.allow_sensitive_cloud_payloads is False
+    assert privacy_policy.require_deidentified_for_cloud_evaluation is True
+    assert privacy_policy.max_provider_text_chars == 4000
 
 
 def test_settings_can_select_local_free_providers(

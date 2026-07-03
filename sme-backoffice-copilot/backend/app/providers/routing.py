@@ -9,6 +9,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.providers.base import ProviderDeploymentMode
 from app.providers.errors import ProviderExecutionError
 from app.providers.llm import (
     LLMGenerationRequest,
@@ -21,6 +22,11 @@ from app.providers.ocr import (
     OCRProvider,
     OCRProviderRunContext,
     OCRResult,
+)
+from app.providers.privacy import (
+    ProviderPrivacyContext,
+    ProviderPrivacyDecision,
+    ProviderPrivacyGate,
 )
 
 
@@ -50,6 +56,7 @@ class ProviderModelRoute(BaseModel):
     task_type: ProviderTaskType
     route_kind: ProviderRouteKind
     provider_name: str = Field(min_length=1)
+    deployment_mode: ProviderDeploymentMode = ProviderDeploymentMode.LOCAL
     model_name: str | None = None
     prompt_id: str | None = None
     prompt_version: str | None = None
@@ -135,6 +142,7 @@ class LLMProviderInvocationResult(BaseModel):
     attempts: int = Field(ge=1)
     result: LLMGenerationResult
     cost: ProviderUsageCost
+    privacy_decision: ProviderPrivacyDecision | None = None
 
 
 class OCRProviderInvocationResult(BaseModel):
@@ -145,13 +153,19 @@ class OCRProviderInvocationResult(BaseModel):
     route: ProviderModelRoute
     attempts: int = Field(ge=1)
     result: OCRResult
+    privacy_decision: ProviderPrivacyDecision | None = None
 
 
 class ProviderRuntime:
     """Execute provider calls with timeout, retry, and cost tracking."""
 
-    def __init__(self, routing_config: ProviderRoutingConfig) -> None:
+    def __init__(
+        self,
+        routing_config: ProviderRoutingConfig,
+        privacy_gate: ProviderPrivacyGate | None = None,
+    ) -> None:
         self.routing_config = routing_config
+        self.privacy_gate = privacy_gate or ProviderPrivacyGate()
 
     async def generate_llm(
         self,
@@ -160,6 +174,7 @@ class ProviderRuntime:
         task_type: ProviderTaskType,
         request: LLMGenerationRequest,
         context: LLMProviderRunContext,
+        privacy_context: ProviderPrivacyContext | None = None,
     ) -> LLMProviderInvocationResult:
         """Run an LLM provider call using configured route policies."""
 
@@ -174,10 +189,18 @@ class ProviderRuntime:
             )
 
         policy = self.routing_config.runtime_policy_for(route)
+        privacy_decision = self.privacy_gate.require_allowed(
+            deployment_mode=route.deployment_mode,
+            context=privacy_context,
+        )
         enriched_request = enrich_llm_request_from_route(request=request, route=route)
+        sanitized_request, privacy_decision = self.privacy_gate.sanitize_llm_request(
+            request=enriched_request,
+            decision=privacy_decision,
+        )
         result, attempts = await call_with_policy(
             lambda: provider.generate(
-                request=enriched_request,
+                request=sanitized_request,
                 context=context,
             ),
             policy=policy,
@@ -188,6 +211,7 @@ class ProviderRuntime:
             attempts=attempts,
             result=result,
             cost=estimate_llm_cost(route=route, result=result),
+            privacy_decision=privacy_decision,
         )
 
     async def extract_ocr(
@@ -197,6 +221,7 @@ class ProviderRuntime:
         task_type: ProviderTaskType,
         input_data: OCRInput,
         context: OCRProviderRunContext,
+        privacy_context: ProviderPrivacyContext | None = None,
     ) -> OCRProviderInvocationResult:
         """Run an OCR provider call using configured route policies."""
 
@@ -211,9 +236,17 @@ class ProviderRuntime:
             )
 
         policy = self.routing_config.runtime_policy_for(route)
+        privacy_decision = self.privacy_gate.require_allowed(
+            deployment_mode=route.deployment_mode,
+            context=privacy_context,
+        )
+        sanitized_input, privacy_decision = self.privacy_gate.sanitize_ocr_input(
+            input_data=input_data,
+            decision=privacy_decision,
+        )
         result, attempts = await call_with_policy(
             lambda: provider.extract_text(
-                input_data=input_data,
+                input_data=sanitized_input,
                 context=context,
             ),
             policy=policy,
@@ -223,6 +256,7 @@ class ProviderRuntime:
             route=route,
             attempts=attempts,
             result=result,
+            privacy_decision=privacy_decision,
         )
 
 
@@ -314,6 +348,8 @@ def build_default_provider_routing_config(
     llm_provider_name: str = "mock_llm",
     llm_model_name: str = "mock-llm",
     ocr_provider_name: str = "mock_ocr",
+    llm_deployment_mode: ProviderDeploymentMode = ProviderDeploymentMode.MOCK,
+    ocr_deployment_mode: ProviderDeploymentMode = ProviderDeploymentMode.MOCK,
     timeout_seconds: float = 30.0,
     max_retries: int = 1,
     retry_backoff_seconds: float = 0.0,
@@ -331,6 +367,7 @@ def build_default_provider_routing_config(
                 task_type=ProviderTaskType.DOCUMENT_OCR,
                 route_kind=ProviderRouteKind.OCR,
                 provider_name=ocr_provider_name,
+                deployment_mode=ocr_deployment_mode,
                 timeout_seconds=timeout_seconds,
                 max_retries=max_retries,
                 retry_backoff_seconds=retry_backoff_seconds,
@@ -339,6 +376,7 @@ def build_default_provider_routing_config(
                 task_type=ProviderTaskType.INVOICE_METADATA_EXTRACTION,
                 route_kind=ProviderRouteKind.LLM,
                 provider_name=llm_provider_name,
+                deployment_mode=llm_deployment_mode,
                 model_name=llm_model_name,
                 prompt_id="invoice.metadata_extraction",
                 prompt_version="0.1.0",
@@ -353,6 +391,7 @@ def build_default_provider_routing_config(
                 task_type=ProviderTaskType.INVOICE_TABLE_EXTRACTION,
                 route_kind=ProviderRouteKind.LLM,
                 provider_name=llm_provider_name,
+                deployment_mode=llm_deployment_mode,
                 model_name=llm_model_name,
                 prompt_id="invoice.table_extraction",
                 prompt_version="0.1.0",
@@ -367,6 +406,7 @@ def build_default_provider_routing_config(
                 task_type=ProviderTaskType.INVOICE_TOTALS_EXTRACTION,
                 route_kind=ProviderRouteKind.LLM,
                 provider_name=llm_provider_name,
+                deployment_mode=llm_deployment_mode,
                 model_name=llm_model_name,
                 prompt_id="invoice.totals_extraction",
                 prompt_version="0.1.0",
@@ -381,6 +421,7 @@ def build_default_provider_routing_config(
                 task_type=ProviderTaskType.INVOICE_CLASSIFICATION,
                 route_kind=ProviderRouteKind.LLM,
                 provider_name=llm_provider_name,
+                deployment_mode=llm_deployment_mode,
                 model_name=llm_model_name,
                 prompt_id="invoice.classification",
                 prompt_version="0.1.0",

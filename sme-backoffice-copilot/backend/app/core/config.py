@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     provider_retry_backoff_seconds: float = 0.0
     llm_input_cost_per_1k_tokens_usd: Decimal = Decimal("0.00")
     llm_output_cost_per_1k_tokens_usd: Decimal = Decimal("0.00")
+    provider_allow_cloud: bool = False
+    provider_allow_sensitive_cloud_payloads: bool = False
+    provider_require_deidentified_cloud_evaluation: bool = True
+    provider_redaction_max_chars: int = 4000
     tesseract_binary_path: str = "tesseract"
     tesseract_language: str = "eng"
     paddleocr_language: str = "en"
