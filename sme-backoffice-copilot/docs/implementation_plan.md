@@ -218,10 +218,10 @@ Goal: provide a minimal usable interface for upload, review, and dashboard.
 - [x] Create upload page.
 - [x] Show upload status.
 - [x] Show document processing status.
-- [ ] Create review queue page.
-- [ ] Create review detail page.
-- [ ] Show source evidence placeholder.
-- [ ] Add approve/reject/correct actions.
+- [x] Create review queue page.
+- [x] Create review detail page.
+- [x] Show source evidence placeholder.
+- [x] Add approve/reject/correct actions.
 - [ ] Create basic dashboard page.
 - [ ] Show cash position placeholder.
 - [ ] Show inflow/outflow placeholder.

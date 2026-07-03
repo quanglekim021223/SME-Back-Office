@@ -55,6 +55,109 @@ export type DocumentUploadResponse = {
   duplicate: boolean;
 };
 
+export type ReviewTaskStatus =
+  | "open"
+  | "in_progress"
+  | "resolved"
+  | "cancelled";
+
+export type ReviewTaskType =
+  | "extraction"
+  | "classification"
+  | "reconciliation"
+  | "policy"
+  | "insight"
+  | "other";
+
+export type ReviewTaskPriority = "low" | "normal" | "high" | "urgent";
+
+export type ReviewTaskSummaryResponse = {
+  id: string;
+  tenant_id: string;
+  task_type: ReviewTaskType;
+  target_type: string;
+  status: ReviewTaskStatus;
+  priority: ReviewTaskPriority;
+  title: string;
+  reason_code: string | null;
+  due_at: string | null;
+  source_agent: string | null;
+  evidence_refs: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type ReviewTaskDetailResponse = ReviewTaskSummaryResponse & {
+  assigned_user_id: string | null;
+  resolved_by_user_id: string | null;
+  workflow_run_id: string | null;
+  document_id: string | null;
+  invoice_id: string | null;
+  transaction_id: string | null;
+  classification_proposal_id: string | null;
+  reconciliation_id: string | null;
+  insight_id: string | null;
+  description: string | null;
+  resolved_at: string | null;
+  source_agent_version: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type ReviewTaskListResponse = {
+  items: ReviewTaskSummaryResponse[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type ReviewTaskDecisionRequest = {
+  comment?: string | null;
+  reason_code?: string | null;
+};
+
+export type ReviewTaskDecisionResponse = {
+  action: string;
+  review_task: ReviewTaskDetailResponse;
+  resource_type: string;
+  resource_id: string;
+  resource_status: string;
+  audit_event_id: string;
+};
+
+export type ExtractedFieldsCorrectionRequest = ReviewTaskDecisionRequest & {
+  corrected_fields: Record<string, unknown>;
+};
+
+export type ClassificationCorrectionRequest = ReviewTaskDecisionRequest & {
+  proposed_category_id?: string | null;
+  confidence?: string | null;
+  rationale?: string | null;
+  evidence_refs?: string[] | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type ReconciliationCorrectionRequest = ReviewTaskDecisionRequest & {
+  match_type?: string | null;
+  currency?: string | null;
+  invoice_total_amount?: string | number | null;
+  transaction_total_amount?: string | number | null;
+  difference_amount?: string | number | null;
+  confidence?: string | null;
+  rationale?: string | null;
+  evidence_refs?: string[] | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type ReviewTaskCorrectionResponse = {
+  action: string;
+  review_task: ReviewTaskDetailResponse;
+  resource_type: string;
+  superseded_resource_id: string;
+  replacement_resource_id: string;
+  replacement_resource_status: string;
+  audit_event_id: string;
+};
+
 export class ApiClientError extends Error {
   readonly status: number;
   readonly code: string;
@@ -146,6 +249,87 @@ export function uploadDocument({
         "Content-Type": inferUploadMediaType(file),
       },
     },
+  );
+}
+
+export function listReviewTasks({
+  limit = 100,
+  offset = 0,
+  status,
+  taskType,
+}: {
+  limit?: number;
+  offset?: number;
+  status?: ReviewTaskStatus;
+  taskType?: ReviewTaskType;
+} = {}) {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+
+  if (status) {
+    params.set("status", status);
+  }
+
+  if (taskType) {
+    params.set("task_type", taskType);
+  }
+
+  return apiGet<ReviewTaskListResponse>(`/review-tasks?${params.toString()}`);
+}
+
+export function getReviewTask(reviewTaskId: string) {
+  return apiGet<ReviewTaskDetailResponse>(`/review-tasks/${reviewTaskId}`);
+}
+
+export function approveReviewTask(
+  reviewTaskId: string,
+  decision: ReviewTaskDecisionRequest = {},
+) {
+  return apiPost<ReviewTaskDecisionResponse>(
+    `/review-tasks/${reviewTaskId}/approve`,
+    decision,
+  );
+}
+
+export function rejectReviewTask(
+  reviewTaskId: string,
+  decision: ReviewTaskDecisionRequest = {},
+) {
+  return apiPost<ReviewTaskDecisionResponse>(
+    `/review-tasks/${reviewTaskId}/reject`,
+    decision,
+  );
+}
+
+export function correctExtractedFields(
+  reviewTaskId: string,
+  correction: ExtractedFieldsCorrectionRequest,
+) {
+  return apiPost<ReviewTaskCorrectionResponse>(
+    `/review-tasks/${reviewTaskId}/correct-extraction`,
+    correction,
+  );
+}
+
+export function correctClassification(
+  reviewTaskId: string,
+  correction: ClassificationCorrectionRequest,
+) {
+  return apiPost<ReviewTaskCorrectionResponse>(
+    `/review-tasks/${reviewTaskId}/correct-classification`,
+    correction,
+  );
+}
+
+export function correctReconciliation(
+  reviewTaskId: string,
+  correction: ReconciliationCorrectionRequest,
+) {
+  return apiPost<ReviewTaskCorrectionResponse>(
+    `/review-tasks/${reviewTaskId}/correct-reconciliation`,
+    correction,
   );
 }
 
