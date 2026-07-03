@@ -259,10 +259,10 @@ stable.
 
 - [x] Define AI provider interface.
 - [x] Define OCR provider interface.
-- [ ] Define model routing config.
-- [ ] Add provider timeout policy.
-- [ ] Add provider retry policy.
-- [ ] Add provider cost tracking.
+- [x] Define model routing config.
+- [x] Add provider timeout policy.
+- [x] Add provider retry policy.
+- [x] Add provider cost tracking.
 - [x] Add prompt registry.
 - [x] Add structured output validation.
 - [ ] Add OpenAI provider adapter or chosen first provider.
@@ -275,7 +275,7 @@ stable.
 - [ ] Add cloud-provider privacy gate before sending financial data externally.
 - [ ] Add de-identified-only test policy for cloud provider evaluation.
 - [ ] Add provider redaction/minimization policy.
-- [ ] Add tests using mock provider.
+- [x] Add tests using mock provider.
 - [ ] Run evaluation before enabling provider in normal workflow.
 - [ ] Compare mock/rule baseline against real provider.
 - [ ] Compare local/Ollama baseline against NVIDIA NIM provider outputs.

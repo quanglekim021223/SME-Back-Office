@@ -128,6 +128,10 @@ def test_settings_include_ai_provider_selection_defaults() -> None:
     assert settings.ocr_provider == OCRProviderType.MOCK
     assert settings.llm_provider == LLMProviderType.MOCK
     assert settings.provider_timeout_seconds == 30.0
+    assert settings.provider_max_retries == 1
+    assert settings.provider_retry_backoff_seconds == 0.0
+    assert settings.llm_input_cost_per_1k_tokens_usd == 0
+    assert settings.llm_output_cost_per_1k_tokens_usd == 0
     assert settings.tesseract_binary_path == "tesseract"
     assert settings.tesseract_language == "eng"
     assert settings.paddleocr_language == "en"
@@ -142,12 +146,14 @@ def test_settings_can_select_local_free_providers(
     monkeypatch.setenv("OCR_PROVIDER", "paddleocr")
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5:7b")
+    monkeypatch.setenv("PROVIDER_MAX_RETRIES", "3")
 
     settings = Settings(_env_file=None)
 
     assert settings.ocr_provider == OCRProviderType.PADDLEOCR
     assert settings.llm_provider == LLMProviderType.OLLAMA
     assert settings.ollama_model == "qwen2.5:7b"
+    assert settings.provider_max_retries == 3
 
 
 def test_settings_can_select_chandraocr_provider(

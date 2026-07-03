@@ -1,5 +1,6 @@
 """Typed application configuration loaded from environment variables."""
 
+from decimal import Decimal
 from enum import StrEnum
 from functools import lru_cache
 
@@ -42,6 +43,10 @@ class Settings(BaseSettings):
     ocr_provider: OCRProviderType = OCRProviderType.MOCK
     llm_provider: LLMProviderType = LLMProviderType.MOCK
     provider_timeout_seconds: float = 30.0
+    provider_max_retries: int = 1
+    provider_retry_backoff_seconds: float = 0.0
+    llm_input_cost_per_1k_tokens_usd: Decimal = Decimal("0.00")
+    llm_output_cost_per_1k_tokens_usd: Decimal = Decimal("0.00")
     tesseract_binary_path: str = "tesseract"
     tesseract_language: str = "eng"
     paddleocr_language: str = "en"
