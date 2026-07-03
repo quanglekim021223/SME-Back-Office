@@ -222,11 +222,11 @@ Goal: provide a minimal usable interface for upload, review, and dashboard.
 - [x] Create review detail page.
 - [x] Show source evidence placeholder.
 - [x] Add approve/reject/correct actions.
-- [ ] Create basic dashboard page.
-- [ ] Show cash position placeholder.
-- [ ] Show inflow/outflow placeholder.
-- [ ] Show unresolved item count.
-- [ ] Show latest insights placeholder.
+- [x] Create basic dashboard page.
+- [x] Show cash position placeholder.
+- [x] Show inflow/outflow placeholder.
+- [x] Show unresolved item count.
+- [x] Show latest insights placeholder.
 - [x] Add frontend API client.
 - [x] Add frontend loading/error states.
 
