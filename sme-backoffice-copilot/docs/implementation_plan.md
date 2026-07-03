@@ -247,10 +247,10 @@ Goal: make quality measurable before using real AI providers.
 - [x] Implement reconciliation scorer.
 - [x] Implement insight groundedness scorer.
 - [x] Implement review-routing scorer.
-- [ ] Implement workflow replay evaluation.
-- [ ] Add evaluation report output.
-- [ ] Add evaluation command to README.
-- [ ] Decide initial release gates.
+- [x] Implement workflow replay evaluation.
+- [x] Add evaluation report output.
+- [x] Add evaluation command to README.
+- [x] Decide initial release gates.
 
 ## Phase 9 — Real AI provider integration
 
