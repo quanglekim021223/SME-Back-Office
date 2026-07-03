@@ -280,6 +280,27 @@ stable.
 - [ ] Compare mock/rule baseline against real provider.
 - [ ] Compare local/Ollama baseline against NVIDIA NIM provider outputs.
 
+## Phase 9.5 — Provider-backed end-to-end workflow wiring
+
+Goal: connect document upload, workflow orchestration, selected OCR/LLM
+providers, AI extraction proposals, and human review into one local end-to-end
+path.
+
+- [x] Build provider factory from settings.
+- [x] Build provider routing factory from settings.
+- [ ] Wire selected OCR provider into document workflow.
+- [ ] Wire selected LLM provider into invoice extraction workflow.
+- [ ] Trigger workflow from `DocumentIngested` event.
+- [ ] Convert OCR output into workflow state.
+- [ ] Convert LLM output into invoice extraction group contracts.
+- [ ] Persist extracted invoice proposal.
+- [ ] Create review task from extracted invoice proposal.
+- [ ] Show generated review task in frontend review queue.
+- [ ] Add local upload-to-review smoke test with mock providers.
+- [ ] Add local upload-to-review smoke test with Ollama provider.
+- [ ] Add failure path when provider output fails validation.
+- [ ] Add fallback to review-required state when provider fails.
+
 ## Phase 10 — Security and privacy hardening
 
 Goal: make tenant and financial data handling safe by design.

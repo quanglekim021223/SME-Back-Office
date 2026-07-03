@@ -18,6 +18,17 @@ from app.providers.errors import (
     ProviderPromptError,
     ProviderStructuredOutputValidationError,
 )
+from app.providers.factory import (
+    build_llm_provider_from_settings,
+    build_ocr_provider_from_settings,
+    build_provider_privacy_gate_from_settings,
+    build_provider_routing_config_from_settings,
+    llm_deployment_mode_from_settings,
+    llm_model_name_from_settings,
+    llm_provider_name_from_settings,
+    ocr_deployment_mode_from_settings,
+    ocr_provider_name_from_settings,
+)
 from app.providers.llm import (
     LLMGenerationRequest,
     LLMGenerationResult,
@@ -131,6 +142,15 @@ __all__ = [
     "ProviderPromptError",
     "ProviderStructuredOutputValidationError",
     "TesseractOCRProvider",
+    "build_llm_provider_from_settings",
+    "build_ocr_provider_from_settings",
+    "build_provider_privacy_gate_from_settings",
+    "build_provider_routing_config_from_settings",
+    "llm_deployment_mode_from_settings",
+    "llm_model_name_from_settings",
+    "llm_provider_name_from_settings",
+    "ocr_deployment_mode_from_settings",
+    "ocr_provider_name_from_settings",
     "DEFAULT_PROMPT_REGISTRY",
     "DEFAULT_STRUCTURED_OUTPUT_SCHEMAS",
     "PromptMessageTemplate",
