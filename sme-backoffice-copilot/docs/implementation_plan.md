@@ -213,22 +213,22 @@ Goal: make uncertain outputs reviewable instead of pretending AI is always right
 
 Goal: provide a minimal usable interface for upload, review, and dashboard.
 
-- [ ] Create application shell layout.
-- [ ] Create organization selector placeholder.
-- [ ] Create upload page.
-- [ ] Show upload status.
-- [ ] Show document processing status.
-- [ ] Create review queue page.
-- [ ] Create review detail page.
-- [ ] Show source evidence placeholder.
-- [ ] Add approve/reject/correct actions.
-- [ ] Create basic dashboard page.
-- [ ] Show cash position placeholder.
-- [ ] Show inflow/outflow placeholder.
-- [ ] Show unresolved item count.
-- [ ] Show latest insights placeholder.
-- [ ] Add frontend API client.
-- [ ] Add frontend loading/error states.
+- [x] Create application shell layout.
+- [x] Create organization selector placeholder.
+- [x] Create upload page.
+- [x] Show upload status.
+- [x] Show document processing status.
+- [x] Create review queue page.
+- [x] Create review detail page.
+- [x] Show source evidence placeholder.
+- [x] Add approve/reject/correct actions.
+- [x] Create basic dashboard page.
+- [x] Show cash position placeholder.
+- [x] Show inflow/outflow placeholder.
+- [x] Show unresolved item count.
+- [x] Show latest insights placeholder.
+- [x] Add frontend API client.
+- [x] Add frontend loading/error states.
 
 ## Phase 8 — Evaluation framework
 
