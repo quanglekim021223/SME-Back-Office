@@ -1,0 +1,27 @@
+INVOICE
+
+Invoice Number: BILL-EVAL-002
+Document Type: Inbound SaaS Expense Invoice
+Supplier: Cloud Tools Example Inc.
+Supplier Tax ID: SYN-TAX-3002
+Supplier Address: 75 Mockingbird Platform Road, Example City
+Customer: Demo Advisory Studio LLC
+Customer Tax ID: SYN-TAX-1001
+Customer Address: 100 Synthetic Market Street, Example City
+
+Issue Date: 2026-07-05
+Due Date: 2026-07-05
+Currency: USD
+Payment Terms: Paid by card
+
+Line Items
+Description,Quantity,Unit Price,Tax Rate,Tax Amount,Line Total
+Team workspace subscription,5,24.00,0%,0.00,120.00
+Usage overage,1,30.00,0%,0.00,30.00
+
+Subtotal: 150.00
+Tax: 0.00
+Total: 150.00
+
+Payment Reference: BILL-EVAL-002
+Notes: Synthetic SaaS expense invoice used only for evaluation. No real vendor or payment data.

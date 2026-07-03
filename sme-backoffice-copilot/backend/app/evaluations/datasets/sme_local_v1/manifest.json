@@ -1,0 +1,61 @@
+{
+  "schema_version": "evaluation.dataset-manifest.v1",
+  "dataset_id": "sme_local_v1",
+  "version": "0.1.0",
+  "name": "SME Local De-identified Evaluation Dataset v1",
+  "description": "Small synthetic and de-identified invoice and bank statement cases for local evaluation before enabling real AI providers.",
+  "owner": "SME Back-Office Copilot",
+  "deidentification": {
+    "method": "synthetic_entities_and_removed_identifiers",
+    "removed_fields": [
+      "real_company_names",
+      "real_tax_ids",
+      "real_bank_account_numbers",
+      "real_counterparties",
+      "real_addresses",
+      "real_payment_references"
+    ],
+    "synthetic_entities": true,
+    "notes": "All names, account identifiers, references, and amounts are synthetic and safe for local/cloud provider evaluation."
+  },
+  "cases": [
+    {
+      "case_id": "invoice_revenue_services_001",
+      "document_type": "invoice",
+      "fixture_path": "documents/invoices/invoice_revenue_services_001.txt",
+      "mime_type": "text/plain",
+      "task_tags": [
+        "extraction",
+        "classification",
+        "reconciliation",
+        "review_routing"
+      ],
+      "notes": "Outbound service invoice with a clean total that should not need review when extracted correctly."
+    },
+    {
+      "case_id": "invoice_expense_saas_002",
+      "document_type": "invoice",
+      "fixture_path": "documents/invoices/invoice_expense_saas_002.txt",
+      "mime_type": "text/plain",
+      "task_tags": [
+        "extraction",
+        "classification",
+        "review_routing"
+      ],
+      "notes": "Inbound SaaS expense invoice with multiple line items for table extraction and expense classification."
+    },
+    {
+      "case_id": "statement_operating_july_2026",
+      "document_type": "bank_statement",
+      "fixture_path": "documents/statements/statement_operating_july_2026.csv",
+      "mime_type": "text/csv",
+      "task_tags": [
+        "statement_parsing",
+        "classification",
+        "reconciliation",
+        "insight_groundedness"
+      ],
+      "notes": "Operating account statement with one invoice payment, one SaaS expense, one advertising expense, and one rent payment."
+    }
+  ]
+}

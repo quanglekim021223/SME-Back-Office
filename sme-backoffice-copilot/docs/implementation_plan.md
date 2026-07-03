@@ -234,9 +234,9 @@ Goal: provide a minimal usable interface for upload, review, and dashboard.
 
 Goal: make quality measurable before using real AI providers.
 
-- [ ] Define labelled dataset manifest format.
-- [ ] Add sample de-identified invoice fixtures.
-- [ ] Add sample de-identified statement fixtures.
+- [x] Define labelled dataset manifest format.
+- [x] Add sample de-identified invoice fixtures.
+- [x] Add sample de-identified statement fixtures.
 - [ ] Add expected extraction labels.
 - [ ] Add expected classification labels.
 - [ ] Add expected reconciliation labels.
@@ -267,10 +267,18 @@ stable.
 - [ ] Add structured output validation.
 - [ ] Add OpenAI provider adapter or chosen first provider.
 - [ ] Add local/Ollama provider adapter if desired.
+- [ ] Add NVIDIA NIM provider configuration.
+- [ ] Add NVIDIA NIM LLM provider adapter.
+- [ ] Add NVIDIA NIM OCR/document parsing provider adapter.
+- [ ] Add NVIDIA NIM model routing options for LLM and OCR workloads.
+- [ ] Add NVIDIA NIM API key and endpoint environment variables.
+- [ ] Add cloud-provider privacy gate before sending financial data externally.
+- [ ] Add de-identified-only test policy for cloud provider evaluation.
 - [ ] Add provider redaction/minimization policy.
 - [ ] Add tests using mock provider.
 - [ ] Run evaluation before enabling provider in normal workflow.
 - [ ] Compare mock/rule baseline against real provider.
+- [ ] Compare local/Ollama baseline against NVIDIA NIM provider outputs.
 
 ## Phase 10 — Security and privacy hardening
 
