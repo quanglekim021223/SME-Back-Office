@@ -5,6 +5,8 @@ from pydantic import ValidationError
 
 from app.core.config import LLMProviderType, OCRProviderType, Settings
 from app.providers import (
+    AIProvider,
+    AIProviderMetadata,
     LLMGenerationRequest,
     LLMGenerationResult,
     LLMMessage,
@@ -12,12 +14,44 @@ from app.providers import (
     LLMProvider,
     LLMProviderRunContext,
     LLMResponseFormat,
+    OCRExtractionMode,
     OCRInput,
     OCRProvider,
     OCRProviderRunContext,
+    OCRRequestOptions,
     OCRResult,
     OCRTextBlock,
+    ProviderCapability,
+    ProviderDeploymentMode,
+    ProviderHealthCheck,
+    ProviderHealthStatus,
 )
+
+
+class FakeAIProvider:
+    @property
+    def name(self) -> str:
+        return "fake_ai"
+
+    @property
+    def metadata(self) -> AIProviderMetadata:
+        return AIProviderMetadata(
+            name=self.name,
+            display_name="Fake AI Provider",
+            deployment_mode=ProviderDeploymentMode.MOCK,
+            capabilities={
+                ProviderCapability.LLM_GENERATION,
+                ProviderCapability.STRUCTURED_OUTPUT,
+            },
+            default_model="fake-model",
+            supports_structured_output=True,
+        )
+
+    async def health_check(self) -> ProviderHealthCheck:
+        return ProviderHealthCheck(
+            provider_name=self.name,
+            status=ProviderHealthStatus.OK,
+        )
 
 
 class FakeOCRProvider:
@@ -74,6 +108,20 @@ class FakeLLMProvider:
         )
 
 
+@pytest.mark.asyncio
+async def test_ai_provider_interface_contract() -> None:
+    provider = FakeAIProvider()
+
+    assert isinstance(provider, AIProvider)
+    assert provider.metadata.deployment_mode == ProviderDeploymentMode.MOCK
+    assert ProviderCapability.LLM_GENERATION in provider.metadata.capabilities
+
+    health = await provider.health_check()
+
+    assert health.status == ProviderHealthStatus.OK
+    assert health.provider_name == "fake_ai"
+
+
 def test_settings_include_ai_provider_selection_defaults() -> None:
     settings = Settings(_env_file=None)
 
@@ -127,6 +175,13 @@ async def test_ocr_provider_interface_contract() -> None:
             artifact_uri="local://tenants/t/documents/d/original/invoice.pdf",
             media_type="application/pdf",
             content_hash="hash-123",
+            options=OCRRequestOptions(
+                languages=["en"],
+                extraction_modes=[
+                    OCRExtractionMode.TEXT,
+                    OCRExtractionMode.LAYOUT,
+                ],
+            ),
         ),
         context=OCRProviderRunContext(
             tenant_id=tenant_id,
@@ -139,6 +194,13 @@ async def test_ocr_provider_interface_contract() -> None:
     assert result.full_text.startswith("Extracted from local://")
     assert result.text_blocks[0].text == "Invoice #INV-001"
     assert result.model_dump(mode="json")["metadata"]["tenant_id"] == str(tenant_id)
+
+
+def test_ocr_input_defaults_to_text_extraction_mode() -> None:
+    input_data = OCRInput(artifact_uri="local://document.pdf")
+
+    assert input_data.options.extraction_modes == [OCRExtractionMode.TEXT]
+    assert input_data.options.preserve_layout is True
 
 
 def test_ocr_contract_rejects_invalid_confidence() -> None:

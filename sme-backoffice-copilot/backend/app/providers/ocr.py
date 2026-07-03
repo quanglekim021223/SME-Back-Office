@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
@@ -19,6 +20,28 @@ class OCRProviderRunContext(BaseModel):
     correlation_id: str | None = None
 
 
+class OCRExtractionMode(StrEnum):
+    """OCR output modes a provider may support."""
+
+    TEXT = "text"
+    LAYOUT = "layout"
+    TABLES = "tables"
+
+
+class OCRRequestOptions(BaseModel):
+    """Provider-neutral OCR extraction options."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    languages: list[str] = Field(default_factory=list)
+    extraction_modes: list[OCRExtractionMode] = Field(
+        default_factory=lambda: [OCRExtractionMode.TEXT]
+    )
+    page_limit: int | None = Field(default=None, ge=1)
+    preserve_layout: bool = True
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
 class OCRInput(BaseModel):
     """Provider-neutral OCR input reference."""
 
@@ -28,6 +51,7 @@ class OCRInput(BaseModel):
     media_type: str | None = None
     content_hash: str | None = None
     local_path: str | None = None
+    options: OCRRequestOptions = Field(default_factory=OCRRequestOptions)
     metadata: dict[str, object] = Field(default_factory=dict)
 
 

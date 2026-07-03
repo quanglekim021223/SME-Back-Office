@@ -257,14 +257,14 @@ Goal: make quality measurable before using real AI providers.
 Goal: connect real AI only after workflow, data, review, and evaluation are
 stable.
 
-- [ ] Define AI provider interface.
-- [ ] Define OCR provider interface.
+- [x] Define AI provider interface.
+- [x] Define OCR provider interface.
 - [ ] Define model routing config.
 - [ ] Add provider timeout policy.
 - [ ] Add provider retry policy.
 - [ ] Add provider cost tracking.
-- [ ] Add prompt registry.
-- [ ] Add structured output validation.
+- [x] Add prompt registry.
+- [x] Add structured output validation.
 - [ ] Add OpenAI provider adapter or chosen first provider.
 - [ ] Add local/Ollama provider adapter if desired.
 - [ ] Add NVIDIA NIM provider configuration.

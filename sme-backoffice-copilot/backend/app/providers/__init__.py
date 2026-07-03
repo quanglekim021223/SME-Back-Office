@@ -1,10 +1,21 @@
 """Provider contracts for OCR, LLM, and future external AI adapters."""
 
+from app.providers.base import (
+    AIProvider,
+    AIProviderMetadata,
+    AIProviderRunContext,
+    ProviderCapability,
+    ProviderDeploymentMode,
+    ProviderHealthCheck,
+    ProviderHealthStatus,
+)
 from app.providers.errors import (
     ProviderConfigurationError,
     ProviderDependencyError,
     ProviderError,
     ProviderExecutionError,
+    ProviderPromptError,
+    ProviderStructuredOutputValidationError,
 )
 from app.providers.llm import (
     LLMGenerationRequest,
@@ -28,15 +39,40 @@ from app.providers.mock import (
     MockOCRProvider,
 )
 from app.providers.ocr import (
+    OCRExtractionMode,
     OCRInput,
     OCRProvider,
     OCRProviderRunContext,
+    OCRRequestOptions,
     OCRResult,
     OCRTextBlock,
 )
 from app.providers.ollama import OllamaLLMProvider
+from app.providers.prompts import (
+    DEFAULT_PROMPT_REGISTRY,
+    PromptMessageTemplate,
+    PromptRegistry,
+    PromptRenderResult,
+    PromptSpec,
+    build_default_prompt_registry,
+    render_template,
+)
+from app.providers.structured_output import (
+    DEFAULT_STRUCTURED_OUTPUT_SCHEMAS,
+    StructuredOutputValidationResult,
+    is_registered_output_schema,
+    parse_and_validate_structured_output,
+    validate_structured_output,
+)
 
 __all__ = [
+    "AIProvider",
+    "AIProviderMetadata",
+    "AIProviderRunContext",
+    "ProviderCapability",
+    "ProviderDeploymentMode",
+    "ProviderHealthCheck",
+    "ProviderHealthStatus",
     "LLMGenerationRequest",
     "LLMGenerationResult",
     "LLMMessage",
@@ -50,10 +86,12 @@ __all__ = [
     "MOCK_PROVIDER_VERSION",
     "MockLLMProvider",
     "MockOCRProvider",
+    "OCRExtractionMode",
     "OCRInput",
     "OllamaLLMProvider",
     "OCRProvider",
     "OCRProviderRunContext",
+    "OCRRequestOptions",
     "OCRResult",
     "OCRTextBlock",
     "PaddleOCRProvider",
@@ -61,5 +99,19 @@ __all__ = [
     "ProviderDependencyError",
     "ProviderError",
     "ProviderExecutionError",
+    "ProviderPromptError",
+    "ProviderStructuredOutputValidationError",
     "TesseractOCRProvider",
+    "DEFAULT_PROMPT_REGISTRY",
+    "DEFAULT_STRUCTURED_OUTPUT_SCHEMAS",
+    "PromptMessageTemplate",
+    "PromptRegistry",
+    "PromptRenderResult",
+    "PromptSpec",
+    "StructuredOutputValidationResult",
+    "build_default_prompt_registry",
+    "is_registered_output_schema",
+    "parse_and_validate_structured_output",
+    "render_template",
+    "validate_structured_output",
 ]

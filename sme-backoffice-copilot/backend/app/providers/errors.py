@@ -15,3 +15,11 @@ class ProviderDependencyError(ProviderError):
 
 class ProviderExecutionError(ProviderError):
     """Raised when a provider call fails at runtime."""
+
+
+class ProviderPromptError(ProviderConfigurationError):
+    """Raised when a prompt cannot be found or rendered safely."""
+
+
+class ProviderStructuredOutputValidationError(ProviderExecutionError):
+    """Raised when provider structured output does not match its schema."""
