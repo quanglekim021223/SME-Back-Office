@@ -30,6 +30,12 @@
         "reconciliation",
         "review_routing"
       ],
+      "label_paths": {
+        "extraction": "labels/extraction/invoice_revenue_services_001.expected.json",
+        "classification": "labels/classification/invoice_revenue_services_001.expected.json",
+        "reconciliation": "labels/reconciliation/invoice_revenue_services_001.expected.json",
+        "review_routing": "labels/review_routing/invoice_revenue_services_001.expected.json"
+      },
       "notes": "Outbound service invoice with a clean total that should not need review when extracted correctly."
     },
     {
@@ -40,8 +46,15 @@
       "task_tags": [
         "extraction",
         "classification",
+        "reconciliation",
         "review_routing"
       ],
+      "label_paths": {
+        "extraction": "labels/extraction/invoice_expense_saas_002.expected.json",
+        "classification": "labels/classification/invoice_expense_saas_002.expected.json",
+        "reconciliation": "labels/reconciliation/invoice_expense_saas_002.expected.json",
+        "review_routing": "labels/review_routing/invoice_expense_saas_002.expected.json"
+      },
       "notes": "Inbound SaaS expense invoice with multiple line items for table extraction and expense classification."
     },
     {
@@ -53,8 +66,14 @@
         "statement_parsing",
         "classification",
         "reconciliation",
+        "review_routing",
         "insight_groundedness"
       ],
+      "label_paths": {
+        "classification": "labels/classification/statement_operating_july_2026.expected.json",
+        "reconciliation": "labels/reconciliation/statement_operating_july_2026.expected.json",
+        "review_routing": "labels/review_routing/statement_operating_july_2026.expected.json"
+      },
       "notes": "Operating account statement with one invoice payment, one SaaS expense, one advertising expense, and one rent payment."
     }
   ]

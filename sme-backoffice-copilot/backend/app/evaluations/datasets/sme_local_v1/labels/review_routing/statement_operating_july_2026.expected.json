@@ -1,0 +1,20 @@
+{
+  "schema_version": "evaluation.expected-review-routing.v1",
+  "case_id": "statement_operating_july_2026",
+  "should_create_review_task": true,
+  "expected_tasks": [
+    {
+      "task_type": "reconciliation",
+      "target_ref": "transaction:ADS-JUL-2026",
+      "reason_code": "missing_supporting_document",
+      "priority": "normal"
+    },
+    {
+      "task_type": "reconciliation",
+      "target_ref": "transaction:RENT-JUL-2026",
+      "reason_code": "missing_supporting_document",
+      "priority": "normal"
+    }
+  ],
+  "notes": "Statement contains outflows without matching invoice fixtures. They should be routed for human review or supporting-document collection."
+}

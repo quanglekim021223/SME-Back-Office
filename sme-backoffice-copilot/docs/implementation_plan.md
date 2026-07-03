@@ -237,10 +237,10 @@ Goal: make quality measurable before using real AI providers.
 - [x] Define labelled dataset manifest format.
 - [x] Add sample de-identified invoice fixtures.
 - [x] Add sample de-identified statement fixtures.
-- [ ] Add expected extraction labels.
-- [ ] Add expected classification labels.
-- [ ] Add expected reconciliation labels.
-- [ ] Add expected review-routing labels.
+- [x] Add expected extraction labels.
+- [x] Add expected classification labels.
+- [x] Add expected reconciliation labels.
+- [x] Add expected review-routing labels.
 - [ ] Implement extraction scorer.
 - [ ] Implement statement parsing scorer.
 - [ ] Implement classification scorer.

@@ -1,0 +1,52 @@
+{
+  "schema_version": "evaluation.expected-classification.v1",
+  "case_id": "statement_operating_july_2026",
+  "records": [
+    {
+      "source_ref": "transaction:INV-EVAL-001",
+      "target_type": "transaction",
+      "category_code": "sales_revenue",
+      "category_type": "revenue",
+      "expected_direction": "income",
+      "confidence_floor": "medium",
+      "rationale_keywords": [
+        "ach credit",
+        "invoice"
+      ]
+    },
+    {
+      "source_ref": "transaction:BILL-EVAL-002",
+      "target_type": "transaction",
+      "category_code": "software_subscription",
+      "category_type": "expense",
+      "expected_direction": "expense",
+      "confidence_floor": "medium",
+      "rationale_keywords": [
+        "cloud tools",
+        "card payment"
+      ]
+    },
+    {
+      "source_ref": "transaction:ADS-JUL-2026",
+      "target_type": "transaction",
+      "category_code": "advertising_expense",
+      "category_type": "expense",
+      "expected_direction": "expense",
+      "confidence_floor": "medium",
+      "rationale_keywords": [
+        "search ads"
+      ]
+    },
+    {
+      "source_ref": "transaction:RENT-JUL-2026",
+      "target_type": "transaction",
+      "category_code": "rent_expense",
+      "category_type": "expense",
+      "expected_direction": "expense",
+      "confidence_floor": "medium",
+      "rationale_keywords": [
+        "office rent"
+      ]
+    }
+  ]
+}
