@@ -143,6 +143,9 @@ def test_settings_include_ai_provider_selection_defaults() -> None:
     assert settings.chandraocr_language == "en"
     assert settings.ollama_base_url == "http://localhost:11434"
     assert settings.ollama_model == "llama3.1:8b"
+    assert settings.openai_api_key == ""
+    assert settings.openai_base_url == "https://api.openai.com/v1"
+    assert settings.openai_model == "gpt-5.2"
 
     privacy_policy = build_provider_privacy_policy(
         allow_cloud_providers=settings.provider_allow_cloud,
@@ -175,6 +178,20 @@ def test_settings_can_select_local_free_providers(
     assert settings.llm_provider == LLMProviderType.OLLAMA
     assert settings.ollama_model == "qwen2.5:7b"
     assert settings.provider_max_retries == 3
+
+
+def test_settings_can_select_openai_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-5.2")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.llm_provider == LLMProviderType.OPENAI
+    assert settings.openai_api_key == "test-key"
+    assert settings.openai_model == "gpt-5.2"
 
 
 def test_settings_can_select_chandraocr_provider(

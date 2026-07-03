@@ -265,8 +265,8 @@ stable.
 - [x] Add provider cost tracking.
 - [x] Add prompt registry.
 - [x] Add structured output validation.
-- [ ] Add OpenAI provider adapter or chosen first provider.
-- [ ] Add local/Ollama provider adapter if desired.
+- [x] Add OpenAI provider adapter or chosen first provider.
+- [x] Add local/Ollama provider adapter if desired.
 - [ ] Add NVIDIA NIM provider configuration.
 - [ ] Add NVIDIA NIM LLM provider adapter.
 - [ ] Add NVIDIA NIM OCR/document parsing provider adapter.

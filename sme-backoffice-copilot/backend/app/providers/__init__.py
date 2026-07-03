@@ -49,6 +49,7 @@ from app.providers.ocr import (
     OCRTextBlock,
 )
 from app.providers.ollama import OllamaLLMProvider
+from app.providers.openai import OpenAIResponsesLLMProvider
 from app.providers.privacy import (
     ProviderDataSensitivity,
     ProviderDataUseCase,
@@ -115,6 +116,7 @@ __all__ = [
     "OCRExtractionMode",
     "OCRInput",
     "OllamaLLMProvider",
+    "OpenAIResponsesLLMProvider",
     "OCRProvider",
     "OCRProviderRunContext",
     "OCRRequestOptions",
