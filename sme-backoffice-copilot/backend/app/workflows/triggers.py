@@ -5,6 +5,10 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from app.services.document_events import DocumentIngested
+from app.services.workflow_outputs import (
+    MaterializedInvoiceReview,
+    WorkflowOutputPersistenceService,
+)
 from app.workflows.contracts import (
     WorkflowArtifactRef,
     WorkflowState,
@@ -51,11 +55,14 @@ class DocumentIngestedWorkflowPublisher:
         self,
         *,
         runner: WorkflowReplayRunner,
+        output_persistence_service: WorkflowOutputPersistenceService | None = None,
         commit: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self.runner = runner
+        self.output_persistence_service = output_persistence_service
         self.commit = commit
         self.last_result: WorkflowReplayResult | None = None
+        self.last_materialized_invoice_review: MaterializedInvoiceReview | None = None
 
     async def publish_document_ingested(self, event: DocumentIngested) -> None:
         """Trigger a local workflow run for an accepted document."""
@@ -66,5 +73,11 @@ class DocumentIngestedWorkflowPublisher:
             scenario=ReplayScenario.HAPPY_PATH,
             correlation_id=f"document-ingested:{event.event_id}",
         )
+        if self.output_persistence_service is not None:
+            service = self.output_persistence_service
+            materialized = await service.persist_invoice_review_from_workflow_result(
+                self.last_result
+            )
+            self.last_materialized_invoice_review = materialized
         if self.commit is not None:
             await self.commit()

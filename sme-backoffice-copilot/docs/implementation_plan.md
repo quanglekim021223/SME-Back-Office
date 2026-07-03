@@ -293,9 +293,9 @@ path.
 - [x] Trigger workflow from `DocumentIngested` event.
 - [x] Convert OCR output into workflow state.
 - [x] Convert LLM output into invoice extraction group contracts.
-- [ ] Persist extracted invoice proposal.
-- [ ] Create review task from extracted invoice proposal.
-- [ ] Show generated review task in frontend review queue.
+- [x] Persist extracted invoice proposal.
+- [x] Create review task from extracted invoice proposal.
+- [x] Show generated review task in frontend review queue.
 - [ ] Add local upload-to-review smoke test with mock providers.
 - [ ] Add local upload-to-review smoke test with Ollama provider.
 - [ ] Add failure path when provider output fails validation.

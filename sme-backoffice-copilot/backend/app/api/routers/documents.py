@@ -36,6 +36,10 @@ from app.services.document_ingestion import (
     SqlAlchemyDocumentPersistence,
 )
 from app.services.document_storage import FileValidationError, LocalDocumentStorage
+from app.services.workflow_outputs import (
+    SqlAlchemyWorkflowOutputPersistence,
+    WorkflowOutputPersistenceService,
+)
 from app.workflows.replay import WorkflowReplayRunner
 from app.workflows.triggers import DocumentIngestedWorkflowPublisher
 
@@ -71,6 +75,9 @@ def get_document_workflow_publisher(
     )
     return DocumentIngestedWorkflowPublisher(
         runner=runner,
+        output_persistence_service=WorkflowOutputPersistenceService(
+            SqlAlchemyWorkflowOutputPersistence(session),
+        ),
         commit=workflow_repository.commit,
     )
 
