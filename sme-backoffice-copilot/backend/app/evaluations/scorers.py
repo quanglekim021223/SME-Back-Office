@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import csv
-from collections.abc import Mapping, Sequence
-from decimal import Decimal
+from collections.abc import Collection, Mapping, Sequence
+from decimal import ROUND_HALF_UP, Decimal
 from io import StringIO
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -17,8 +17,12 @@ from app.evaluations.datasets import (
     ExpectedInvoiceLineItemLabel,
     ExpectedReconciliationLabel,
     ExpectedReconciliationMatchLabel,
+    ExpectedReviewRoutingLabel,
+    ExpectedReviewTaskLabel,
 )
+from app.insights import FinancialAggregateReport, GroundedInsight
 from app.models.banking import TransactionDirection
+from app.models.operations import ReviewTaskPriority, ReviewTaskType
 from app.reconciliation.deterministic import ReconciliationCandidate
 from app.validation import parse_decimal
 from app.workflows.contracts import ConfidenceLevel
@@ -68,6 +72,17 @@ class StatementParsingExpectedRow(BaseModel):
     amount: Decimal
     currency: str = Field(min_length=3, max_length=3)
     running_balance: Decimal | None = None
+
+
+class ReviewRoutingActualTask(BaseModel):
+    """Actual review task emitted by a workflow for review-routing evaluation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_type: ReviewTaskType
+    target_ref: str = Field(min_length=1)
+    reason_code: str = Field(min_length=1)
+    priority: ReviewTaskPriority = ReviewTaskPriority.NORMAL
 
 
 def score_extraction(
@@ -381,6 +396,176 @@ def score_reconciliation(
     )
 
 
+def score_insight_groundedness(
+    *,
+    report: FinancialAggregateReport,
+    insights: Sequence[GroundedInsight],
+) -> EvaluationScore:
+    """Score whether generated insights are grounded in source aggregate data."""
+
+    source_metrics = report_metric_map(report)
+    allowed_evidence_refs = report_evidence_refs(report)
+    checks: list[EvaluationCheck] = [
+        check_minimum_int("insight_count", 1, len(insights))
+    ]
+
+    for index, insight in enumerate(insights, start=1):
+        prefix = f"insight[{index}:{insight.insight_type.value}]"
+        checks.extend(
+            [
+                check_minimum_int(
+                    f"{prefix}.evidence_ref_count",
+                    1,
+                    len(insight.evidence_refs),
+                ),
+                check_minimum_int(
+                    f"{prefix}.source_metric_key_count",
+                    1,
+                    len(insight.source_metric_keys),
+                ),
+                check_minimum_int(
+                    f"{prefix}.metric_count",
+                    1,
+                    len(insight.metrics),
+                ),
+            ]
+        )
+
+        for evidence_ref in insight.evidence_refs:
+            checks.append(
+                check_collection_member(
+                    f"{prefix}.evidence_ref[{evidence_ref}]",
+                    expected_collection=allowed_evidence_refs,
+                    actual=evidence_ref,
+                    missing_message=(
+                        "Insight cites evidence not present in the source report."
+                    ),
+                )
+            )
+
+        for metric_key in insight.source_metric_keys:
+            source_value = source_metrics.get(metric_key)
+            actual_value = insight.metrics.get(metric_key)
+            if metric_key not in source_metrics:
+                checks.append(
+                    failed_check(
+                        f"{prefix}.source_metric[{metric_key}].available",
+                        expected="source_metric_present",
+                        actual="missing",
+                    )
+                )
+                continue
+            if metric_key not in insight.metrics:
+                checks.append(
+                    failed_check(
+                        f"{prefix}.metric[{metric_key}].present",
+                        expected="present",
+                        actual="missing",
+                    )
+                )
+                continue
+            checks.append(
+                check_metric_value(
+                    f"{prefix}.metric[{metric_key}]",
+                    expected=source_value,
+                    actual=actual_value,
+                )
+            )
+
+        for metric_key, actual_value in insight.metrics.items():
+            if metric_key not in source_metrics:
+                checks.append(
+                    failed_check(
+                        f"{prefix}.metric[{metric_key}].grounded",
+                        expected="known_source_metric",
+                        actual="unsupported_metric",
+                    )
+                )
+                continue
+            checks.append(
+                check_metric_value(
+                    f"{prefix}.metric[{metric_key}].grounded",
+                    expected=source_metrics[metric_key],
+                    actual=actual_value,
+                )
+            )
+
+    return build_score(
+        scorer_name="insight_groundedness_scorer",
+        checks=checks,
+        metrics={
+            "source_report_schema_version": report.schema_version,
+            "source_transaction_count": report.transaction_count,
+            "insight_count": len(insights),
+            "allowed_evidence_ref_count": len(allowed_evidence_refs),
+        },
+    )
+
+
+def score_review_routing(
+    *,
+    expected: ExpectedReviewRoutingLabel,
+    actual_tasks: Sequence[ReviewRoutingActualTask],
+) -> EvaluationScore:
+    """Score human-review routing decisions against expected review labels."""
+
+    expected_by_key = {review_task_key(task): task for task in expected.expected_tasks}
+    actual_by_key = {review_task_key(task): task for task in actual_tasks}
+    checks: list[EvaluationCheck] = [
+        check_exact(
+            "review_routing.should_create_review_task",
+            expected.should_create_review_task,
+            bool(actual_tasks),
+        ),
+        check_exact(
+            "review_routing.task_count",
+            len(expected.expected_tasks),
+            len(actual_tasks),
+        ),
+    ]
+
+    for expected_task in expected.expected_tasks:
+        key = review_task_key(expected_task)
+        actual_task = actual_by_key.get(key)
+        if actual_task is None:
+            checks.append(
+                failed_check(
+                    f"review_routing.task[{key}].present",
+                    expected="present",
+                    actual="missing",
+                )
+            )
+            continue
+        checks.append(
+            check_exact(
+                f"review_routing.task[{key}].priority",
+                expected_task.priority.value,
+                actual_task.priority.value,
+            )
+        )
+
+    for actual_task in actual_tasks:
+        key = review_task_key(actual_task)
+        if key not in expected_by_key:
+            checks.append(
+                failed_check(
+                    f"review_routing.task[{key}].expected",
+                    expected="known_expected_task",
+                    actual="unexpected_task",
+                )
+            )
+
+    return build_score(
+        scorer_name="review_routing_scorer",
+        checks=checks,
+        metrics={
+            "case_id": expected.case_id,
+            "expected_task_count": len(expected.expected_tasks),
+            "actual_task_count": len(actual_tasks),
+        },
+    )
+
+
 def score_line_item(
     *,
     expected: ExpectedInvoiceLineItemLabel,
@@ -531,6 +716,102 @@ def find_reconciliation_candidate(
         ):
             return candidate
     return None
+
+
+def report_metric_map(report: FinancialAggregateReport) -> dict[str, object | None]:
+    """Return source metrics allowed for grounded insight evaluation."""
+
+    metrics: dict[str, object | None] = {
+        "period_start": report.period_start.isoformat()
+        if report.period_start is not None
+        else None,
+        "period_end": report.period_end.isoformat()
+        if report.period_end is not None
+        else None,
+        "currency": report.currency,
+        "opening_balance": report.opening_balance,
+        "closing_balance": report.closing_balance,
+        "expected_closing_balance": report.expected_closing_balance,
+        "closing_balance_variance": report.closing_balance_variance,
+        "transaction_count": report.transaction_count,
+        "inflow_count": report.inflow_count,
+        "outflow_count": report.outflow_count,
+        "total_inflow": report.total_inflow,
+        "total_outflow": report.total_outflow,
+        "total_outflow_abs": report.total_outflow_abs,
+        "net_change": report.net_change,
+        "largest_inflow_ref": report.largest_inflow_ref,
+        "largest_inflow_amount": report.largest_inflow_amount,
+        "largest_outflow_ref": report.largest_outflow_ref,
+        "largest_outflow_amount": report.largest_outflow_amount,
+    }
+    if report.total_inflow > Decimal("0") and report.largest_inflow_amount is not None:
+        metrics["largest_inflow_concentration_percent"] = (
+            report.largest_inflow_amount / report.total_inflow * Decimal("100")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return metrics
+
+
+def report_evidence_refs(report: FinancialAggregateReport) -> set[str]:
+    """Return evidence references allowed for grounded insight evaluation."""
+
+    evidence_refs = set(report.transaction_evidence_refs)
+    evidence_refs.update(report.inflow_evidence_refs)
+    evidence_refs.update(report.outflow_evidence_refs)
+    for aggregate in report.category_totals:
+        evidence_refs.update(aggregate.evidence_refs)
+    if report.largest_inflow_ref is not None:
+        evidence_refs.add(report.largest_inflow_ref)
+    if report.largest_outflow_ref is not None:
+        evidence_refs.add(report.largest_outflow_ref)
+    return evidence_refs
+
+
+def review_task_key(
+    task: ExpectedReviewTaskLabel | ReviewRoutingActualTask,
+) -> str:
+    """Return a stable identity key for expected or actual review tasks."""
+
+    return f"{task.task_type.value}:{task.target_ref}:{task.reason_code}"
+
+
+def check_collection_member(
+    name: str,
+    *,
+    expected_collection: Collection[str],
+    actual: str,
+    missing_message: str,
+) -> EvaluationCheck:
+    """Check that a value is a member of an allowed collection."""
+
+    passed = actual in expected_collection
+    return EvaluationCheck(
+        name=name,
+        passed=passed,
+        expected="member_of_allowed_set",
+        actual=actual if passed else f"unsupported:{actual}",
+        message=None if passed else missing_message,
+    )
+
+
+def check_metric_value(
+    name: str,
+    *,
+    expected: object | None,
+    actual: object | None,
+) -> EvaluationCheck:
+    """Check source metric equality with decimal tolerance when possible."""
+
+    expected_decimal = parse_decimal(expected)
+    actual_decimal = parse_decimal(actual)
+    if expected_decimal is not None or actual_decimal is not None:
+        return check_decimal(
+            name,
+            expected_decimal,
+            actual,
+            tolerance=Decimal("0.01"),
+        )
+    return check_text(name, expected, actual)
 
 
 def check_unmatched_reference_absent(

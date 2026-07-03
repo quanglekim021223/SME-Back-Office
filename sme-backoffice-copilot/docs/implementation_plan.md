@@ -245,8 +245,8 @@ Goal: make quality measurable before using real AI providers.
 - [x] Implement statement parsing scorer.
 - [x] Implement classification scorer.
 - [x] Implement reconciliation scorer.
-- [ ] Implement insight groundedness scorer.
-- [ ] Implement review-routing scorer.
+- [x] Implement insight groundedness scorer.
+- [x] Implement review-routing scorer.
 - [ ] Implement workflow replay evaluation.
 - [ ] Add evaluation report output.
 - [ ] Add evaluation command to README.

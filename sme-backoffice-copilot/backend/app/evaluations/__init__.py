@@ -32,11 +32,14 @@ from app.evaluations.datasets import (
 from app.evaluations.scorers import (
     EvaluationCheck,
     EvaluationScore,
+    ReviewRoutingActualTask,
     StatementParsingExpectedRow,
     parse_statement_csv_expected_rows,
     score_classification,
     score_extraction,
+    score_insight_groundedness,
     score_reconciliation,
+    score_review_routing,
     score_statement_parsing,
 )
 
@@ -70,10 +73,13 @@ __all__ = [
     "load_expected_review_routing_label",
     "EvaluationCheck",
     "EvaluationScore",
+    "ReviewRoutingActualTask",
     "StatementParsingExpectedRow",
     "parse_statement_csv_expected_rows",
     "score_classification",
     "score_extraction",
+    "score_insight_groundedness",
     "score_reconciliation",
+    "score_review_routing",
     "score_statement_parsing",
 ]

@@ -2,17 +2,27 @@ from decimal import Decimal
 
 from app.classification.rules import CategoryClassificationResult
 from app.evaluations import (
+    ReviewRoutingActualTask,
     load_dataset_fixture_text,
     load_expected_classification_label,
     load_expected_extraction_label,
     load_expected_reconciliation_label,
+    load_expected_review_routing_label,
     parse_statement_csv_expected_rows,
     score_classification,
     score_extraction,
+    score_insight_groundedness,
     score_reconciliation,
+    score_review_routing,
     score_statement_parsing,
 )
+from app.fixtures import load_statement_parsing_fixture
+from app.insights import (
+    DeterministicFinancialAggregateService,
+    GroundedInsightMockGenerator,
+)
 from app.models.accounting import CategoryType
+from app.models.operations import ReviewTaskPriority, ReviewTaskType
 from app.reconciliation.deterministic import (
     ReconciliationCandidate,
     ReconciliationScoreBreakdown,
@@ -254,6 +264,126 @@ def test_reconciliation_scorer_reports_unexpected_unmatched_candidate() -> None:
     assert score.passed is False
     assert any(
         check.name == "reconciliation.unmatched[ADS-JUL-2026]" and not check.passed
+        for check in score.checks
+    )
+
+
+def test_insight_groundedness_scorer_scores_generated_insights() -> None:
+    report = DeterministicFinancialAggregateService().compute_from_statement_fixture(
+        load_statement_parsing_fixture()
+    )
+    package = GroundedInsightMockGenerator().generate(report)
+
+    score = score_insight_groundedness(report=report, insights=package.insights)
+
+    assert score.passed is True
+    assert score.score == 1.0
+    assert score.metrics["insight_count"] == 3
+
+
+def test_insight_groundedness_scorer_reports_unsupported_evidence() -> None:
+    report = DeterministicFinancialAggregateService().compute_from_statement_fixture(
+        load_statement_parsing_fixture()
+    )
+    package = GroundedInsightMockGenerator().generate(report)
+    unsupported_insight = package.insights[0].model_copy(
+        update={"evidence_refs": ["statement_transaction:unknown"]}
+    )
+
+    score = score_insight_groundedness(report=report, insights=[unsupported_insight])
+
+    assert score.passed is False
+    assert any(
+        "evidence_ref[statement_transaction:unknown]" in check.name and not check.passed
+        for check in score.checks
+    )
+
+
+def test_insight_groundedness_scorer_reports_unsupported_metric() -> None:
+    report = DeterministicFinancialAggregateService().compute_from_statement_fixture(
+        load_statement_parsing_fixture()
+    )
+    package = GroundedInsightMockGenerator().generate(report)
+    insight = package.insights[0]
+    unsupported_insight = insight.model_copy(
+        update={"metrics": {**insight.metrics, "fabricated_metric": "999.00"}}
+    )
+
+    score = score_insight_groundedness(report=report, insights=[unsupported_insight])
+
+    assert score.passed is False
+    assert any(
+        check.name.endswith(".metric[fabricated_metric].grounded") and not check.passed
+        for check in score.checks
+    )
+
+
+def test_review_routing_scorer_scores_expected_review_tasks() -> None:
+    expected = load_expected_review_routing_label(
+        case_id="statement_operating_july_2026"
+    )
+    actual_tasks = [
+        ReviewRoutingActualTask(
+            task_type=ReviewTaskType.RECONCILIATION,
+            target_ref="transaction:ADS-JUL-2026",
+            reason_code="missing_supporting_document",
+            priority=ReviewTaskPriority.NORMAL,
+        ),
+        ReviewRoutingActualTask(
+            task_type=ReviewTaskType.RECONCILIATION,
+            target_ref="transaction:RENT-JUL-2026",
+            reason_code="missing_supporting_document",
+            priority=ReviewTaskPriority.NORMAL,
+        ),
+    ]
+
+    score = score_review_routing(expected=expected, actual_tasks=actual_tasks)
+
+    assert score.passed is True
+    assert score.score == 1.0
+    assert score.metrics["actual_task_count"] == 2
+
+
+def test_review_routing_scorer_reports_missing_expected_task() -> None:
+    expected = load_expected_review_routing_label(
+        case_id="statement_operating_july_2026"
+    )
+    actual_tasks = [
+        ReviewRoutingActualTask(
+            task_type=ReviewTaskType.RECONCILIATION,
+            target_ref="transaction:ADS-JUL-2026",
+            reason_code="missing_supporting_document",
+            priority=ReviewTaskPriority.NORMAL,
+        )
+    ]
+
+    score = score_review_routing(expected=expected, actual_tasks=actual_tasks)
+
+    assert score.passed is False
+    assert any(
+        "transaction:RENT-JUL-2026" in check.name and not check.passed
+        for check in score.checks
+    )
+
+
+def test_review_routing_scorer_reports_unexpected_task_for_clean_case() -> None:
+    expected = load_expected_review_routing_label(
+        case_id="invoice_revenue_services_001"
+    )
+    actual_tasks = [
+        ReviewRoutingActualTask(
+            task_type=ReviewTaskType.EXTRACTION,
+            target_ref="invoice:INV-EVAL-001",
+            reason_code="low_confidence",
+            priority=ReviewTaskPriority.HIGH,
+        )
+    ]
+
+    score = score_review_routing(expected=expected, actual_tasks=actual_tasks)
+
+    assert score.passed is False
+    assert any(
+        check.name == "review_routing.should_create_review_task" and not check.passed
         for check in score.checks
     )
 
