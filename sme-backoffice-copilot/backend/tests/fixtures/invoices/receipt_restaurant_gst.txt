@@ -1,0 +1,22 @@
+SHIVSAGAR
+Veg Restaurant
+NH 3,Mumbai Nashik Highway
+Opp.Bhoir Pada Bus Stop,Near Padga
+Bhiwandi,Thane
+TAX INVOICE
+Date : 01/07/17
+Bill No. : 53
+T.No.: 6
+W. No. : 18
+Particulars
+Qty Rate Amount
+MISAL PAV 2 85 170
+BATATA WADA 1 70 70
+MEDU WADA 1 80 80
+FILTER COFFEE 1 35 35
+Sub Total : 355.00
+S.G.S.T @9% : 31.95
+C.G.S.T @9% : 31.95
+Food Total : 418.9
+Total 419
+GST-27AASCS2460H1Z0

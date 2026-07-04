@@ -39,7 +39,14 @@ def parse_invoice_metadata_group_payload(
     lines = normalized_lines(ocr_text)
     invoice_number = find_invoice_number(ocr_text) or find_labeled_value(
         lines,
-        labels=("invoice #", "invoice no", "invoice number", "no."),
+        labels=(
+            "invoice #",
+            "invoice no",
+            "invoice number",
+            "bill no",
+            "receipt no",
+            "no.",
+        ),
         value_pattern=r"([A-Z0-9][A-Z0-9-]*)",
     )
     issue_date = normalize_invoice_date(
@@ -213,15 +220,23 @@ def normalize_invoice_date(value: str | None) -> str | None:
         return value
 
     first, second, year = parts
-    if len(year) == 2:
+    is_short_year = len(year) == 2
+    if is_short_year:
         year = f"20{year}"
 
     try:
-        month = int(first)
-        day = int(second)
+        first_number = int(first)
+        second_number = int(second)
         normalized_year = int(year)
     except ValueError:
         return value
+
+    if is_short_year and first_number <= 31 and second_number <= 12:
+        day = first_number
+        month = second_number
+    else:
+        month = first_number
+        day = second_number
 
     if not (1 <= month <= 12 and 1 <= day <= 31):
         return value
@@ -246,6 +261,7 @@ def find_invoice_number(text: str) -> str | None:
 
     cleaned = clean_ocr_text(text)
     patterns = (
+        r"\b(?:bill|receipt)\s*no\.?\s*:?\s*([A-Z0-9][A-Z0-9-]*)\b",
         r"\bno\.?\s*([0-9]{3,})\b",
         r"\binvoice\s*(?:#|no\.?|number|num|[:*])?\s*[#:'‘’“”]*\s*([A-Z0-9][A-Z0-9-]{3,})",
         r"\binvoice\s+[A-Za-z\s]{0,24}?[#:'‘’“”]*\s*([0-9]{4,})",

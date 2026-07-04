@@ -318,10 +318,10 @@ of only flattened OCR text.
 - [x] Pass layout regions to metadata/table/totals extractor agents.
 - [x] Prefer region-aware extraction over plain-text fallback.
 - [x] Keep deterministic fallback as a safety net instead of the primary extractor.
-- [ ] Add regression invoice fixtures for multi-column invoices.
-- [ ] Add receipt-style invoice regression fixture.
-- [ ] Add `Bill No.` / `Receipt No.` invoice-number extraction rule.
-- [ ] Add locale-aware date parsing for `DD/MM/YY` receipts.
+- [x] Add regression invoice fixtures for multi-column invoices.
+- [x] Add receipt-style invoice regression fixture.
+- [x] Add `Bill No.` / `Receipt No.` invoice-number extraction rule.
+- [x] Add locale-aware date parsing for `DD/MM/YY` receipts.
 - [ ] Add subtotal-vs-line-items QA validator.
 - [ ] Route subtotal mismatch to human review with structured QA error signal.
 - [ ] Add angled-photo invoice regression fixture.
