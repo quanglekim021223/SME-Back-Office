@@ -305,27 +305,35 @@ class WorkflowReplayRunner:
         if is_terminal_agent_result(layout_result):
             return layout_result
 
-        await self._run_agent(
+        metadata_result = await self._run_agent(
             workflow_run=workflow_run,
             state=state,
             context=context,
             agent=MetadataExtractorAgent(),
             handoff=self._handoff_to(layout_result, METADATA_EXTRACTOR_AGENT),
         )
-        await self._run_agent(
+        if is_terminal_agent_result(metadata_result):
+            return metadata_result
+
+        table_result = await self._run_agent(
             workflow_run=workflow_run,
             state=state,
             context=context,
             agent=TableExtractorAgent(),
             handoff=self._handoff_to(layout_result, TABLE_EXTRACTOR_AGENT),
         )
-        await self._run_agent(
+        if is_terminal_agent_result(table_result):
+            return table_result
+
+        totals_result = await self._run_agent(
             workflow_run=workflow_run,
             state=state,
             context=context,
             agent=TotalsExtractorAgent(),
             handoff=self._handoff_to(layout_result, TOTALS_EXTRACTOR_AGENT),
         )
+        if is_terminal_agent_result(totals_result):
+            return totals_result
 
         assembly_result = await self._run_agent(
             workflow_run=workflow_run,

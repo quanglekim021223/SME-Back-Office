@@ -979,7 +979,15 @@ def record_provider_extraction_error(
     error_code: str | None,
     error_message: str | None,
 ) -> None:
-    """Record provider extraction failures for later review/debug metadata."""
+    """Record provider extraction failures for later review/debug metadata.
+
+    Also emits a non-retryable BLOCKING QA signal so the QA validation agent
+    routes the workflow to REVIEW_REQUIRED when a provider produces invalid or
+    missing output.  This covers two distinct failure paths:
+
+    * Provider call fails (ProviderError / missing structured output).
+    * Provider output passes the LLM call but fails Pydantic schema validation.
+    """
 
     errors = state.scratchpad.setdefault(PROVIDER_EXTRACTION_ERRORS_KEY, [])
     if not isinstance(errors, list):
@@ -991,6 +999,25 @@ def record_provider_extraction_error(
             "error_code": error_code,
             "error_message": error_message,
         }
+    )
+
+    signal_code = (
+        error_code
+        if error_code is not None and error_code.strip()
+        else "ERR_PROVIDER_EXTRACTION_FAILED"
+    )
+    state.qa_error_signals.append(
+        QAErrorSignal(
+            code=signal_code,
+            severity=QAErrorSeverity.BLOCKING,
+            message=(
+                f"{agent_name} provider extraction failed and requires human review: "
+                f"{error_message or 'unknown error'}"
+            ),
+            source_agent=agent_name,
+            correction_target=None,
+            retryable=False,
+        )
     )
 
 

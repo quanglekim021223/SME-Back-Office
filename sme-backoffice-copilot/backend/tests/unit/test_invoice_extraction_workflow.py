@@ -568,3 +568,132 @@ async def test_qa_validation_agent_routes_targeted_self_correction() -> None:
     assert correction_handoff.stage == WorkflowStage.TOTALS_EXTRACTION
     assert correction_handoff.qa_error_signal == signal
     assert correction_handoff.payload["field_path"] == "invoice.total_amount"
+
+
+@pytest.mark.asyncio
+async def test_qa_validation_agent_routes_to_review_required_for_blocking_signal() -> (
+    None
+):
+    """QA returns REVIEW_REQUIRED when a non-retryable BLOCKING signal is present.
+
+    This is the failure path routed by record_provider_extraction_error when a
+    provider produces invalid or missing output.
+    """
+    from app.workflows.contracts import QAErrorSeverity, QAErrorSignal
+
+    state = create_state()
+    context = create_context(state)
+    blocking_signal = QAErrorSignal(
+        code="ERR_LLM_PROVIDER_FAILED",
+        severity=QAErrorSeverity.BLOCKING,
+        message="Metadata extractor provider extraction failed and requires human review.",
+        source_agent=METADATA_EXTRACTOR_AGENT,
+        retryable=False,
+    )
+    state.qa_error_signals.append(blocking_signal)
+
+    result = await QAValidationAgent().run(state=state, context=context)
+
+    assert result.status == AgentRunStatus.REVIEW_REQUIRED
+    assert result.output["validation_status"] == "review_required"
+    assert result.output["qa_error_count"] == 1
+    assert result.qa_error_signals == [blocking_signal]
+    assert result.handoffs == []
+
+
+@pytest.mark.asyncio
+async def test_invoice_extractor_emits_blocking_qa_signal_when_provider_schema_fails() -> (
+    None
+):
+    """When the LLM returns a schema-invalid shape, a blocking QA signal is added.
+
+    This covers Task 1: failure path when provider output fails validation.  Even
+    though the extractor succeeds via OCR fallback, the blocking QA signal ensures
+    QA routes the workflow to REVIEW_REQUIRED for human review.
+    """
+    state = create_state()
+    state.scratchpad[OCR_FULL_TEXT_KEY] = COMMON_INVOICE_OCR_TEXT
+    context = AgentExecutionContext(
+        tenant_id=state.tenant_id,
+        document_id=state.document_id,
+        workflow_run_id=state.workflow_run_id,
+        provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+        llm_provider=InvalidStructuredOutputLLMProvider(),
+    )
+
+    result = await MetadataExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=METADATA_EXTRACTOR_AGENT,
+            stage=WorkflowStage.METADATA_EXTRACTION,
+        ),
+    )
+
+    assert result.status == AgentRunStatus.SUCCEEDED
+    assert PROVIDER_EXTRACTION_ERRORS_KEY in state.scratchpad
+    # A blocking, non-retryable QA signal must be present so QA can route to
+    # REVIEW_REQUIRED even though the extractor itself returned SUCCEEDED.
+    assert len(state.qa_error_signals) == 1
+    qa_signal = state.qa_error_signals[0]
+    assert qa_signal.severity.value == "blocking"
+    assert qa_signal.retryable is False
+    assert qa_signal.source_agent == METADATA_EXTRACTOR_AGENT
+
+
+@pytest.mark.asyncio
+async def test_invoice_extractor_emits_blocking_qa_signal_when_provider_call_fails() -> (
+    None
+):
+    """When the LLM provider raises a ProviderError, a blocking QA signal is added.
+
+    This covers Task 2: fallback to review-required state when provider fails.
+    The extractor falls back to OCR text but the blocking signal ensures QA routes
+    to REVIEW_REQUIRED rather than silently completing with partial data.
+    """
+    from app.providers.errors import ProviderExecutionError
+
+    class FailingLLMProvider:
+        @property
+        def name(self) -> str:
+            return "failing_llm"
+
+        async def generate(
+            self,
+            *,
+            request: LLMGenerationRequest,
+            context: LLMProviderRunContext,
+        ) -> LLMGenerationResult:
+            del request, context
+            raise ProviderExecutionError("LLM service unavailable.")
+
+    state = create_state()
+    state.scratchpad[OCR_FULL_TEXT_KEY] = COMMON_INVOICE_OCR_TEXT
+    context = AgentExecutionContext(
+        tenant_id=state.tenant_id,
+        document_id=state.document_id,
+        workflow_run_id=state.workflow_run_id,
+        provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+        llm_provider=FailingLLMProvider(),
+    )
+
+    result = await MetadataExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=METADATA_EXTRACTOR_AGENT,
+            stage=WorkflowStage.METADATA_EXTRACTION,
+        ),
+    )
+
+    assert result.status == AgentRunStatus.SUCCEEDED
+    assert PROVIDER_EXTRACTION_ERRORS_KEY in state.scratchpad
+    assert len(state.qa_error_signals) == 1
+    qa_signal = state.qa_error_signals[0]
+    assert qa_signal.severity.value == "blocking"
+    assert qa_signal.retryable is False
+    assert qa_signal.source_agent == METADATA_EXTRACTOR_AGENT
+    assert "ERR_LLM_PROVIDER_FAILED" in qa_signal.code
+

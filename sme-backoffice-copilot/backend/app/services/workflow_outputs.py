@@ -135,19 +135,22 @@ class WorkflowOutputPersistenceService:
         """Persist extracted invoice proposal and its human review task.
 
         The workflow may complete without an invoice draft for unsupported document
-        types or failed provider output. In those cases this method returns ``None``
-        and leaves the review queue unchanged.
+        types or failed provider output. Provider failures create a document-level
+        review task so the upload never disappears from human review.
         """
 
         draft = get_assembled_invoice_draft(result)
         if draft is None:
-            if result.state.status == WorkflowStateStatus.FAILED:
+            if result.state.status in {
+                WorkflowStateStatus.FAILED,
+                WorkflowStateStatus.REVIEW_REQUIRED,
+            }:
                 review_task = build_review_task_for_failed_workflow(result)
                 self.persistence.add_review_task(review_task)
                 await self.persistence.mark_document_status(
                     tenant_id=result.state.tenant_id,
                     document_id=result.state.document_id,
-                    status=DocumentStatus.FAILED,
+                    status=DocumentStatus.REVIEW_REQUIRED,
                 )
             return None
 

@@ -296,10 +296,10 @@ path.
 - [x] Persist extracted invoice proposal.
 - [x] Create review task from extracted invoice proposal.
 - [x] Show generated review task in frontend review queue.
-- [ ] Add local upload-to-review smoke test with mock providers.
+- [x] Add local upload-to-review smoke test with mock providers.
 - [ ] Add local upload-to-review smoke test with Ollama provider.
-- [ ] Add failure path when provider output fails validation.
-- [ ] Add fallback to review-required state when provider fails.
+- [x] Add failure path when provider output fails validation.
+- [x] Add fallback to review-required state when provider fails.
 
 ## Phase 9.5B — Layout-aware invoice extraction hardening
 

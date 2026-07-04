@@ -104,9 +104,12 @@ async def test_workflow_output_service_materializes_invoice_review_task() -> Non
     assert materialized.review_task.status == ReviewTaskStatus.OPEN.value
     assert materialized.review_task.evidence_refs == [
         "mock:page:1",
+        "ocr:text:fallback:metadata",
         "mock:page:1:table:row:1",
         "mock:page:1:table",
+        "ocr:text:fallback:table",
         "mock:page:1:totals",
+        "ocr:text:fallback:totals",
     ]
     assert persistence.document_status_updates == [
         (state.tenant_id, state.document_id, DocumentStatus.REVIEW_REQUIRED)
@@ -153,5 +156,40 @@ async def test_workflow_output_service_creates_review_task_when_workflow_fails()
     assert review_task.metadata_ is not None
     assert review_task.metadata_["source"] == "workflow_failure"
     assert persistence.document_status_updates == [
-        (state.tenant_id, state.document_id, DocumentStatus.FAILED)
+        (state.tenant_id, state.document_id, DocumentStatus.REVIEW_REQUIRED)
+    ]
+
+
+async def test_output_service_creates_review_task_for_review_required() -> None:
+    """Output service creates document review task for REVIEW_REQUIRED without draft.
+
+    This is a defensive path: if a workflow ends with REVIEW_REQUIRED status but the
+    assembled invoice draft is absent (e.g., early extractor termination), the document
+    must not silently disappear from the review queue.
+    """
+    from app.workflows.contracts import WorkflowStateStatus
+
+    state = create_replay_state()
+    # Run workflow normally without providers so it completes successfully.
+    result = await WorkflowReplayRunner().run(state=state)
+    # Simulate REVIEW_REQUIRED termination before assembly by clearing the draft and
+    # forcing the status.
+    result.state.scratchpad.pop("assembled_invoice_draft", None)
+    result.state.status = WorkflowStateStatus.REVIEW_REQUIRED
+
+    persistence = FakeWorkflowOutputPersistence()
+    service = WorkflowOutputPersistenceService(persistence)
+
+    materialized = await service.persist_invoice_review_from_workflow_result(result)
+
+    assert materialized is None
+    assert persistence.invoices == []
+    assert len(persistence.review_tasks) == 1
+    review_task = persistence.review_tasks[0]
+    assert review_task.document_id == state.document_id
+    assert review_task.invoice_id is None
+    assert review_task.task_type == ReviewTaskType.EXTRACTION.value
+    assert review_task.target_type == ReviewTargetType.DOCUMENT.value
+    assert persistence.document_status_updates == [
+        (state.tenant_id, state.document_id, DocumentStatus.REVIEW_REQUIRED)
     ]
