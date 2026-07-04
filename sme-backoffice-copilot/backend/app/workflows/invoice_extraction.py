@@ -34,6 +34,7 @@ from app.workflows.contracts import (
 from app.workflows.document_preparation import (
     METADATA_EXTRACTOR_AGENT,
     OCR_FULL_TEXT_KEY,
+    OCR_LAYOUT_REGIONS_KEY,
     TABLE_EXTRACTOR_AGENT,
     TOTALS_EXTRACTOR_AGENT,
     build_control_handoff,
@@ -291,8 +292,8 @@ async def run_llm_group_extraction_if_available(
     if context.provider_runtime is None or context.llm_provider is None:
         return None
 
-    ocr_text = state.scratchpad.get(OCR_FULL_TEXT_KEY)
-    if not isinstance(ocr_text, str) or not ocr_text.strip():
+    ocr_text = ocr_context_for_schema(state=state, schema_name=schema_name)
+    if not ocr_text.strip():
         return AgentRunResult(
             status=AgentRunStatus.FAILED,
             confidence=ConfidenceLevel.HIGH,
@@ -436,6 +437,42 @@ def invoice_group_schema_example(schema_name: str) -> str:
             "}"
         )
     return "{}"
+
+
+def ocr_context_for_schema(
+    *,
+    state: WorkflowState,
+    schema_name: str,
+) -> str:
+    """Return region-specific OCR context, falling back to full OCR text."""
+
+    regions = state.scratchpad.get(OCR_LAYOUT_REGIONS_KEY)
+    if isinstance(regions, dict):
+        region_names = region_names_for_schema(schema_name)
+        region_text = "\n\n".join(
+            text
+            for name in region_names
+            if isinstance((region := regions.get(name)), dict)
+            and isinstance((text := region.get("text")), str)
+            and text.strip()
+        )
+        if region_text.strip():
+            return region_text
+
+    full_text = state.scratchpad.get(OCR_FULL_TEXT_KEY)
+    return full_text if isinstance(full_text, str) else ""
+
+
+def region_names_for_schema(schema_name: str) -> tuple[str, ...]:
+    """Return OCR region names relevant to one invoice extraction group."""
+
+    if schema_name == "invoice-metadata-group.v1":
+        return ("header", "supplier", "bill_to", "ship_to")
+    if schema_name == "invoice-table-group.v1":
+        return ("line_item_table",)
+    if schema_name == "invoice-totals-group.v1":
+        return ("totals",)
+    return ()
 
 
 def contract_validation_failure_result(
@@ -1029,9 +1066,7 @@ def ocr_text_fallback_payload(
 ) -> dict[str, object] | None:
     """Build a group payload from OCR text when provider JSON is unusable."""
 
-    ocr_text = state.scratchpad.get(OCR_FULL_TEXT_KEY)
-    if not isinstance(ocr_text, str):
-        ocr_text = ""
+    ocr_text = ocr_context_for_schema(state=state, schema_name=schema_name)
     evidence_refs = get_handoff_evidence_refs(handoff)
 
     if schema_name == "invoice-metadata-group.v1":

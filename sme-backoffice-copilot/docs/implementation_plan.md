@@ -311,13 +311,13 @@ of only flattened OCR text.
 - [x] Normalize OCR provider output into common layout blocks.
 - [x] Store OCR layout blocks in shared workflow state.
 - [x] Store OCR layout diagnostics in workflow metadata.
-- [ ] Define document region contracts for header, supplier, bill-to, ship-to, line-item table, totals, and footer.
-- [ ] Implement OCR block grouping into page regions.
-- [ ] Implement layout-aware party role detection.
-- [ ] Implement layout-aware totals region detection.
-- [ ] Pass layout regions to metadata/table/totals extractor agents.
-- [ ] Prefer region-aware extraction over plain-text fallback.
-- [ ] Keep deterministic fallback as a safety net instead of the primary extractor.
+- [x] Define document region contracts for header, supplier, bill-to, ship-to, line-item table, totals, and footer.
+- [x] Implement OCR block grouping into page regions.
+- [x] Implement layout-aware party role detection.
+- [x] Implement layout-aware totals region detection.
+- [x] Pass layout regions to metadata/table/totals extractor agents.
+- [x] Prefer region-aware extraction over plain-text fallback.
+- [x] Keep deterministic fallback as a safety net instead of the primary extractor.
 - [ ] Add regression invoice fixtures for multi-column invoices.
 - [ ] Add receipt-style invoice regression fixture.
 - [ ] Add `Bill No.` / `Receipt No.` invoice-number extraction rule.

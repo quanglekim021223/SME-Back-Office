@@ -22,6 +22,7 @@ from app.workflows import (
     INVOICE_TOTALS_GROUP_KEY,
     METADATA_EXTRACTOR_AGENT,
     OCR_FULL_TEXT_KEY,
+    OCR_LAYOUT_REGIONS_KEY,
     QA_VALIDATION_AGENT,
     TABLE_EXTRACTOR_AGENT,
     TOTALS_EXTRACTOR_AGENT,
@@ -152,6 +153,48 @@ class OllamaStyleStructuredOutputLLMProvider:
             model_name="llama3.1:8b",
             output_text="{}",
             structured_output=structured_output,
+        )
+
+
+class CapturingLLMProvider:
+    def __init__(self) -> None:
+        self.requests: list[LLMGenerationRequest] = []
+
+    @property
+    def name(self) -> str:
+        return "mock_llm"
+
+    async def generate(
+        self,
+        *,
+        request: LLMGenerationRequest,
+        context: LLMProviderRunContext,
+    ) -> LLMGenerationResult:
+        del context
+        self.requests.append(request)
+        return LLMGenerationResult(
+            provider_name=self.name,
+            model_name="capture",
+            output_text="{}",
+            structured_output={
+                "schema_version": "invoice-table-group.v1",
+                "extraction_status": "extracted",
+                "line_items": [
+                    {
+                        "line_number": 1,
+                        "description": "Region item",
+                        "quantity": "1.00",
+                        "unit_price": "10.00",
+                        "tax_amount": None,
+                        "line_total": "10.00",
+                        "evidence_refs": [],
+                        "confidence": "medium",
+                    }
+                ],
+                "table_region_ref": "ocr:region:line_item_table",
+                "evidence_refs": [],
+                "confidence": "medium",
+            },
         )
 
 
@@ -504,6 +547,54 @@ async def test_invoice_extractors_normalize_ollama_style_json_shapes() -> None:
 
 
 @pytest.mark.asyncio
+async def test_table_extractor_prefers_layout_region_over_full_ocr_text() -> None:
+    state = create_state()
+    state.scratchpad[OCR_FULL_TEXT_KEY] = (
+        "Supplier: Header Supplier\n"
+        "Description Qty Unit Total\n"
+        "Region item 1.00 10.00 10.00\n"
+        "Footer terms should stay outside table prompt"
+    )
+    state.scratchpad[OCR_LAYOUT_REGIONS_KEY] = {
+        "line_item_table": {
+            "region_type": "line_item_table",
+            "block_ids": ["ocr:block:2"],
+            "text": "Description Qty Unit Total\nRegion item 1.00 10.00 10.00",
+            "bounding_box": None,
+            "confidence": None,
+            "source": "ocr_layout_blocks",
+        }
+    }
+    llm_provider = CapturingLLMProvider()
+    context = AgentExecutionContext(
+        tenant_id=state.tenant_id,
+        document_id=state.document_id,
+        workflow_run_id=state.workflow_run_id,
+        provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+        llm_provider=llm_provider,
+    )
+
+    result = await TableExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=TABLE_EXTRACTOR_AGENT,
+            stage=WorkflowStage.TABLE_EXTRACTION,
+        ),
+    )
+
+    assert result.status == AgentRunStatus.SUCCEEDED
+    assert len(llm_provider.requests) == 1
+    prompt_text = "\n".join(
+        message.content for message in llm_provider.requests[0].messages
+    )
+    assert "Region item 1.00 10.00 10.00" in prompt_text
+    assert "Header Supplier" not in prompt_text
+    assert "Footer terms" not in prompt_text
+
+
+@pytest.mark.asyncio
 async def test_invoice_assembly_node_combines_groups_and_routes_to_qa() -> None:
     state = create_state()
     context = create_context(state)
@@ -586,7 +677,9 @@ async def test_qa_validation_agent_routes_to_review_required_for_blocking_signal
     blocking_signal = QAErrorSignal(
         code="ERR_LLM_PROVIDER_FAILED",
         severity=QAErrorSeverity.BLOCKING,
-        message="Metadata extractor provider extraction failed and requires human review.",
+        message=(
+            "Metadata extractor provider extraction failed and requires human review."
+        ),
         source_agent=METADATA_EXTRACTOR_AGENT,
         retryable=False,
     )
@@ -602,9 +695,7 @@ async def test_qa_validation_agent_routes_to_review_required_for_blocking_signal
 
 
 @pytest.mark.asyncio
-async def test_invoice_extractor_emits_blocking_qa_signal_when_provider_schema_fails() -> (
-    None
-):
+async def test_extractor_emits_blocking_signal_on_bad_provider_schema() -> None:
     """When the LLM returns a schema-invalid shape, a blocking QA signal is added.
 
     This covers Task 1: failure path when provider output fails validation.  Even
@@ -643,9 +734,7 @@ async def test_invoice_extractor_emits_blocking_qa_signal_when_provider_schema_f
 
 
 @pytest.mark.asyncio
-async def test_invoice_extractor_emits_blocking_qa_signal_when_provider_call_fails() -> (
-    None
-):
+async def test_extractor_emits_blocking_signal_when_provider_call_fails() -> None:
     """When the LLM provider raises a ProviderError, a blocking QA signal is added.
 
     This covers Task 2: fallback to review-required state when provider fails.
@@ -696,4 +785,3 @@ async def test_invoice_extractor_emits_blocking_qa_signal_when_provider_call_fai
     assert qa_signal.retryable is False
     assert qa_signal.source_agent == METADATA_EXTRACTOR_AGENT
     assert "ERR_LLM_PROVIDER_FAILED" in qa_signal.code
-
