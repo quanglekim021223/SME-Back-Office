@@ -297,7 +297,7 @@ path.
 - [x] Create review task from extracted invoice proposal.
 - [x] Show generated review task in frontend review queue.
 - [x] Add local upload-to-review smoke test with mock providers.
-- [ ] Add local upload-to-review smoke test with Ollama provider.
+- [x] Add local upload-to-review smoke test with Ollama provider.
 - [x] Add failure path when provider output fails validation.
 - [x] Add fallback to review-required state when provider fails.
 

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -15,6 +16,8 @@ from app.models.operations import ReviewTask, ReviewTaskStatus, ReviewTaskType
 from app.providers import (
     MockLLMProvider,
     MockOCRProvider,
+    OllamaLLMProvider,
+    ProviderDeploymentMode,
     ProviderRuntime,
     build_default_provider_routing_config,
 )
@@ -214,6 +217,62 @@ async def test_local_upload_to_review_smoke_test_with_mock_providers(
     assert review_task.invoice_id == workflow_persistence.invoices[0].id
     assert review_task.task_type == ReviewTaskType.EXTRACTION.value
     assert review_task.status == ReviewTaskStatus.OPEN.value
+    assert workflow_persistence.document_status_updates[0][2] == (
+        DocumentStatus.REVIEW_REQUIRED
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.getenv("RUN_OLLAMA_SMOKE_TEST") != "1",
+    reason="Requires local Ollama server and model.",
+)
+async def test_local_upload_to_review_smoke_test_with_ollama_provider(
+    tmp_path: Path,
+) -> None:
+    document_persistence = FakeDocumentPersistence()
+    workflow_persistence = FakeWorkflowOutputPersistence()
+    ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+    publisher = DocumentIngestedWorkflowPublisher(
+        runner=WorkflowReplayRunner(
+            provider_runtime=ProviderRuntime(
+                build_default_provider_routing_config(
+                    llm_provider_name="ollama",
+                    llm_model_name=ollama_model,
+                    llm_deployment_mode=ProviderDeploymentMode.LOCAL,
+                    timeout_seconds=90.0,
+                    max_retries=0,
+                )
+            ),
+            llm_provider=OllamaLLMProvider(
+                base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+                model_name=ollama_model,
+                timeout_seconds=90.0,
+            ),
+            ocr_provider=MockOCRProvider(),
+        ),
+        output_persistence_service=WorkflowOutputPersistenceService(
+            workflow_persistence,
+        ),
+    )
+    service = create_service(
+        root_path=tmp_path,
+        persistence=document_persistence,
+        event_publisher=publisher,
+    )
+
+    result = await service.upload_document(
+        tenant_id=uuid4(),
+        filename="invoice.pdf",
+        content=b"%PDF-1.4 ollama smoke test invoice",
+        media_type="application/pdf",
+        document_type=DocumentType.INVOICE,
+    )
+
+    assert result.document.status == DocumentStatus.ACCEPTED.value
+    assert publisher.last_result is not None
+    assert len(workflow_persistence.review_tasks) == 1
+    assert workflow_persistence.review_tasks[0].status == ReviewTaskStatus.OPEN.value
     assert workflow_persistence.document_status_updates[0][2] == (
         DocumentStatus.REVIEW_REQUIRED
     )
