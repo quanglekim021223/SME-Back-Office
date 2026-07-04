@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: install format lint test test-unit test-integration db-upgrade db-downgrade seed-dev
+.PHONY: install format lint test test-unit test-integration db-upgrade db-downgrade seed-dev dev-reset
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -31,3 +31,6 @@ db-downgrade:
 
 seed-dev:
 	$(PYTHON) -m app.dev_seed
+
+dev-reset:
+	$(PYTHON) -m app.dev_reset --yes

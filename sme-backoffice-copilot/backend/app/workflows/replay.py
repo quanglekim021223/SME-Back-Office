@@ -8,13 +8,14 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import cast
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from app.models.workflow import AgentHandoff, AgentStepExecution, WorkflowRun
 from app.workflows.agents import (
     AgentExecutionContext,
     AgentRunResult,
+    AgentRunStatus,
     BaseAgent,
 )
 from app.workflows.contracts import (
@@ -54,6 +55,7 @@ from app.workflows.invoice_extraction import (
 )
 from app.workflows.runtime import (
     RetryDecision,
+    WorkflowRuntimePersistence,
     WorkflowRuntimeService,
 )
 
@@ -146,10 +148,20 @@ class WorkflowReplayRunner:
 
     def __init__(
         self,
-        persistence: InMemoryWorkflowRuntimePersistence | None = None,
+        persistence: WorkflowRuntimePersistence | None = None,
+        provider_runtime: Any | None = None,
+        llm_provider: Any | None = None,
+        ocr_provider: Any | None = None,
+        provider_privacy_context: Any | None = None,
     ) -> None:
         self.persistence = persistence or InMemoryWorkflowRuntimePersistence()
         self.runtime = WorkflowRuntimeService(self.persistence)
+        self.step_executions: list[AgentStepExecution] = []
+        self.handoffs: list[AgentHandoff] = []
+        self.provider_runtime = provider_runtime
+        self.llm_provider = llm_provider
+        self.ocr_provider = ocr_provider
+        self.provider_privacy_context = provider_privacy_context
 
     async def run(
         self,
@@ -160,6 +172,8 @@ class WorkflowReplayRunner:
     ) -> WorkflowReplayResult:
         """Replay the controlled multi-agent workflow for one scenario."""
 
+        self.step_executions = []
+        self.handoffs = []
         workflow_run = self.runtime.start_workflow(
             state=state,
             workflow_name=WORKFLOW_REPLAY_NAME,
@@ -171,6 +185,10 @@ class WorkflowReplayRunner:
             document_id=state.document_id,
             workflow_run_id=workflow_run.id,
             max_retries=state.max_retries,
+            provider_runtime=self.provider_runtime,
+            llm_provider=self.llm_provider,
+            ocr_provider=self.ocr_provider,
+            provider_privacy_context=self.provider_privacy_context,
         )
         retry_decisions: list[RetryDecision] = []
 
@@ -184,6 +202,13 @@ class WorkflowReplayRunner:
                 ReplayScenario.RETRY_EXHAUSTION,
             },
         )
+        if is_terminal_agent_result(qa_result):
+            return self._build_result(
+                scenario=scenario,
+                state=state,
+                workflow_run=workflow_run,
+                retry_decisions=retry_decisions,
+            )
 
         if scenario == ReplayScenario.FAILED_VALIDATION:
             retry_decisions.extend(
@@ -259,6 +284,8 @@ class WorkflowReplayRunner:
             context=context,
             agent=DocumentIntakeAgent(),
         )
+        if is_terminal_agent_result(intake_result):
+            return intake_result
         privacy_result = await self._run_agent(
             workflow_run=workflow_run,
             state=state,
@@ -266,6 +293,8 @@ class WorkflowReplayRunner:
             agent=PrivacyPolicyGateAgent(),
             handoff=self._handoff_to(intake_result, PRIVACY_POLICY_GATE_AGENT),
         )
+        if is_terminal_agent_result(privacy_result):
+            return privacy_result
         layout_result = await self._run_agent(
             workflow_run=workflow_run,
             state=state,
@@ -273,28 +302,38 @@ class WorkflowReplayRunner:
             agent=DocumentLayoutAnalyzerAgent(),
             handoff=self._handoff_to(privacy_result, DOCUMENT_LAYOUT_ANALYZER_AGENT),
         )
+        if is_terminal_agent_result(layout_result):
+            return layout_result
 
-        await self._run_agent(
+        metadata_result = await self._run_agent(
             workflow_run=workflow_run,
             state=state,
             context=context,
             agent=MetadataExtractorAgent(),
             handoff=self._handoff_to(layout_result, METADATA_EXTRACTOR_AGENT),
         )
-        await self._run_agent(
+        if is_terminal_agent_result(metadata_result):
+            return metadata_result
+
+        table_result = await self._run_agent(
             workflow_run=workflow_run,
             state=state,
             context=context,
             agent=TableExtractorAgent(),
             handoff=self._handoff_to(layout_result, TABLE_EXTRACTOR_AGENT),
         )
-        await self._run_agent(
+        if is_terminal_agent_result(table_result):
+            return table_result
+
+        totals_result = await self._run_agent(
             workflow_run=workflow_run,
             state=state,
             context=context,
             agent=TotalsExtractorAgent(),
             handoff=self._handoff_to(layout_result, TOTALS_EXTRACTOR_AGENT),
         )
+        if is_terminal_agent_result(totals_result):
+            return totals_result
 
         assembly_result = await self._run_agent(
             workflow_run=workflow_run,
@@ -376,13 +415,15 @@ class WorkflowReplayRunner:
             result=result,
             attempt=context.attempt,
         )
+        self.step_executions.append(step)
         for envelope in result.handoffs:
-            self.runtime.record_handoff(
+            recorded_handoff = self.runtime.record_handoff(
                 workflow_run=workflow_run,
                 state=state,
                 envelope=envelope,
                 source_step=step,
             )
+            self.handoffs.append(recorded_handoff)
         return result
 
     def _request_retries_for_correction_handoffs(
@@ -426,8 +467,8 @@ class WorkflowReplayRunner:
             scenario=scenario,
             state=state,
             workflow_run=workflow_run,
-            step_executions=list(self.persistence.step_executions),
-            handoffs=list(self.persistence.handoffs),
+            step_executions=list(self.step_executions),
+            handoffs=list(self.handoffs),
             retry_decisions=list(retry_decisions),
         )
 
@@ -471,6 +512,15 @@ def replay_result_to_summary(result: WorkflowReplayResult) -> dict[str, object]:
             }
             for decision in result.retry_decisions
         ],
+    }
+
+
+def is_terminal_agent_result(result: AgentRunResult) -> bool:
+    """Return whether a result should stop the replay flow immediately."""
+
+    return result.status in {
+        AgentRunStatus.FAILED,
+        AgentRunStatus.REVIEW_REQUIRED,
     }
 
 

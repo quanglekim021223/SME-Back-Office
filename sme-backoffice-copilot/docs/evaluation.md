@@ -64,6 +64,24 @@ fields, rows, categories, matches, and insight claims. Workflow labels cover
 expected handoff paths, retry behavior, review routing, and auto-approval
 eligibility.
 
+## Cloud provider evaluation policy
+
+Cloud provider evaluation is allowed only with de-identified fixtures. Raw SME
+financial documents, tenant names, account numbers, tax identifiers, emails, and
+personal data must not be sent to external AI providers during evaluation unless
+an explicit tenant/cloud policy later permits it.
+
+Before any cloud provider call, the provider privacy gate must check:
+
+- whether cloud providers are enabled;
+- whether the tenant allows cloud processing;
+- whether the use case is permitted;
+- whether evaluation data is de-identified;
+- whether provider-bound text has been redacted and minimized.
+
+This keeps NVIDIA NIM, OpenAI, or other future cloud-provider comparisons safe
+while the product still learns from realistic but non-sensitive labels.
+
 ## Release gates
 
 - No regression beyond the approved tolerance on any critical segment.

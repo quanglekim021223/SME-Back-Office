@@ -3,6 +3,16 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
+from app.providers import (
+    MockLLMProvider,
+    ProviderRuntime,
+    build_default_provider_routing_config,
+)
+from app.providers.llm import (
+    LLMGenerationRequest,
+    LLMGenerationResult,
+    LLMProviderRunContext,
+)
 from app.workflows import (
     ASSEMBLED_INVOICE_DRAFT_KEY,
     CLASSIFICATION_AGENT,
@@ -11,6 +21,7 @@ from app.workflows import (
     INVOICE_TABLE_GROUP_KEY,
     INVOICE_TOTALS_GROUP_KEY,
     METADATA_EXTRACTOR_AGENT,
+    OCR_FULL_TEXT_KEY,
     QA_VALIDATION_AGENT,
     TABLE_EXTRACTOR_AGENT,
     TOTALS_EXTRACTOR_AGENT,
@@ -35,6 +46,113 @@ from app.workflows import (
     collect_invoice_groups,
     create_total_amount_correction_signal,
 )
+from app.workflows.invoice_extraction import (
+    PROVIDER_EXTRACTION_ERRORS_KEY,
+    normalize_provider_invoice_group_payload,
+)
+
+COMMON_INVOICE_OCR_TEXT = """Your Company Inc.
+1234 Company St,
+Company Town, ST 12345
+
+INVOICE
+
+Bill To
+Customer Name
+1234 Customer St,
+Customer Town, ST 12345
+
+Invoice # 0000007
+Invoice date 10-02-2023
+Due date 10-16-2023
+
+QTY Description Unit Price Amount
+1.00 Replacement of spark plugs 40.00 $40.00
+2.00 Brake pad replacement ( front ) 40.00 $80.00
+4.00 Wheel alignment 17.50 $70.00
+2.00 Mechanic's rate per hour 30.00 $60.00
+
+Subtotal $250.00
+Sales Tax (5%) $12.50
+Total (USD) $262.50
+"""
+
+
+class InvalidStructuredOutputLLMProvider:
+    @property
+    def name(self) -> str:
+        return "mock_llm"
+
+    async def generate(
+        self,
+        *,
+        request: LLMGenerationRequest,
+        context: LLMProviderRunContext,
+    ) -> LLMGenerationResult:
+        del request, context
+        return LLMGenerationResult(
+            provider_name=self.name,
+            model_name="invalid-structured-output",
+            output_text='{"unexpected":"shape"}',
+            structured_output={"unexpected": "shape"},
+        )
+
+
+class OllamaStyleStructuredOutputLLMProvider:
+    @property
+    def name(self) -> str:
+        return "mock_llm"
+
+    async def generate(
+        self,
+        *,
+        request: LLMGenerationRequest,
+        context: LLMProviderRunContext,
+    ) -> LLMGenerationResult:
+        del context
+        if request.response_schema_name == "invoice-metadata-group.v1":
+            structured_output: dict[str, object] = {
+                "invoiceMetadata": {
+                    "invoiceNumber": "0000007",
+                    "invoiceDate": "2023-10-02",
+                    "dueDate": "2023-10-16",
+                    "currency": "USD",
+                },
+                "party": {
+                    "issuer": {"name": "Your Company Inc."},
+                    "billTo": {"name": "Customer Name"},
+                },
+            }
+        elif request.response_schema_name == "invoice-table-group.v1":
+            structured_output = {
+                "items": [
+                    {
+                        "description": "Replacement of spark plugs",
+                        "quantity": 1,
+                        "unitPrice": "40.00",
+                        "amount": "$40.00",
+                    },
+                    {
+                        "description": "Brake pad replacement (front)",
+                        "qty": "2.00",
+                        "price": 40.0,
+                        "total": "$80.00",
+                    },
+                ]
+            }
+        else:
+            structured_output = {
+                "invoice_subtotal": 250.0,
+                "tax": 12.5,
+                "total": 262.5,
+                "currency": "USD",
+            }
+        return LLMGenerationResult(
+            provider_name=self.name,
+            model_name="llama3.1:8b",
+            output_text="{}",
+            structured_output=structured_output,
+        )
 
 
 def create_state() -> WorkflowState:
@@ -120,6 +238,28 @@ def test_invoice_group_contracts_reject_extra_fields() -> None:
         )
 
 
+def test_totals_normalizer_converts_schema_shaped_numeric_amounts() -> None:
+    payload = normalize_provider_invoice_group_payload(
+        schema_name="invoice-totals-group.v1",
+        payload={
+            "schema_version": "invoice-totals-group.v1",
+            "extraction_status": "extracted",
+            "subtotal_amount": 250,
+            "tax_amount": 12.5,
+            "total_amount": 262.5,
+            "currency": "USD",
+            "evidence_refs": [],
+            "confidence": "medium",
+        },
+    )
+
+    totals = InvoiceTotalsGroup.model_validate(payload)
+
+    assert totals.subtotal_amount == "250.00"
+    assert totals.tax_amount == "12.50"
+    assert totals.total_amount == "262.50"
+
+
 @pytest.mark.asyncio
 async def test_metadata_table_and_totals_extractors_route_to_invoice_assembly() -> None:
     state = create_state()
@@ -171,6 +311,196 @@ async def test_metadata_table_and_totals_extractors_route_to_invoice_assembly() 
 
     groups = collect_invoice_groups(state)
     assert groups.missing_group_names == []
+
+
+@pytest.mark.asyncio
+async def test_invoice_extractors_run_llm_provider_and_validate_contracts() -> None:
+    state = create_state()
+    state.scratchpad[OCR_FULL_TEXT_KEY] = (
+        "Invoice #INV-MOCK-001\n"
+        "Supplier: Mock Supplier Ltd\n"
+        "Customer: SME Demo Company\n"
+        "Subtotal: 100.00\n"
+        "Tax: 10.00\n"
+        "Total: 110.00\n"
+        "Currency: USD"
+    )
+    context = AgentExecutionContext(
+        tenant_id=state.tenant_id,
+        document_id=state.document_id,
+        workflow_run_id=state.workflow_run_id,
+        provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+        llm_provider=MockLLMProvider(),
+    )
+
+    metadata_result = await MetadataExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=METADATA_EXTRACTOR_AGENT,
+            stage=WorkflowStage.METADATA_EXTRACTION,
+        ),
+    )
+    table_result = await TableExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=TABLE_EXTRACTOR_AGENT,
+            stage=WorkflowStage.TABLE_EXTRACTION,
+        ),
+    )
+    totals_result = await TotalsExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=TOTALS_EXTRACTOR_AGENT,
+            stage=WorkflowStage.TOTALS_EXTRACTION,
+        ),
+    )
+
+    assert metadata_result.status == AgentRunStatus.SUCCEEDED
+    assert table_result.status == AgentRunStatus.SUCCEEDED
+    assert totals_result.status == AgentRunStatus.SUCCEEDED
+    assert metadata_result.confidence == ConfidenceLevel.HIGH
+    assert table_result.metrics == {"line_item_count": 1}
+
+    groups = collect_invoice_groups(state)
+
+    assert groups.metadata is not None
+    assert groups.metadata.extraction_status == InvoiceExtractionStatus.EXTRACTED
+    assert groups.metadata.invoice_number == "INV-MOCK-001"
+    assert groups.table is not None
+    assert groups.table.extraction_status == InvoiceExtractionStatus.EXTRACTED
+    assert groups.table.line_items[0].description == "Mock consulting service"
+    assert groups.totals is not None
+    assert groups.totals.extraction_status == InvoiceExtractionStatus.EXTRACTED
+    assert groups.totals.total_amount == "110.00"
+
+
+@pytest.mark.asyncio
+async def test_invoice_extractors_fallback_to_ocr_text_when_llm_schema_fails() -> None:
+    state = create_state()
+    state.scratchpad[OCR_FULL_TEXT_KEY] = COMMON_INVOICE_OCR_TEXT
+    context = AgentExecutionContext(
+        tenant_id=state.tenant_id,
+        document_id=state.document_id,
+        workflow_run_id=state.workflow_run_id,
+        provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+        llm_provider=InvalidStructuredOutputLLMProvider(),
+    )
+
+    metadata_result = await MetadataExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=METADATA_EXTRACTOR_AGENT,
+            stage=WorkflowStage.METADATA_EXTRACTION,
+        ),
+    )
+    table_result = await TableExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=TABLE_EXTRACTOR_AGENT,
+            stage=WorkflowStage.TABLE_EXTRACTION,
+        ),
+    )
+    totals_result = await TotalsExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=TOTALS_EXTRACTOR_AGENT,
+            stage=WorkflowStage.TOTALS_EXTRACTION,
+        ),
+    )
+
+    assert metadata_result.status == AgentRunStatus.SUCCEEDED
+    assert table_result.status == AgentRunStatus.SUCCEEDED
+    assert totals_result.status == AgentRunStatus.SUCCEEDED
+
+    groups = collect_invoice_groups(state)
+
+    assert groups.metadata is not None
+    assert groups.metadata.invoice_number == "0000007"
+    assert groups.metadata.supplier_name == "Your Company Inc."
+    assert groups.metadata.customer_name == "Customer Name"
+    assert groups.metadata.issue_date == "2023-10-02"
+    assert groups.table is not None
+    assert len(groups.table.line_items) == 4
+    assert groups.table.line_items[0].description == "Replacement of spark plugs"
+    assert groups.totals is not None
+    assert groups.totals.subtotal_amount == "250.00"
+    assert groups.totals.tax_amount == "12.50"
+    assert groups.totals.total_amount == "262.50"
+    assert PROVIDER_EXTRACTION_ERRORS_KEY in state.scratchpad
+
+
+@pytest.mark.asyncio
+async def test_invoice_extractors_normalize_ollama_style_json_shapes() -> None:
+    state = create_state()
+    state.scratchpad[OCR_FULL_TEXT_KEY] = COMMON_INVOICE_OCR_TEXT
+    context = AgentExecutionContext(
+        tenant_id=state.tenant_id,
+        document_id=state.document_id,
+        workflow_run_id=state.workflow_run_id,
+        provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+        llm_provider=OllamaStyleStructuredOutputLLMProvider(),
+    )
+
+    metadata_result = await MetadataExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=METADATA_EXTRACTOR_AGENT,
+            stage=WorkflowStage.METADATA_EXTRACTION,
+        ),
+    )
+    table_result = await TableExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=TABLE_EXTRACTOR_AGENT,
+            stage=WorkflowStage.TABLE_EXTRACTION,
+        ),
+    )
+    totals_result = await TotalsExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=TOTALS_EXTRACTOR_AGENT,
+            stage=WorkflowStage.TOTALS_EXTRACTION,
+        ),
+    )
+
+    assert metadata_result.status == AgentRunStatus.SUCCEEDED
+    assert table_result.status == AgentRunStatus.SUCCEEDED
+    assert totals_result.status == AgentRunStatus.SUCCEEDED
+
+    groups = collect_invoice_groups(state)
+
+    assert groups.metadata is not None
+    assert groups.metadata.invoice_number == "0000007"
+    assert groups.metadata.supplier_name == "Your Company Inc."
+    assert groups.metadata.customer_name == "Customer Name"
+    assert groups.metadata.issue_date == "2023-10-02"
+    assert groups.table is not None
+    assert len(groups.table.line_items) == 2
+    assert groups.table.line_items[0].line_total == "40.00"
+    assert groups.table.line_items[1].unit_price == "40.00"
+    assert groups.totals is not None
+    assert groups.totals.subtotal_amount == "250.00"
+    assert groups.totals.tax_amount == "12.50"
+    assert groups.totals.total_amount == "262.50"
+    assert PROVIDER_EXTRACTION_ERRORS_KEY not in state.scratchpad
 
 
 @pytest.mark.asyncio
@@ -238,3 +568,132 @@ async def test_qa_validation_agent_routes_targeted_self_correction() -> None:
     assert correction_handoff.stage == WorkflowStage.TOTALS_EXTRACTION
     assert correction_handoff.qa_error_signal == signal
     assert correction_handoff.payload["field_path"] == "invoice.total_amount"
+
+
+@pytest.mark.asyncio
+async def test_qa_validation_agent_routes_to_review_required_for_blocking_signal() -> (
+    None
+):
+    """QA returns REVIEW_REQUIRED when a non-retryable BLOCKING signal is present.
+
+    This is the failure path routed by record_provider_extraction_error when a
+    provider produces invalid or missing output.
+    """
+    from app.workflows.contracts import QAErrorSeverity, QAErrorSignal
+
+    state = create_state()
+    context = create_context(state)
+    blocking_signal = QAErrorSignal(
+        code="ERR_LLM_PROVIDER_FAILED",
+        severity=QAErrorSeverity.BLOCKING,
+        message="Metadata extractor provider extraction failed and requires human review.",
+        source_agent=METADATA_EXTRACTOR_AGENT,
+        retryable=False,
+    )
+    state.qa_error_signals.append(blocking_signal)
+
+    result = await QAValidationAgent().run(state=state, context=context)
+
+    assert result.status == AgentRunStatus.REVIEW_REQUIRED
+    assert result.output["validation_status"] == "review_required"
+    assert result.output["qa_error_count"] == 1
+    assert result.qa_error_signals == [blocking_signal]
+    assert result.handoffs == []
+
+
+@pytest.mark.asyncio
+async def test_invoice_extractor_emits_blocking_qa_signal_when_provider_schema_fails() -> (
+    None
+):
+    """When the LLM returns a schema-invalid shape, a blocking QA signal is added.
+
+    This covers Task 1: failure path when provider output fails validation.  Even
+    though the extractor succeeds via OCR fallback, the blocking QA signal ensures
+    QA routes the workflow to REVIEW_REQUIRED for human review.
+    """
+    state = create_state()
+    state.scratchpad[OCR_FULL_TEXT_KEY] = COMMON_INVOICE_OCR_TEXT
+    context = AgentExecutionContext(
+        tenant_id=state.tenant_id,
+        document_id=state.document_id,
+        workflow_run_id=state.workflow_run_id,
+        provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+        llm_provider=InvalidStructuredOutputLLMProvider(),
+    )
+
+    result = await MetadataExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=METADATA_EXTRACTOR_AGENT,
+            stage=WorkflowStage.METADATA_EXTRACTION,
+        ),
+    )
+
+    assert result.status == AgentRunStatus.SUCCEEDED
+    assert PROVIDER_EXTRACTION_ERRORS_KEY in state.scratchpad
+    # A blocking, non-retryable QA signal must be present so QA can route to
+    # REVIEW_REQUIRED even though the extractor itself returned SUCCEEDED.
+    assert len(state.qa_error_signals) == 1
+    qa_signal = state.qa_error_signals[0]
+    assert qa_signal.severity.value == "blocking"
+    assert qa_signal.retryable is False
+    assert qa_signal.source_agent == METADATA_EXTRACTOR_AGENT
+
+
+@pytest.mark.asyncio
+async def test_invoice_extractor_emits_blocking_qa_signal_when_provider_call_fails() -> (
+    None
+):
+    """When the LLM provider raises a ProviderError, a blocking QA signal is added.
+
+    This covers Task 2: fallback to review-required state when provider fails.
+    The extractor falls back to OCR text but the blocking signal ensures QA routes
+    to REVIEW_REQUIRED rather than silently completing with partial data.
+    """
+    from app.providers.errors import ProviderExecutionError
+
+    class FailingLLMProvider:
+        @property
+        def name(self) -> str:
+            return "failing_llm"
+
+        async def generate(
+            self,
+            *,
+            request: LLMGenerationRequest,
+            context: LLMProviderRunContext,
+        ) -> LLMGenerationResult:
+            del request, context
+            raise ProviderExecutionError("LLM service unavailable.")
+
+    state = create_state()
+    state.scratchpad[OCR_FULL_TEXT_KEY] = COMMON_INVOICE_OCR_TEXT
+    context = AgentExecutionContext(
+        tenant_id=state.tenant_id,
+        document_id=state.document_id,
+        workflow_run_id=state.workflow_run_id,
+        provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+        llm_provider=FailingLLMProvider(),
+    )
+
+    result = await MetadataExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=METADATA_EXTRACTOR_AGENT,
+            stage=WorkflowStage.METADATA_EXTRACTION,
+        ),
+    )
+
+    assert result.status == AgentRunStatus.SUCCEEDED
+    assert PROVIDER_EXTRACTION_ERRORS_KEY in state.scratchpad
+    assert len(state.qa_error_signals) == 1
+    qa_signal = state.qa_error_signals[0]
+    assert qa_signal.severity.value == "blocking"
+    assert qa_signal.retryable is False
+    assert qa_signal.source_agent == METADATA_EXTRACTOR_AGENT
+    assert "ERR_LLM_PROVIDER_FAILED" in qa_signal.code
+

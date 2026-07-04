@@ -155,6 +155,21 @@ class FakePaddleEngine:
         ]
 
 
+class FakePaddleV3Engine:
+    def predict(self, local_path: str) -> object:
+        assert local_path == "/tmp/original.png"
+        return [
+            {
+                "rec_texts": ["Invoice #INV-001", "Total 110.00"],
+                "rec_scores": [0.99, 0.97],
+                "dt_polys": [
+                    [[0, 0], [100, 0], [100, 20], [0, 20]],
+                    [[0, 30], [100, 30], [100, 50], [0, 50]],
+                ],
+            }
+        ]
+
+
 class FakeChandraEngine:
     def extract_text(self, local_path: str) -> object:
         assert local_path == "/tmp/original.png"
@@ -204,6 +219,27 @@ async def test_paddleocr_provider_normalizes_common_output_shape() -> None:
         20.0,
     ]
     assert result.confidence == pytest.approx(0.97)
+
+
+@pytest.mark.asyncio
+async def test_paddleocr_provider_normalizes_v3_predict_output_shape() -> None:
+    provider = PaddleOCRProvider(language="en", engine=FakePaddleV3Engine())
+
+    result = await provider.extract_text(
+        input_data=OCRInput(
+            artifact_uri="local://document/original.png",
+            media_type="image/png",
+            content_hash="hash-123",
+            local_path="/tmp/original.png",
+        ),
+        context=create_ocr_context(),
+    )
+
+    assert result.provider_name == "paddleocr"
+    assert result.full_text == "Invoice #INV-001\nTotal 110.00"
+    assert len(result.text_blocks) == 2
+    assert result.text_blocks[1].confidence == pytest.approx(0.97)
+    assert result.confidence == pytest.approx(0.98)
 
 
 @pytest.mark.asyncio

@@ -2,10 +2,14 @@ from uuid import uuid4
 
 import pytest
 
+from app.providers import MockOCRProvider, ProviderRuntime
+from app.providers.routing import build_default_provider_routing_config
 from app.workflows import (
     DOCUMENT_INTAKE_AGENT,
     DOCUMENT_LAYOUT_ANALYZER_AGENT,
     METADATA_EXTRACTOR_AGENT,
+    OCR_FULL_TEXT_KEY,
+    OCR_RESULT_KEY,
     PRIVACY_POLICY_GATE_AGENT,
     TABLE_EXTRACTOR_AGENT,
     TOTALS_EXTRACTOR_AGENT,
@@ -126,6 +130,33 @@ async def test_document_layout_analyzer_agent_routes_to_extraction_agents() -> N
     )
     assert all(
         handoff.payload["layout_groups"] == result.output["layout_groups"]
+        for handoff in result.handoffs
+    )
+
+
+@pytest.mark.asyncio
+async def test_document_layout_analyzer_runs_selected_ocr_provider() -> None:
+    state = create_state()
+    context = AgentExecutionContext(
+        tenant_id=state.tenant_id,
+        document_id=state.document_id,
+        workflow_run_id=state.workflow_run_id,
+        provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+        ocr_provider=MockOCRProvider(),
+    )
+    agent = DocumentLayoutAnalyzerAgent()
+
+    result = await agent.run(state=state, context=context)
+
+    assert result.status == AgentRunStatus.SUCCEEDED
+    assert result.output["ocr_available"] is True
+    assert result.output["requires_ocr"] is False
+    assert result.output["ocr_provider"] == "mock_ocr"
+    assert OCR_RESULT_KEY in state.scratchpad
+    assert OCR_FULL_TEXT_KEY in state.scratchpad
+    assert "Invoice #INV-MOCK-001" in state.scratchpad[OCR_FULL_TEXT_KEY]
+    assert all(
+        handoff.payload["ocr_result_ref"] == OCR_RESULT_KEY
         for handoff in result.handoffs
     )
 

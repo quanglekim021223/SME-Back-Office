@@ -16,17 +16,32 @@ from app.core.config import Settings
 from app.core.db import get_db_session
 from app.core.tenant import TenantContext
 from app.models.document import DocumentType
+from app.providers.factory import (
+    build_llm_provider_from_settings,
+    build_ocr_provider_from_settings,
+    build_provider_privacy_gate_from_settings,
+    build_provider_routing_config_from_settings,
+)
+from app.providers.routing import ProviderRuntime
+from app.repositories.workflows import WorkflowRuntimeRepository
 from app.schemas.document import (
     DocumentUploadResponse,
     DocumentWorkflowTriggerResponse,
     MalwareScanResponse,
 )
+from app.services.document_events import DocumentEventPublisher
 from app.services.document_ingestion import (
     DocumentIngestionService,
     DuplicateDocumentError,
     SqlAlchemyDocumentPersistence,
 )
 from app.services.document_storage import FileValidationError, LocalDocumentStorage
+from app.services.workflow_outputs import (
+    SqlAlchemyWorkflowOutputPersistence,
+    WorkflowOutputPersistenceService,
+)
+from app.workflows.replay import WorkflowReplayRunner
+from app.workflows.triggers import DocumentIngestedWorkflowPublisher
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -38,15 +53,49 @@ def get_document_storage(request: Request) -> LocalDocumentStorage:
     return LocalDocumentStorage.from_settings(settings)
 
 
+def get_document_workflow_publisher(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> DocumentEventPublisher:
+    """Return local publisher that triggers document workflow after ingestion."""
+
+    settings = cast(Settings, request.app.state.settings)
+    workflow_repository = WorkflowRuntimeRepository(session)
+    routing_config = build_provider_routing_config_from_settings(settings)
+    privacy_gate = build_provider_privacy_gate_from_settings(settings)
+    provider_runtime = ProviderRuntime(
+        routing_config,
+        privacy_gate=privacy_gate,
+    )
+    runner = WorkflowReplayRunner(
+        persistence=workflow_repository,
+        provider_runtime=provider_runtime,
+        llm_provider=build_llm_provider_from_settings(settings),
+        ocr_provider=build_ocr_provider_from_settings(settings),
+    )
+    return DocumentIngestedWorkflowPublisher(
+        runner=runner,
+        output_persistence_service=WorkflowOutputPersistenceService(
+            SqlAlchemyWorkflowOutputPersistence(session),
+        ),
+        commit=workflow_repository.commit,
+    )
+
+
 def get_document_ingestion_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     storage: Annotated[LocalDocumentStorage, Depends(get_document_storage)],
+    event_publisher: Annotated[
+        DocumentEventPublisher,
+        Depends(get_document_workflow_publisher),
+    ],
 ) -> DocumentIngestionService:
     """Return the document ingestion application service."""
 
     return DocumentIngestionService(
         persistence=SqlAlchemyDocumentPersistence(session),
         storage=storage,
+        event_publisher=event_publisher,
     )
 
 

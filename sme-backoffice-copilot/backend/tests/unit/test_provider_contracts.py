@@ -5,6 +5,8 @@ from pydantic import ValidationError
 
 from app.core.config import LLMProviderType, OCRProviderType, Settings
 from app.providers import (
+    AIProvider,
+    AIProviderMetadata,
     LLMGenerationRequest,
     LLMGenerationResult,
     LLMMessage,
@@ -12,12 +14,45 @@ from app.providers import (
     LLMProvider,
     LLMProviderRunContext,
     LLMResponseFormat,
+    OCRExtractionMode,
     OCRInput,
     OCRProvider,
     OCRProviderRunContext,
+    OCRRequestOptions,
     OCRResult,
     OCRTextBlock,
+    ProviderCapability,
+    ProviderDeploymentMode,
+    ProviderHealthCheck,
+    ProviderHealthStatus,
+    build_provider_privacy_policy,
 )
+
+
+class FakeAIProvider:
+    @property
+    def name(self) -> str:
+        return "fake_ai"
+
+    @property
+    def metadata(self) -> AIProviderMetadata:
+        return AIProviderMetadata(
+            name=self.name,
+            display_name="Fake AI Provider",
+            deployment_mode=ProviderDeploymentMode.MOCK,
+            capabilities={
+                ProviderCapability.LLM_GENERATION,
+                ProviderCapability.STRUCTURED_OUTPUT,
+            },
+            default_model="fake-model",
+            supports_structured_output=True,
+        )
+
+    async def health_check(self) -> ProviderHealthCheck:
+        return ProviderHealthCheck(
+            provider_name=self.name,
+            status=ProviderHealthStatus.OK,
+        )
 
 
 class FakeOCRProvider:
@@ -74,18 +109,59 @@ class FakeLLMProvider:
         )
 
 
+@pytest.mark.asyncio
+async def test_ai_provider_interface_contract() -> None:
+    provider = FakeAIProvider()
+
+    assert isinstance(provider, AIProvider)
+    assert provider.metadata.deployment_mode == ProviderDeploymentMode.MOCK
+    assert ProviderCapability.LLM_GENERATION in provider.metadata.capabilities
+
+    health = await provider.health_check()
+
+    assert health.status == ProviderHealthStatus.OK
+    assert health.provider_name == "fake_ai"
+
+
 def test_settings_include_ai_provider_selection_defaults() -> None:
     settings = Settings(_env_file=None)
 
     assert settings.ocr_provider == OCRProviderType.MOCK
     assert settings.llm_provider == LLMProviderType.MOCK
     assert settings.provider_timeout_seconds == 30.0
+    assert settings.provider_max_retries == 1
+    assert settings.provider_retry_backoff_seconds == 0.0
+    assert settings.llm_input_cost_per_1k_tokens_usd == 0
+    assert settings.llm_output_cost_per_1k_tokens_usd == 0
+    assert settings.provider_allow_cloud is False
+    assert settings.provider_allow_sensitive_cloud_payloads is False
+    assert settings.provider_require_deidentified_cloud_evaluation is True
+    assert settings.provider_redaction_max_chars == 4000
     assert settings.tesseract_binary_path == "tesseract"
     assert settings.tesseract_language == "eng"
     assert settings.paddleocr_language == "en"
     assert settings.chandraocr_language == "en"
     assert settings.ollama_base_url == "http://localhost:11434"
     assert settings.ollama_model == "llama3.1:8b"
+    assert settings.openai_api_key == ""
+    assert settings.openai_base_url == "https://api.openai.com/v1"
+    assert settings.openai_model == "gpt-5.2"
+
+    privacy_policy = build_provider_privacy_policy(
+        allow_cloud_providers=settings.provider_allow_cloud,
+        allow_sensitive_cloud_payloads=(
+            settings.provider_allow_sensitive_cloud_payloads
+        ),
+        require_deidentified_for_cloud_evaluation=(
+            settings.provider_require_deidentified_cloud_evaluation
+        ),
+        max_provider_text_chars=settings.provider_redaction_max_chars,
+    )
+
+    assert privacy_policy.allow_cloud_providers is False
+    assert privacy_policy.allow_sensitive_cloud_payloads is False
+    assert privacy_policy.require_deidentified_for_cloud_evaluation is True
+    assert privacy_policy.max_provider_text_chars == 4000
 
 
 def test_settings_can_select_local_free_providers(
@@ -94,12 +170,28 @@ def test_settings_can_select_local_free_providers(
     monkeypatch.setenv("OCR_PROVIDER", "paddleocr")
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5:7b")
+    monkeypatch.setenv("PROVIDER_MAX_RETRIES", "3")
 
     settings = Settings(_env_file=None)
 
     assert settings.ocr_provider == OCRProviderType.PADDLEOCR
     assert settings.llm_provider == LLMProviderType.OLLAMA
     assert settings.ollama_model == "qwen2.5:7b"
+    assert settings.provider_max_retries == 3
+
+
+def test_settings_can_select_openai_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-5.2")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.llm_provider == LLMProviderType.OPENAI
+    assert settings.openai_api_key == "test-key"
+    assert settings.openai_model == "gpt-5.2"
 
 
 def test_settings_can_select_chandraocr_provider(
@@ -127,6 +219,13 @@ async def test_ocr_provider_interface_contract() -> None:
             artifact_uri="local://tenants/t/documents/d/original/invoice.pdf",
             media_type="application/pdf",
             content_hash="hash-123",
+            options=OCRRequestOptions(
+                languages=["en"],
+                extraction_modes=[
+                    OCRExtractionMode.TEXT,
+                    OCRExtractionMode.LAYOUT,
+                ],
+            ),
         ),
         context=OCRProviderRunContext(
             tenant_id=tenant_id,
@@ -139,6 +238,13 @@ async def test_ocr_provider_interface_contract() -> None:
     assert result.full_text.startswith("Extracted from local://")
     assert result.text_blocks[0].text == "Invoice #INV-001"
     assert result.model_dump(mode="json")["metadata"]["tenant_id"] == str(tenant_id)
+
+
+def test_ocr_input_defaults_to_text_extraction_mode() -> None:
+    input_data = OCRInput(artifact_uri="local://document.pdf")
+
+    assert input_data.options.extraction_modes == [OCRExtractionMode.TEXT]
+    assert input_data.options.preserve_layout is True
 
 
 def test_ocr_contract_rejects_invalid_confidence() -> None:

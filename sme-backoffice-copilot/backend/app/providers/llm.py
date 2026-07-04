@@ -51,6 +51,8 @@ class LLMGenerationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     messages: list[LLMMessage] = Field(min_length=1)
+    prompt_id: str | None = None
+    prompt_version: str | None = None
     response_format: LLMResponseFormat = LLMResponseFormat.JSON
     response_schema_name: str | None = None
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)

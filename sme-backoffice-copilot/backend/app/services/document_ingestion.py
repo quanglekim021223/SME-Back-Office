@@ -205,6 +205,7 @@ class DocumentIngestionService:
             content_hash=document.content_hash,
             storage_uri=artifact.storage_uri,
             malware_scan_status=malware_scan_result.status.value,
+            local_path=str(stored_file.path),
         )
         await self.event_publisher.publish_document_ingested(document_ingested_event)
 

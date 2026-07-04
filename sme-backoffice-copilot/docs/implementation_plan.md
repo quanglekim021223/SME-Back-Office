@@ -257,28 +257,114 @@ Goal: make quality measurable before using real AI providers.
 Goal: connect real AI only after workflow, data, review, and evaluation are
 stable.
 
-- [ ] Define AI provider interface.
-- [ ] Define OCR provider interface.
-- [ ] Define model routing config.
-- [ ] Add provider timeout policy.
-- [ ] Add provider retry policy.
-- [ ] Add provider cost tracking.
-- [ ] Add prompt registry.
-- [ ] Add structured output validation.
-- [ ] Add OpenAI provider adapter or chosen first provider.
-- [ ] Add local/Ollama provider adapter if desired.
+- [x] Define AI provider interface.
+- [x] Define OCR provider interface.
+- [x] Define model routing config.
+- [x] Add provider timeout policy.
+- [x] Add provider retry policy.
+- [x] Add provider cost tracking.
+- [x] Add prompt registry.
+- [x] Add structured output validation.
+- [x] Add OpenAI provider adapter or chosen first provider.
+- [x] Add local/Ollama provider adapter if desired.
 - [ ] Add NVIDIA NIM provider configuration.
 - [ ] Add NVIDIA NIM LLM provider adapter.
 - [ ] Add NVIDIA NIM OCR/document parsing provider adapter.
 - [ ] Add NVIDIA NIM model routing options for LLM and OCR workloads.
 - [ ] Add NVIDIA NIM API key and endpoint environment variables.
-- [ ] Add cloud-provider privacy gate before sending financial data externally.
-- [ ] Add de-identified-only test policy for cloud provider evaluation.
-- [ ] Add provider redaction/minimization policy.
-- [ ] Add tests using mock provider.
+- [x] Add cloud-provider privacy gate before sending financial data externally.
+- [x] Add de-identified-only test policy for cloud provider evaluation.
+- [x] Add provider redaction/minimization policy.
+- [x] Add tests using mock provider.
 - [ ] Run evaluation before enabling provider in normal workflow.
 - [ ] Compare mock/rule baseline against real provider.
 - [ ] Compare local/Ollama baseline against NVIDIA NIM provider outputs.
+
+## Phase 9.5 — Provider-backed end-to-end workflow wiring
+
+Goal: connect document upload, workflow orchestration, selected OCR/LLM
+providers, AI extraction proposals, and human review into one local end-to-end
+path.
+
+- [x] Build provider factory from settings.
+- [x] Build provider routing factory from settings.
+- [x] Wire selected OCR provider into document workflow.
+- [x] Wire selected LLM provider into invoice extraction workflow.
+- [x] Trigger workflow from `DocumentIngested` event.
+- [x] Convert OCR output into workflow state.
+- [x] Convert LLM output into invoice extraction group contracts.
+- [x] Persist extracted invoice proposal.
+- [x] Create review task from extracted invoice proposal.
+- [x] Show generated review task in frontend review queue.
+- [x] Add local upload-to-review smoke test with mock providers.
+- [x] Add local upload-to-review smoke test with Ollama provider.
+- [x] Add failure path when provider output fails validation.
+- [x] Add fallback to review-required state when provider fails.
+
+## Phase 9.5B — Layout-aware invoice extraction hardening
+
+Goal: reduce case-specific parser heuristics by preserving OCR layout, detecting
+document regions, and giving extractor agents structured page context instead
+of only flattened OCR text.
+
+- [ ] Preserve OCR text blocks and bounding boxes from PaddleOCR provider output.
+- [ ] Store OCR layout blocks in shared workflow state.
+- [ ] Define document region contracts for header, supplier, bill-to, ship-to, line-item table, totals, and footer.
+- [ ] Implement OCR block grouping into page regions.
+- [ ] Implement layout-aware party role detection.
+- [ ] Implement layout-aware totals region detection.
+- [ ] Pass layout regions to metadata/table/totals extractor agents.
+- [ ] Prefer region-aware extraction over plain-text fallback.
+- [ ] Keep deterministic fallback as a safety net instead of the primary extractor.
+- [ ] Add regression invoice fixtures for multi-column invoices.
+- [ ] Add receipt-style invoice regression fixture.
+- [ ] Add `Bill No.` / `Receipt No.` invoice-number extraction rule.
+- [ ] Add locale-aware date parsing for `DD/MM/YY` receipts.
+- [ ] Add subtotal-vs-line-items QA validator.
+- [ ] Route subtotal mismatch to human review with structured QA error signal.
+- [ ] Add angled-photo invoice regression fixture.
+- [ ] Add supplier detection from top-left sender block.
+- [ ] Add multi-line line-item description grouping.
+- [ ] Add UK/EU date ambiguity handling for `DD/MM/YYYY` vs `MM/DD/YYYY`.
+- [ ] Add discount/VAT/total arithmetic validator.
+- [ ] Flag schema-valid but financially-incomplete extraction as review-required.
+- [ ] Add validation rules for party-role confusion.
+- [ ] Add evaluation cases for layout-heavy invoices.
+
+## Phase 9.6 — Agent orchestration and tracing observability
+
+Goal: evolve the custom workflow runtime into a graph-based multi-agent
+orchestration layer, while making every OCR, LLM, validator, retry, handoff, and
+human-review routing decision traceable without leaking sensitive financial
+data.
+
+- [ ] Decide LangGraph adoption scope.
+- [ ] Add LangGraph dependency and local configuration.
+- [ ] Create LangGraph workflow adapter behind existing workflow contracts.
+- [ ] Convert current document preparation steps into LangGraph nodes.
+- [ ] Convert invoice metadata/table/totals extractors into LangGraph nodes.
+- [ ] Convert invoice assembly and QA validation into LangGraph nodes.
+- [ ] Add conditional QA routing edge for valid, retry, review-required, and failed paths.
+- [ ] Add targeted self-correction loop in LangGraph.
+- [ ] Add retry exhaustion path in LangGraph.
+- [ ] Preserve existing workflow persistence for agent step executions.
+- [ ] Preserve existing handoff persistence from graph node transitions.
+- [ ] Add checkpoint/replay support for local graph runs.
+- [ ] Add tracing provider interface for Langfuse or LangSmith.
+- [ ] Choose first tracing backend: Langfuse local/self-host or LangSmith cloud.
+- [ ] Add tracing provider configuration.
+- [ ] Add redaction/minimization before sending trace payloads externally.
+- [ ] Trace OCR provider calls.
+- [ ] Trace LLM provider calls.
+- [ ] Trace deterministic validators.
+- [ ] Trace QA error signals and correction routing.
+- [ ] Trace review-task creation.
+- [ ] Add local trace/debug command for one uploaded document.
+- [ ] Add tests for LangGraph happy path.
+- [ ] Add tests for LangGraph validation retry path.
+- [ ] Add tests for LangGraph retry exhaustion path.
+- [ ] Add tests proving sensitive fields are redacted from trace payloads.
+- [ ] Document LangGraph and tracing workflow in README.
 
 ## Phase 10 — Security and privacy hardening
 

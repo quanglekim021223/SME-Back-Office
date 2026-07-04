@@ -17,6 +17,7 @@ from app.providers.ocr import (
     OCRResult,
     OCRTextBlock,
 )
+from app.providers.structured_output import validate_structured_output
 
 MOCK_PROVIDER_VERSION = "0.1.0"
 
@@ -191,6 +192,27 @@ class MockLLMProvider:
                 separators=(",", ":"),
             )
 
+        metadata: dict[str, object] = {
+            "response_schema_name": request.response_schema_name,
+            "response_format": request.response_format.value,
+            "prompt_id": request.prompt_id,
+            "prompt_version": request.prompt_version,
+            "agent_name": context.agent_name,
+            "tenant_id": str(context.tenant_id),
+            "document_id": str(context.document_id)
+            if context.document_id is not None
+            else None,
+            "workflow_run_id": str(context.workflow_run_id)
+            if context.workflow_run_id is not None
+            else None,
+            "correlation_id": context.correlation_id,
+        }
+        if structured_output is not None and request.response_schema_name is not None:
+            metadata["structured_output_validation"] = validate_structured_output(
+                schema_name=request.response_schema_name,
+                payload=structured_output,
+            ).model_dump(mode="json")
+
         return LLMGenerationResult(
             provider_name=self.name,
             model_name=self.model_name,
@@ -201,19 +223,7 @@ class MockLLMProvider:
             ),
             output_tokens=self._estimate_tokens(output_text),
             latency_ms=0,
-            metadata={
-                "response_schema_name": request.response_schema_name,
-                "response_format": request.response_format.value,
-                "agent_name": context.agent_name,
-                "tenant_id": str(context.tenant_id),
-                "document_id": str(context.document_id)
-                if context.document_id is not None
-                else None,
-                "workflow_run_id": str(context.workflow_run_id)
-                if context.workflow_run_id is not None
-                else None,
-                "correlation_id": context.correlation_id,
-            },
+            metadata=metadata,
         )
 
     def _structured_response_for(

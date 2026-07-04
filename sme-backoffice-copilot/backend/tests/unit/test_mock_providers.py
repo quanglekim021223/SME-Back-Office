@@ -101,6 +101,10 @@ async def test_mock_llm_provider_returns_schema_specific_json() -> None:
     assert result.input_tokens is not None
     assert result.output_tokens is not None
     assert result.metadata["response_schema_name"] == "invoice-metadata-group.v1"
+    validation = result.metadata["structured_output_validation"]
+    assert isinstance(validation, dict)
+    assert validation["passed"] is True
+    assert validation["schema_registered"] is True
 
 
 @pytest.mark.asyncio

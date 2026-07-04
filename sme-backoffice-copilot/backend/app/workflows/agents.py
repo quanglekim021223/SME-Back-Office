@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -42,7 +42,7 @@ class AgentDefinitionSpec(BaseModel):
 class AgentExecutionContext(BaseModel):
     """Execution context passed to every agent invocation."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     tenant_id: UUID
     document_id: UUID
@@ -50,6 +50,10 @@ class AgentExecutionContext(BaseModel):
     correlation_id: str | None = None
     attempt: int = Field(default=1, ge=1)
     max_retries: int = Field(default=3, ge=0)
+    provider_runtime: Any | None = None
+    llm_provider: Any | None = None
+    ocr_provider: Any | None = None
+    provider_privacy_context: Any | None = None
 
 
 class AgentRunResult(BaseModel):
