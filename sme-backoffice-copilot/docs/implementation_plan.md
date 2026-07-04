@@ -307,8 +307,10 @@ Goal: reduce case-specific parser heuristics by preserving OCR layout, detecting
 document regions, and giving extractor agents structured page context instead
 of only flattened OCR text.
 
-- [ ] Preserve OCR text blocks and bounding boxes from PaddleOCR provider output.
-- [ ] Store OCR layout blocks in shared workflow state.
+- [x] Preserve OCR text blocks and bounding boxes from PaddleOCR provider output.
+- [x] Normalize OCR provider output into common layout blocks.
+- [x] Store OCR layout blocks in shared workflow state.
+- [x] Store OCR layout diagnostics in workflow metadata.
 - [ ] Define document region contracts for header, supplier, bill-to, ship-to, line-item table, totals, and footer.
 - [ ] Implement OCR block grouping into page regions.
 - [ ] Implement layout-aware party role detection.

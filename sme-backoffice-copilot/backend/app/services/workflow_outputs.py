@@ -448,6 +448,7 @@ def build_review_task_for_invoice(
     evidence_refs = collect_evidence_refs(raw_draft)
     provider_errors = result.state.scratchpad.get(PROVIDER_EXTRACTION_ERRORS_KEY, [])
     ocr_text_preview = ocr_text_preview_from_state(result)
+    ocr_layout_diagnostics = ocr_layout_diagnostics_from_state(result)
     invoice_label = invoice.invoice_number or str(invoice.id)
     return ReviewTask(
         id=uuid4(),
@@ -479,6 +480,7 @@ def build_review_task_for_invoice(
             if isinstance(provider_errors, list)
             else [],
             "ocr_text_preview": ocr_text_preview,
+            "ocr_layout_diagnostics": ocr_layout_diagnostics,
         },
     )
 
@@ -490,6 +492,15 @@ def ocr_text_preview_from_state(result: WorkflowReplayResult) -> str | None:
     if not isinstance(ocr_text, str) or not ocr_text.strip():
         return None
     return ocr_text[:2000]
+
+
+def ocr_layout_diagnostics_from_state(
+    result: WorkflowReplayResult,
+) -> dict[str, object] | None:
+    """Return OCR layout diagnostics from workflow state when available."""
+
+    diagnostics = result.state.scratchpad.get("ocr_layout_diagnostics")
+    return diagnostics if isinstance(diagnostics, dict) else None
 
 
 def resolve_invoice_currency(

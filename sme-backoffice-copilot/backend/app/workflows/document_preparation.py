@@ -27,6 +27,8 @@ TOTALS_EXTRACTOR_AGENT = "totals_extractor"
 
 OCR_RESULT_KEY = "ocr_result"
 OCR_FULL_TEXT_KEY = "ocr_full_text"
+OCR_LAYOUT_BLOCKS_KEY = "ocr_layout_blocks"
+OCR_LAYOUT_DIAGNOSTICS_KEY = "ocr_layout_diagnostics"
 
 
 def validate_agent_context(
@@ -295,6 +297,9 @@ class DocumentLayoutAnalyzerAgent:
         if provider_output is not None:
             output["ocr_provider"] = provider_output["provider_name"]
             output["ocr_text_chars"] = provider_output["full_text_length"]
+            output["ocr_layout_diagnostics"] = provider_output[
+                OCR_LAYOUT_DIAGNOSTICS_KEY
+            ]
         extraction_payload: dict[str, object] = {
             "document_type": state.document_type,
             "layout_groups": layout_groups,
@@ -388,10 +393,86 @@ async def run_ocr_provider_if_available(
         dict[str, object],
         invocation.result.model_dump(mode="json"),
     )
+    layout_blocks = build_ocr_layout_blocks(ocr_result_payload)
+    layout_diagnostics = build_ocr_layout_diagnostics(
+        provider_name=invocation.result.provider_name,
+        full_text=invocation.result.full_text,
+        layout_blocks=layout_blocks,
+        provider_metadata=invocation.result.metadata,
+    )
     state.scratchpad[OCR_RESULT_KEY] = ocr_result_payload
     state.scratchpad[OCR_FULL_TEXT_KEY] = invocation.result.full_text
+    state.scratchpad[OCR_LAYOUT_BLOCKS_KEY] = layout_blocks
+    state.scratchpad[OCR_LAYOUT_DIAGNOSTICS_KEY] = layout_diagnostics
     return {
         "provider_name": invocation.result.provider_name,
         "full_text_length": len(invocation.result.full_text),
         "text_block_count": len(invocation.result.text_blocks),
+        OCR_LAYOUT_DIAGNOSTICS_KEY: layout_diagnostics,
+    }
+
+
+def build_ocr_layout_blocks(
+    ocr_result_payload: dict[str, object],
+) -> list[dict[str, object]]:
+    """Return provider-neutral OCR layout blocks for workflow diagnostics."""
+
+    raw_blocks = ocr_result_payload.get("text_blocks")
+    if not isinstance(raw_blocks, list):
+        return []
+
+    blocks: list[dict[str, object]] = []
+    for index, raw_block in enumerate(raw_blocks, start=1):
+        if not isinstance(raw_block, dict):
+            continue
+        text = raw_block.get("text")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        page_number = raw_block.get("page_number")
+        bounding_box = raw_block.get("bounding_box")
+        confidence = raw_block.get("confidence")
+        blocks.append(
+            {
+                "id": f"ocr:block:{index}",
+                "text": text,
+                "page_number": page_number if isinstance(page_number, int) else 1,
+                "bounding_box": (
+                    bounding_box if isinstance(bounding_box, list) else None
+                ),
+                "confidence": confidence
+                if isinstance(confidence, int | float)
+                else None,
+                "metadata": raw_block.get("metadata")
+                if isinstance(raw_block.get("metadata"), dict)
+                else {},
+            }
+        )
+    return blocks
+
+
+def build_ocr_layout_diagnostics(
+    *,
+    provider_name: str,
+    full_text: str,
+    layout_blocks: list[dict[str, object]],
+    provider_metadata: dict[str, object],
+) -> dict[str, object]:
+    """Summarize OCR layout quality without storing huge provider payloads."""
+
+    blocks_with_bbox = [
+        block for block in layout_blocks if isinstance(block.get("bounding_box"), list)
+    ]
+    blocks_with_confidence = [
+        block
+        for block in layout_blocks
+        if isinstance(block.get("confidence"), int | float)
+    ]
+    return {
+        "provider_name": provider_name,
+        "text_char_count": len(full_text),
+        "text_block_count": len(layout_blocks),
+        "blocks_with_bounding_box_count": len(blocks_with_bbox),
+        "blocks_with_confidence_count": len(blocks_with_confidence),
+        "layout_available": bool(blocks_with_bbox),
+        "provider_metadata_keys": sorted(provider_metadata.keys()),
     }
