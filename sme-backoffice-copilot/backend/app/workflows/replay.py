@@ -15,6 +15,7 @@ from app.models.workflow import AgentHandoff, AgentStepExecution, WorkflowRun
 from app.workflows.agents import (
     AgentExecutionContext,
     AgentRunResult,
+    AgentRunStatus,
     BaseAgent,
 )
 from app.workflows.contracts import (
@@ -201,6 +202,13 @@ class WorkflowReplayRunner:
                 ReplayScenario.RETRY_EXHAUSTION,
             },
         )
+        if is_terminal_agent_result(qa_result):
+            return self._build_result(
+                scenario=scenario,
+                state=state,
+                workflow_run=workflow_run,
+                retry_decisions=retry_decisions,
+            )
 
         if scenario == ReplayScenario.FAILED_VALIDATION:
             retry_decisions.extend(
@@ -276,6 +284,8 @@ class WorkflowReplayRunner:
             context=context,
             agent=DocumentIntakeAgent(),
         )
+        if is_terminal_agent_result(intake_result):
+            return intake_result
         privacy_result = await self._run_agent(
             workflow_run=workflow_run,
             state=state,
@@ -283,6 +293,8 @@ class WorkflowReplayRunner:
             agent=PrivacyPolicyGateAgent(),
             handoff=self._handoff_to(intake_result, PRIVACY_POLICY_GATE_AGENT),
         )
+        if is_terminal_agent_result(privacy_result):
+            return privacy_result
         layout_result = await self._run_agent(
             workflow_run=workflow_run,
             state=state,
@@ -290,6 +302,8 @@ class WorkflowReplayRunner:
             agent=DocumentLayoutAnalyzerAgent(),
             handoff=self._handoff_to(privacy_result, DOCUMENT_LAYOUT_ANALYZER_AGENT),
         )
+        if is_terminal_agent_result(layout_result):
+            return layout_result
 
         await self._run_agent(
             workflow_run=workflow_run,
@@ -490,6 +504,15 @@ def replay_result_to_summary(result: WorkflowReplayResult) -> dict[str, object]:
             }
             for decision in result.retry_decisions
         ],
+    }
+
+
+def is_terminal_agent_result(result: AgentRunResult) -> bool:
+    """Return whether a result should stop the replay flow immediately."""
+
+    return result.status in {
+        AgentRunStatus.FAILED,
+        AgentRunStatus.REVIEW_REQUIRED,
     }
 
 

@@ -194,10 +194,13 @@ class PaddleOCRProvider:
         """Run the injected or lazily-created PaddleOCR engine."""
 
         engine = self._engine or self._load_engine()
-        ocr_method = getattr(engine, "ocr", None)
-        if not callable(ocr_method):
-            raise ProviderExecutionError("PaddleOCR engine does not expose ocr().")
-        return cast(Callable[[str], object], ocr_method)(local_path)
+        for method_name in ("predict", "ocr"):
+            method = getattr(engine, method_name, None)
+            if callable(method):
+                return cast(Callable[[str], object], method)(local_path)
+        raise ProviderExecutionError(
+            "PaddleOCR engine does not expose predict() or ocr()."
+        )
 
     def _load_engine(self) -> object:
         """Create a PaddleOCR engine only when the adapter is actually used."""
@@ -526,12 +529,61 @@ def iter_paddleocr_line_candidates(value: object) -> list[Sequence[object]]:
     """Return candidate line records from nested PaddleOCR output."""
 
     candidates: list[Sequence[object]] = []
+    if isinstance(value, dict):
+        dict_candidates = paddleocr_dict_to_line_candidates(value)
+        if dict_candidates:
+            return dict_candidates
+        for nested_value in value.values():
+            candidates.extend(iter_paddleocr_line_candidates(nested_value))
+        return candidates
+
     if isinstance(value, list | tuple):
         if looks_like_paddleocr_line(value):
             candidates.append(value)
             return candidates
         for item in value:
             candidates.extend(iter_paddleocr_line_candidates(item))
+    return candidates
+
+
+def paddleocr_dict_to_line_candidates(
+    value: dict[object, object],
+) -> list[Sequence[object]]:
+    """Convert PaddleOCR 3.x dict results into common line candidates.
+
+    PaddleOCR 3.x returns page dictionaries containing parallel arrays such as
+    ``rec_texts``, ``rec_scores``, and ``rec_polys``/``dt_polys``. Older versions
+    returned nested ``[box, (text, score)]`` records. This adapter normalizes both
+    shapes so the rest of the workflow stays provider-agnostic.
+    """
+
+    texts = value.get("rec_texts") or value.get("texts")
+    if not isinstance(texts, list | tuple):
+        return []
+
+    scores = value.get("rec_scores") or value.get("scores") or []
+    boxes = (
+        value.get("rec_polys")
+        or value.get("dt_polys")
+        or value.get("rec_boxes")
+        or value.get("boxes")
+        or []
+    )
+    candidates: list[Sequence[object]] = []
+    for index, text in enumerate(texts):
+        if not isinstance(text, str) or not text.strip():
+            continue
+        score = (
+            scores[index]
+            if isinstance(scores, list | tuple) and index < len(scores)
+            else None
+        )
+        box = (
+            boxes[index]
+            if isinstance(boxes, list | tuple) and index < len(boxes)
+            else []
+        )
+        candidates.append([box, (text, score)])
     return candidates
 
 

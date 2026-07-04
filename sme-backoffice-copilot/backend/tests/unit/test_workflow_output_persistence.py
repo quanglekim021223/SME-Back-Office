@@ -2,18 +2,40 @@ from uuid import UUID
 
 from app.models.document import DocumentStatus
 from app.models.invoice import Invoice, InvoiceFieldEvidence, InvoiceLineItem
-from app.models.operations import ReviewTask, ReviewTaskStatus, ReviewTaskType
+from app.models.operations import (
+    ReviewTargetType,
+    ReviewTask,
+    ReviewTaskStatus,
+    ReviewTaskType,
+)
 from app.providers import (
     MockLLMProvider,
     MockOCRProvider,
     ProviderRuntime,
     build_default_provider_routing_config,
 )
+from app.providers.errors import ProviderDependencyError
+from app.providers.ocr import OCRInput, OCRProviderRunContext, OCRResult
 from app.services.workflow_outputs import (
     WorkflowOutputPersistenceService,
     get_assembled_invoice_draft,
 )
 from app.workflows.replay import WorkflowReplayRunner, create_replay_state
+
+
+class FailingOCRProvider:
+    @property
+    def name(self) -> str:
+        return "failing_ocr"
+
+    async def extract_text(
+        self,
+        *,
+        input_data: OCRInput,
+        context: OCRProviderRunContext,
+    ) -> OCRResult:
+        del input_data, context
+        raise ProviderDependencyError("OCR dependency is not installed.")
 
 
 class FakeWorkflowOutputPersistence:
@@ -104,3 +126,32 @@ async def test_workflow_output_service_skips_when_invoice_draft_is_missing() -> 
     assert materialized is None
     assert persistence.invoices == []
     assert persistence.review_tasks == []
+
+
+async def test_workflow_output_service_creates_review_task_when_workflow_fails() -> (
+    None
+):
+    state = create_replay_state()
+    result = await WorkflowReplayRunner(
+        provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+        ocr_provider=FailingOCRProvider(),
+    ).run(state=state)
+    persistence = FakeWorkflowOutputPersistence()
+    service = WorkflowOutputPersistenceService(persistence)
+
+    materialized = await service.persist_invoice_review_from_workflow_result(result)
+
+    assert materialized is None
+    assert persistence.invoices == []
+    assert len(persistence.review_tasks) == 1
+    review_task = persistence.review_tasks[0]
+    assert review_task.document_id == state.document_id
+    assert review_task.invoice_id is None
+    assert review_task.task_type == ReviewTaskType.EXTRACTION.value
+    assert review_task.target_type == ReviewTargetType.DOCUMENT.value
+    assert review_task.reason_code == "ERR_OCR_PROVIDER_FAILED"
+    assert review_task.metadata_ is not None
+    assert review_task.metadata_["source"] == "workflow_failure"
+    assert persistence.document_status_updates == [
+        (state.tenant_id, state.document_id, DocumentStatus.FAILED)
+    ]

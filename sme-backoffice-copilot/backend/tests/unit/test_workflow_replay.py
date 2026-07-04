@@ -1,6 +1,9 @@
 from app.models.workflow import WorkflowRunStatus
+from app.providers.errors import ProviderDependencyError
+from app.providers.ocr import OCRInput, OCRProviderRunContext, OCRResult
 from app.workflows import (
     BUSINESS_INSIGHTS_KEY,
+    DOCUMENT_LAYOUT_ANALYZER_AGENT,
     QA_VALIDATION_AGENT,
     TOTALS_EXTRACTOR_AGENT,
     WorkflowStage,
@@ -12,6 +15,21 @@ from app.workflows.replay import (
     create_replay_state,
     replay_result_to_summary,
 )
+
+
+class FailingOCRProvider:
+    @property
+    def name(self) -> str:
+        return "failing_ocr"
+
+    async def extract_text(
+        self,
+        *,
+        input_data: OCRInput,
+        context: OCRProviderRunContext,
+    ) -> OCRResult:
+        del input_data, context
+        raise ProviderDependencyError("OCR dependency is not installed.")
 
 
 async def test_workflow_replay_successful_path_completes_workflow() -> None:
@@ -110,3 +128,22 @@ async def test_workflow_replay_retry_exhaustion_dead_letters_workflow() -> None:
         if step.agent_name == QA_VALIDATION_AGENT and step.status == "retrying"
     ]
     assert len(qa_retry_steps) == 4
+
+
+async def test_workflow_replay_stops_when_ocr_provider_fails() -> None:
+    from app.providers import ProviderRuntime, build_default_provider_routing_config
+
+    state = create_replay_state()
+    runner = WorkflowReplayRunner(
+        provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+        ocr_provider=FailingOCRProvider(),
+    )
+
+    result = await runner.run(state=state, scenario=ReplayScenario.HAPPY_PATH)
+
+    assert result.workflow_run.status == WorkflowRunStatus.FAILED.value
+    assert result.workflow_run.error_code == "ERR_OCR_PROVIDER_FAILED"
+    assert result.state.status == WorkflowStateStatus.FAILED
+    assert result.state.stage == WorkflowStage.FAILED
+    assert result.step_executions[-1].agent_name == DOCUMENT_LAYOUT_ANALYZER_AGENT
+    assert result.step_executions[-1].status == "failed"

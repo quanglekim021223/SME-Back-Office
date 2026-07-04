@@ -25,10 +25,11 @@ from app.models.operations import (
     ReviewTaskType,
 )
 from app.validation.deterministic import parse_decimal, parse_iso_date
-from app.workflows.contracts import ConfidenceLevel
+from app.workflows.contracts import ConfidenceLevel, WorkflowStateStatus
 from app.workflows.invoice_extraction import (
     ASSEMBLED_INVOICE_DRAFT_KEY,
     INVOICE_ASSEMBLY_NODE,
+    PROVIDER_EXTRACTION_ERRORS_KEY,
     AssembledInvoiceDraft,
     InvoiceLineItemCandidate,
     InvoiceMetadataGroup,
@@ -140,6 +141,14 @@ class WorkflowOutputPersistenceService:
 
         draft = get_assembled_invoice_draft(result)
         if draft is None:
+            if result.state.status == WorkflowStateStatus.FAILED:
+                review_task = build_review_task_for_failed_workflow(result)
+                self.persistence.add_review_task(review_task)
+                await self.persistence.mark_document_status(
+                    tenant_id=result.state.tenant_id,
+                    document_id=result.state.document_id,
+                    status=DocumentStatus.FAILED,
+                )
             return None
 
         invoice = build_invoice_from_draft(result=result, draft=draft)
@@ -182,6 +191,38 @@ def get_assembled_invoice_draft(
         return AssembledInvoiceDraft.model_validate(raw_draft)
     except ValueError:
         return None
+
+
+def build_review_task_for_failed_workflow(result: WorkflowReplayResult) -> ReviewTask:
+    """Build a document-level review task when workflow processing fails early."""
+
+    return ReviewTask(
+        id=uuid4(),
+        tenant_id=result.state.tenant_id,
+        workflow_run_id=result.workflow_run.id,
+        document_id=result.state.document_id,
+        task_type=ReviewTaskType.EXTRACTION.value,
+        target_type=ReviewTargetType.DOCUMENT.value,
+        status=ReviewTaskStatus.OPEN.value,
+        priority=ReviewTaskPriority.HIGH.value,
+        title="Document processing failed before invoice extraction",
+        description=(
+            "The document workflow failed before an invoice proposal could be "
+            "assembled. Check OCR/provider diagnostics, dependency setup, and "
+            "uploaded file readability before retrying."
+        ),
+        reason_code=result.workflow_run.error_code or "workflow_failed",
+        source_agent=result.workflow_run.current_agent,
+        evidence_refs=[f"document:{result.state.document_id}"],
+        metadata_={
+            "source": "workflow_failure",
+            "workflow_run_id": str(result.workflow_run.id),
+            "workflow_status": result.state.status.value,
+            "workflow_stage": result.state.stage.value,
+            "error_code": result.workflow_run.error_code,
+            "error_message": result.workflow_run.error_message,
+        },
+    )
 
 
 def build_invoice_from_draft(
@@ -402,6 +443,8 @@ def build_review_task_for_invoice(
         result.state.scratchpad[ASSEMBLED_INVOICE_DRAFT_KEY],
     )
     evidence_refs = collect_evidence_refs(raw_draft)
+    provider_errors = result.state.scratchpad.get(PROVIDER_EXTRACTION_ERRORS_KEY, [])
+    ocr_text_preview = ocr_text_preview_from_state(result)
     invoice_label = invoice.invoice_number or str(invoice.id)
     return ReviewTask(
         id=uuid4(),
@@ -429,8 +472,21 @@ def build_review_task_for_invoice(
             "invoice_id": str(invoice.id),
             "proposal_version": invoice.version,
             "assembled_invoice_draft": raw_draft,
+            "provider_extraction_errors": provider_errors
+            if isinstance(provider_errors, list)
+            else [],
+            "ocr_text_preview": ocr_text_preview,
         },
     )
+
+
+def ocr_text_preview_from_state(result: WorkflowReplayResult) -> str | None:
+    """Return a bounded OCR text preview for review/debug metadata."""
+
+    ocr_text = result.state.scratchpad.get("ocr_full_text")
+    if not isinstance(ocr_text, str) or not ocr_text.strip():
+        return None
+    return ocr_text[:2000]
 
 
 def resolve_invoice_currency(

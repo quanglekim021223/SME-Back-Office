@@ -81,6 +81,11 @@ export function ReviewTaskDetailClient({
     ].filter((reference): reference is string => Boolean(reference));
   }, [task]);
 
+  const workflowMetadata = useMemo(
+    () => buildWorkflowMetadataView(task?.metadata ?? {}),
+    [task?.metadata],
+  );
+
   async function runDecision(action: "approve" | "reject") {
     if (!task || actionState === "running") {
       return;
@@ -348,6 +353,133 @@ export function ReviewTaskDetailClient({
         </aside>
       </section>
 
+      <section className="review-evidence-layout">
+        <article className="panel-card panel-card-large">
+          <div className="card-header">
+            <div>
+              <p className="eyebrow">Extracted proposal</p>
+              <h3>Invoice fields ready for review</h3>
+            </div>
+            <span className="status-pill status-pill-muted">
+              {workflowMetadata.assemblyStatus ?? "Draft"}
+            </span>
+          </div>
+
+          <div className="proposal-summary-grid">
+            <ProposalField
+              label="Invoice #"
+              value={workflowMetadata.invoiceNumber}
+            />
+            <ProposalField label="Supplier" value={workflowMetadata.supplier} />
+            <ProposalField label="Customer" value={workflowMetadata.customer} />
+            <ProposalField
+              label="Issue date"
+              value={workflowMetadata.issueDate}
+            />
+            <ProposalField label="Due date" value={workflowMetadata.dueDate} />
+            <ProposalField
+              label="Total"
+              value={formatMoneyDisplay(
+                workflowMetadata.totalAmount,
+                workflowMetadata.currency,
+              )}
+              emphasis
+            />
+          </div>
+
+          <div className="proposal-section">
+            <div className="card-header card-header-compact">
+              <div>
+                <p className="eyebrow">Line items</p>
+                <h4>Extracted table rows</h4>
+              </div>
+              <span className="status-pill status-pill-muted">
+                {workflowMetadata.lineItems.length} rows
+              </span>
+            </div>
+            {workflowMetadata.lineItems.length > 0 ? (
+              <div className="line-items-table-wrap">
+                <table className="compact-data-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Description</th>
+                      <th>Qty</th>
+                      <th>Unit</th>
+                      <th>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {workflowMetadata.lineItems.map((item, index) => (
+                      <tr key={`${item.description}-${index}`}>
+                        <td>{item.lineNumber ?? index + 1}</td>
+                        <td>{item.description ?? "—"}</td>
+                        <td>{item.quantity ?? "—"}</td>
+                        <td>{item.unitPrice ?? "—"}</td>
+                        <td>{item.lineTotal ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="muted-copy">
+                No line items were attached to this proposal yet.
+              </p>
+            )}
+          </div>
+        </article>
+
+        <article className="panel-card">
+          <div>
+            <p className="eyebrow">Diagnostics</p>
+            <h3>OCR and provider status</h3>
+          </div>
+
+          <div className="debug-stack">
+            <div className="debug-block">
+              <div className="card-header card-header-compact">
+                <h4>OCR text preview</h4>
+                <span className="status-pill status-pill-muted">
+                  {workflowMetadata.ocrPreview.length} chars
+                </span>
+              </div>
+              {workflowMetadata.ocrPreview ? (
+                <pre className="ocr-preview-text">
+                  {workflowMetadata.ocrPreview}
+                </pre>
+              ) : (
+                <p className="muted-copy">No OCR preview attached.</p>
+              )}
+            </div>
+
+            <div className="debug-block">
+              <div className="card-header card-header-compact">
+                <h4>Provider extraction errors</h4>
+                <span className="status-pill status-pill-muted">
+                  {workflowMetadata.providerErrors.length}
+                </span>
+              </div>
+              {workflowMetadata.providerErrors.length > 0 ? (
+                <div className="provider-error-list">
+                  {workflowMetadata.providerErrors.map((error, index) => (
+                    <details key={`${error.agentName}-${index}`}>
+                      <summary>
+                        <span>{error.agentName ?? "provider"}</span>
+                        <code>{error.errorCode ?? "ERR_UNKNOWN"}</code>
+                      </summary>
+                      <pre>{error.errorMessage ?? "No error details."}</pre>
+                    </details>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted-copy">No provider errors recorded.</p>
+              )}
+            </div>
+          </div>
+        </article>
+      </section>
+
       <section className="review-detail-layout">
         <article className="panel-card">
           <div className="card-header">
@@ -377,17 +509,16 @@ export function ReviewTaskDetailClient({
         <article className="panel-card">
           <div>
             <p className="eyebrow">Metadata</p>
-            <h3>Workflow payload</h3>
+            <h3>Raw workflow payload</h3>
           </div>
           {Object.keys(task.metadata).length > 0 ? (
-            <dl className="metadata-list">
-              {Object.entries(task.metadata).map(([key, value]) => (
-                <div key={key}>
-                  <dt>{key}</dt>
-                  <dd>{formatMetadataValue(value)}</dd>
-                </div>
-              ))}
-            </dl>
+            <details className="debug-disclosure">
+              <summary>
+                Open raw JSON metadata
+                <span>{Object.keys(task.metadata).length} keys</span>
+              </summary>
+              <pre className="debug-code">{prettyJson(task.metadata)}</pre>
+            </details>
           ) : (
             <p>
               No metadata has been attached yet. Validator signals and proposal
@@ -396,6 +527,27 @@ export function ReviewTaskDetailClient({
           )}
         </article>
       </section>
+    </div>
+  );
+}
+
+function ProposalField({
+  label,
+  value,
+  emphasis = false,
+}: {
+  label: string;
+  value: string | null;
+  emphasis?: boolean;
+}) {
+  return (
+    <div
+      className={
+        emphasis ? "proposal-field proposal-field-emphasis" : "proposal-field"
+      }
+    >
+      <span>{label}</span>
+      <strong>{value || "—"}</strong>
     </div>
   );
 }
@@ -546,22 +698,123 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
-function formatMetadataValue(value: unknown) {
+function shortId(value: string) {
+  return value.slice(0, 8);
+}
+
+type WorkflowMetadataView = {
+  assemblyStatus: string | null;
+  invoiceNumber: string | null;
+  supplier: string | null;
+  customer: string | null;
+  issueDate: string | null;
+  dueDate: string | null;
+  currency: string | null;
+  totalAmount: string | null;
+  lineItems: Array<{
+    lineNumber: string | null;
+    description: string | null;
+    quantity: string | null;
+    unitPrice: string | null;
+    lineTotal: string | null;
+  }>;
+  ocrPreview: string;
+  providerErrors: Array<{
+    agentName: string | null;
+    errorCode: string | null;
+    errorMessage: string | null;
+  }>;
+};
+
+function buildWorkflowMetadataView(
+  metadata: Record<string, unknown>,
+): WorkflowMetadataView {
+  const draft = getRecord(metadata.assembled_invoice_draft);
+  const groups = getRecord(draft?.groups);
+  const metadataGroup = getRecord(groups?.metadata);
+  const tableGroup = getRecord(groups?.table);
+  const totalsGroup = getRecord(groups?.totals);
+  const lineItems = getArray(tableGroup?.line_items)
+    .map((item) => getRecord(item))
+    .filter((item): item is Record<string, unknown> => Boolean(item))
+    .map((item) => ({
+      lineNumber: getDisplayValue(item.line_number),
+      description: getDisplayValue(item.description),
+      quantity: getDisplayValue(item.quantity),
+      unitPrice: getDisplayValue(item.unit_price),
+      lineTotal: getDisplayValue(item.line_total),
+    }));
+  const providerErrors = getArray(metadata.provider_extraction_errors)
+    .map((error) => getRecord(error))
+    .filter((error): error is Record<string, unknown> => Boolean(error))
+    .map((error) => ({
+      agentName: getDisplayValue(error.agent_name),
+      errorCode: getDisplayValue(error.error_code),
+      errorMessage: getDisplayValue(error.error_message),
+    }));
+
+  return {
+    assemblyStatus: titleCase(getDisplayValue(draft?.assembly_status)),
+    invoiceNumber: getDisplayValue(metadataGroup?.invoice_number),
+    supplier: getDisplayValue(metadataGroup?.supplier_name),
+    customer: getDisplayValue(metadataGroup?.customer_name),
+    issueDate: getDisplayValue(metadataGroup?.issue_date),
+    dueDate: getDisplayValue(metadataGroup?.due_date),
+    currency: getDisplayValue(totalsGroup?.currency ?? metadataGroup?.currency),
+    totalAmount: getDisplayValue(totalsGroup?.total_amount),
+    lineItems,
+    ocrPreview: getDisplayValue(metadata.ocr_text_preview) ?? "",
+    providerErrors,
+  };
+}
+
+function getRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function getArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function getDisplayValue(value: unknown): string | null {
   if (value === null || value === undefined) {
-    return "—";
+    return null;
   }
 
   if (typeof value === "string") {
-    return value;
+    return value || null;
   }
 
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
 
-  return JSON.stringify(value);
+  return null;
 }
 
-function shortId(value: string) {
-  return value.slice(0, 8);
+function formatMoneyDisplay(amount: string | null, currency: string | null) {
+  if (!amount) {
+    return null;
+  }
+
+  return currency ? `${currency} ${amount}` : amount;
+}
+
+function titleCase(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  return value
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function prettyJson(value: unknown) {
+  return JSON.stringify(value, null, 2);
 }
