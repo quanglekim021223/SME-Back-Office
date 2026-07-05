@@ -37,6 +37,7 @@ def parse_invoice_metadata_group_payload(
     """Parse invoice metadata fields from OCR text into group contract payload."""
 
     lines = normalized_lines(ocr_text)
+    prefer_day_first_dates = should_prefer_day_first_dates(ocr_text)
     invoice_number = find_invoice_number(ocr_text) or find_labeled_value(
         lines,
         labels=(
@@ -54,16 +55,21 @@ def parse_invoice_metadata_group_payload(
             lines,
             labels=("invoice date", "date"),
             value_pattern=DATE_PATTERN,
-        )
+        ),
+        prefer_day_first=prefer_day_first_dates,
     )
     if issue_date is None:
-        issue_date = normalize_invoice_date(find_header_date(lines))
+        issue_date = normalize_invoice_date(
+            find_header_date(lines),
+            prefer_day_first=prefer_day_first_dates,
+        )
     due_date = normalize_invoice_date(
         find_labeled_value(
             lines,
             labels=("due date", "payment due", "duedate"),
             value_pattern=DATE_PATTERN,
-        )
+        ),
+        prefer_day_first=prefer_day_first_dates,
     )
     if due_date is None:
         due_date = infer_due_date_from_terms(
@@ -209,8 +215,12 @@ def find_labeled_value(
     return None
 
 
-def normalize_invoice_date(value: str | None) -> str | None:
-    """Normalize MM-DD-YYYY or MM/DD/YYYY dates to ISO YYYY-MM-DD."""
+def normalize_invoice_date(
+    value: str | None,
+    *,
+    prefer_day_first: bool = False,
+) -> str | None:
+    """Normalize slash/dash invoice dates to ISO YYYY-MM-DD."""
 
     if value is None:
         return None
@@ -231,9 +241,12 @@ def normalize_invoice_date(value: str | None) -> str | None:
     except ValueError:
         return value
 
-    if is_short_year and first_number <= 31 and second_number <= 12:
+    if (is_short_year or prefer_day_first or first_number > 12) and second_number <= 12:
         day = first_number
         month = second_number
+    elif second_number > 12:
+        month = first_number
+        day = second_number
     else:
         month = first_number
         day = second_number
@@ -241,6 +254,20 @@ def normalize_invoice_date(value: str | None) -> str | None:
     if not (1 <= month <= 12 and 1 <= day <= 31):
         return value
     return f"{normalized_year:04d}-{month:02d}-{day:02d}"
+
+
+def should_prefer_day_first_dates(text: str) -> bool:
+    """Infer UK/EU-style day-first dates from local invoice signals."""
+
+    lower_text = text.lower()
+    return bool(
+        "£" in text
+        or "gbp" in lower_text
+        or "vat" in lower_text
+        or "united kingdom" in lower_text
+        or "gst" in lower_text
+        or "inr" in lower_text
+    )
 
 
 def find_header_date(lines: list[str]) -> str | None:

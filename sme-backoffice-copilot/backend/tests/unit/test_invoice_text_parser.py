@@ -208,6 +208,49 @@ john smith
     assert metadata["customer_name"] == "john smith"
 
 
+def test_invoice_text_parser_resolves_uk_long_date_ambiguity() -> None:
+    ocr_text = """INVOICE
+Invoice No: INV-GB-001
+Date: 02/01/2024
+Due Date: 03/01/2024
+ACME UK SERVICES LTD
+Bill to:
+john smith
+VAT 20%
+Total £120.00
+United Kingdom
+"""
+
+    metadata = parse_invoice_metadata_group_payload(
+        ocr_text=ocr_text,
+        evidence_refs=["page:1"],
+    )
+
+    assert metadata["issue_date"] == "2024-01-02"
+    assert metadata["due_date"] == "2024-01-03"
+    assert metadata["currency"] == "GBP"
+
+
+def test_invoice_text_parser_keeps_us_long_date_default_month_first() -> None:
+    ocr_text = """INVOICE
+Invoice # US-001
+Invoice date 02/01/2024
+Due date 03/01/2024
+Your Company Inc.
+Bill To
+Customer Name
+Total (USD) $120.00
+"""
+
+    metadata = parse_invoice_metadata_group_payload(
+        ocr_text=ocr_text,
+        evidence_refs=["page:1"],
+    )
+
+    assert metadata["issue_date"] == "2024-02-01"
+    assert metadata["due_date"] == "2024-03-01"
+
+
 def test_invoice_text_parser_groups_multiline_line_item_descriptions() -> None:
     ocr_text = (
         Path(__file__).parents[2]
@@ -235,6 +278,8 @@ def test_invoice_text_parser_groups_multiline_line_item_descriptions() -> None:
 
     assert metadata["supplier_name"] == "SERVICE DEMO AUTOCARE LTD"
     assert metadata["currency"] == "GBP"
+    assert metadata["issue_date"] == "2024-01-02"
+    assert metadata["due_date"] == "2024-01-02"
     assert totals["total_amount"] == "1482.00"
 
     line_items = table["line_items"]
