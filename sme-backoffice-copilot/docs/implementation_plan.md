@@ -340,8 +340,8 @@ orchestration layer, while making every OCR, LLM, validator, retry, handoff, and
 human-review routing decision traceable without leaking sensitive financial
 data.
 
-- [ ] Decide LangGraph adoption scope.
-- [ ] Add LangGraph dependency and local configuration.
+- [x] Decide LangGraph adoption scope.
+- [x] Add LangGraph dependency and local configuration.
 - [ ] Create LangGraph workflow adapter behind existing workflow contracts.
 - [ ] Convert current document preparation steps into LangGraph nodes.
 - [ ] Convert invoice metadata/table/totals extractors into LangGraph nodes.
@@ -353,8 +353,8 @@ data.
 - [ ] Preserve existing handoff persistence from graph node transitions.
 - [ ] Add checkpoint/replay support for local graph runs.
 - [ ] Add tracing provider interface for Langfuse or LangSmith.
-- [ ] Choose first tracing backend: Langfuse local/self-host or LangSmith cloud.
-- [ ] Add tracing provider configuration.
+- [x] Choose first tracing backend: Langfuse local/self-host or LangSmith cloud.
+- [x] Add tracing provider configuration.
 - [ ] Add redaction/minimization before sending trace payloads externally.
 - [ ] Trace OCR provider calls.
 - [ ] Trace LLM provider calls.

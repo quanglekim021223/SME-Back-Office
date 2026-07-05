@@ -28,6 +28,21 @@ class LLMProviderType(StrEnum):
     OPENAI = "openai"
 
 
+class WorkflowOrchestrationMode(StrEnum):
+    """Supported workflow orchestration engines."""
+
+    CUSTOM = "custom"
+    LANGGRAPH = "langgraph"
+
+
+class TracingBackendType(StrEnum):
+    """Supported trace export backends."""
+
+    DISABLED = "disabled"
+    LANGFUSE = "langfuse"
+    LANGSMITH = "langsmith"
+
+
 class Settings(BaseSettings):
     """Environment-backed settings shared by backend infrastructure."""
 
@@ -47,6 +62,21 @@ class Settings(BaseSettings):
     ]
     ocr_provider: OCRProviderType = OCRProviderType.MOCK
     llm_provider: LLMProviderType = LLMProviderType.MOCK
+    workflow_orchestration_mode: WorkflowOrchestrationMode = (
+        WorkflowOrchestrationMode.CUSTOM
+    )
+    langgraph_checkpointing_enabled: bool = False
+    langgraph_recursion_limit: int = 25
+    tracing_backend: TracingBackendType = TracingBackendType.DISABLED
+    tracing_project_name: str = "sme-backoffice-copilot-local"
+    tracing_redaction_enabled: bool = True
+    tracing_max_payload_chars: int = 4000
+    langfuse_host: str = "http://localhost:3001"
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+    langsmith_api_key: str = ""
+    langsmith_project: str = "sme-backoffice-copilot-local"
     provider_timeout_seconds: float = 30.0
     provider_max_retries: int = 1
     provider_retry_backoff_seconds: float = 0.0
