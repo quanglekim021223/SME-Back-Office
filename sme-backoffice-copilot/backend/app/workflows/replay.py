@@ -8,7 +8,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID, uuid4
 
 from app.models.workflow import AgentHandoff, AgentStepExecution, WorkflowRun
@@ -58,6 +58,10 @@ from app.workflows.runtime import (
     WorkflowRuntimePersistence,
     WorkflowRuntimeService,
 )
+
+if TYPE_CHECKING:
+    from app.providers import LLMProvider, OCRProvider
+
 
 WORKFLOW_REPLAY_NAME = "document_processing_replay"
 WORKFLOW_REPLAY_VERSION = "0.1.0"
@@ -146,6 +150,15 @@ def create_replay_state(
 class WorkflowReplayRunner:
     """Small local runner that replays the skeleton workflow without frontend/API."""
 
+    persistence: WorkflowRuntimePersistence
+    runtime: WorkflowRuntimeService
+    step_executions: list[AgentStepExecution]
+    handoffs: list[AgentHandoff]
+    provider_runtime: Any | None
+    llm_provider: LLMProvider | None
+    ocr_provider: OCRProvider | None
+    provider_privacy_context: Any | None
+
     def __init__(
         self,
         persistence: WorkflowRuntimePersistence | None = None,
@@ -158,9 +171,38 @@ class WorkflowReplayRunner:
         self.runtime = WorkflowRuntimeService(self.persistence)
         self.step_executions: list[AgentStepExecution] = []
         self.handoffs: list[AgentHandoff] = []
-        self.provider_runtime = provider_runtime
-        self.llm_provider = llm_provider
-        self.ocr_provider = ocr_provider
+
+        if provider_runtime is None or llm_provider is None or ocr_provider is None:
+            from app.core.config import LLMProviderType, OCRProviderType, Settings
+            from app.providers import (
+                ProviderRuntime,
+                build_default_provider_routing_config,
+            )
+            from app.providers.factory import (
+                build_llm_provider_from_settings,
+                build_ocr_provider_from_settings,
+            )
+
+            # Use mock settings for deterministic replay
+            settings = Settings(
+                ocr_provider=OCRProviderType.MOCK,
+                llm_provider=LLMProviderType.MOCK,
+            )
+
+            self.provider_runtime = provider_runtime or ProviderRuntime(
+                build_default_provider_routing_config()
+            )
+            self.llm_provider = llm_provider or build_llm_provider_from_settings(
+                settings
+            )
+            self.ocr_provider = ocr_provider or build_ocr_provider_from_settings(
+                settings
+            )
+        else:
+            self.provider_runtime = provider_runtime
+            self.llm_provider = llm_provider
+            self.ocr_provider = ocr_provider
+
         self.provider_privacy_context = provider_privacy_context
 
     async def run(

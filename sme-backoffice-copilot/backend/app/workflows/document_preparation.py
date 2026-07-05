@@ -27,6 +27,19 @@ TOTALS_EXTRACTOR_AGENT = "totals_extractor"
 
 OCR_RESULT_KEY = "ocr_result"
 OCR_FULL_TEXT_KEY = "ocr_full_text"
+OCR_LAYOUT_BLOCKS_KEY = "ocr_layout_blocks"
+OCR_LAYOUT_DIAGNOSTICS_KEY = "ocr_layout_diagnostics"
+OCR_LAYOUT_REGIONS_KEY = "ocr_layout_regions"
+
+DOCUMENT_REGION_NAMES = (
+    "header",
+    "supplier",
+    "bill_to",
+    "ship_to",
+    "line_item_table",
+    "totals",
+    "footer",
+)
 
 
 def validate_agent_context(
@@ -280,14 +293,20 @@ class DocumentLayoutAnalyzerAgent:
         if isinstance(provider_output, AgentRunResult):
             return provider_output
 
+        layout_regions = ocr_layout_regions_from_state(state)
         layout_groups: dict[str, object] = {
-            "metadata_region": None,
-            "table_region": None,
-            "totals_region": None,
+            "regions_ref": OCR_LAYOUT_REGIONS_KEY if layout_regions else None,
+            "metadata_region": layout_regions.get("header"),
+            "supplier_region": layout_regions.get("supplier"),
+            "bill_to_region": layout_regions.get("bill_to"),
+            "ship_to_region": layout_regions.get("ship_to"),
+            "table_region": layout_regions.get("line_item_table"),
+            "totals_region": layout_regions.get("totals"),
+            "footer_region": layout_regions.get("footer"),
             "source": "ocr_provider" if provider_output is not None else "placeholder",
         }
         output: dict[str, object] = {
-            "layout_detected": False,
+            "layout_detected": bool(layout_regions),
             "layout_groups": layout_groups,
             "requires_ocr": provider_output is None,
             "ocr_available": provider_output is not None,
@@ -295,11 +314,20 @@ class DocumentLayoutAnalyzerAgent:
         if provider_output is not None:
             output["ocr_provider"] = provider_output["provider_name"]
             output["ocr_text_chars"] = provider_output["full_text_length"]
+            output["ocr_layout_diagnostics"] = provider_output[
+                OCR_LAYOUT_DIAGNOSTICS_KEY
+            ]
         extraction_payload: dict[str, object] = {
             "document_type": state.document_type,
             "layout_groups": layout_groups,
             "ocr_result_ref": OCR_RESULT_KEY if provider_output is not None else None,
             "ocr_text_ref": OCR_FULL_TEXT_KEY if provider_output is not None else None,
+            "ocr_layout_blocks_ref": OCR_LAYOUT_BLOCKS_KEY
+            if provider_output is not None
+            else None,
+            "ocr_layout_regions_ref": OCR_LAYOUT_REGIONS_KEY
+            if layout_regions
+            else None,
         }
         handoffs = [
             build_control_handoff(
@@ -336,7 +364,10 @@ class DocumentLayoutAnalyzerAgent:
                 if provider_output is not None
                 else ConfidenceLevel.UNKNOWN
             ),
-            metrics={"layout_group_count": 3},
+            metrics={
+                "layout_group_count": 3,
+                "layout_region_count": len(layout_regions),
+            },
         )
 
 
@@ -388,10 +419,266 @@ async def run_ocr_provider_if_available(
         dict[str, object],
         invocation.result.model_dump(mode="json"),
     )
+    layout_blocks = build_ocr_layout_blocks(ocr_result_payload)
+    layout_regions = build_ocr_layout_regions(layout_blocks)
+    layout_diagnostics = build_ocr_layout_diagnostics(
+        provider_name=invocation.result.provider_name,
+        full_text=invocation.result.full_text,
+        layout_blocks=layout_blocks,
+        layout_regions=layout_regions,
+        provider_metadata=invocation.result.metadata,
+    )
     state.scratchpad[OCR_RESULT_KEY] = ocr_result_payload
     state.scratchpad[OCR_FULL_TEXT_KEY] = invocation.result.full_text
+    state.scratchpad[OCR_LAYOUT_BLOCKS_KEY] = layout_blocks
+    state.scratchpad[OCR_LAYOUT_REGIONS_KEY] = layout_regions
+    state.scratchpad[OCR_LAYOUT_DIAGNOSTICS_KEY] = layout_diagnostics
     return {
         "provider_name": invocation.result.provider_name,
         "full_text_length": len(invocation.result.full_text),
         "text_block_count": len(invocation.result.text_blocks),
+        OCR_LAYOUT_DIAGNOSTICS_KEY: layout_diagnostics,
+    }
+
+
+def build_ocr_layout_blocks(
+    ocr_result_payload: dict[str, object],
+) -> list[dict[str, object]]:
+    """Return provider-neutral OCR layout blocks for workflow diagnostics."""
+
+    raw_blocks = ocr_result_payload.get("text_blocks")
+    if not isinstance(raw_blocks, list):
+        return []
+
+    blocks: list[dict[str, object]] = []
+    for index, raw_block in enumerate(raw_blocks, start=1):
+        if not isinstance(raw_block, dict):
+            continue
+        text = raw_block.get("text")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        page_number = raw_block.get("page_number")
+        bounding_box = raw_block.get("bounding_box")
+        confidence = raw_block.get("confidence")
+        blocks.append(
+            {
+                "id": f"ocr:block:{index}",
+                "text": text,
+                "page_number": page_number if isinstance(page_number, int) else 1,
+                "bounding_box": (
+                    bounding_box if isinstance(bounding_box, list) else None
+                ),
+                "confidence": confidence
+                if isinstance(confidence, int | float)
+                else None,
+                "metadata": raw_block.get("metadata")
+                if isinstance(raw_block.get("metadata"), dict)
+                else {},
+            }
+        )
+    return blocks
+
+
+def build_ocr_layout_regions(
+    layout_blocks: list[dict[str, object]],
+) -> dict[str, dict[str, object]]:
+    """Group OCR blocks into coarse invoice regions for downstream agents."""
+
+    regions = build_document_region_contracts()
+    if not layout_blocks:
+        return regions
+
+    table_start = first_block_index_matching(
+        layout_blocks,
+        ("description", "particulars", "qty", "quantity"),
+    )
+    totals_start = first_block_index_matching(
+        layout_blocks,
+        ("subtotal", "sub total", "tax", "vat", "balance due"),
+        start_at=table_start + 1 if table_start is not None else 0,
+    )
+    bill_to_start = first_block_index_matching(
+        layout_blocks,
+        ("bill to", "bill to:", "customer", "client"),
+    )
+    ship_to_start = first_block_index_matching(layout_blocks, ("ship to", "ship to:"))
+
+    for index, block in enumerate(layout_blocks):
+        region_name = infer_region_name(
+            index=index,
+            table_start=table_start,
+            totals_start=totals_start,
+            bill_to_start=bill_to_start,
+            ship_to_start=ship_to_start,
+            block_count=len(layout_blocks),
+        )
+        add_block_to_region(regions[region_name], block)
+
+    return {name: region for name, region in regions.items() if region["block_ids"]}
+
+
+def build_document_region_contracts() -> dict[str, dict[str, object]]:
+    """Return empty provider-neutral document region contracts."""
+
+    return {
+        name: {
+            "region_type": name,
+            "block_ids": [],
+            "text": "",
+            "bounding_box": None,
+            "confidence": None,
+            "source": "ocr_layout_blocks",
+        }
+        for name in DOCUMENT_REGION_NAMES
+    }
+
+
+def first_block_index_matching(
+    layout_blocks: list[dict[str, object]],
+    needles: tuple[str, ...],
+    *,
+    start_at: int = 0,
+) -> int | None:
+    """Return first block index containing any marker text."""
+
+    for index, block in enumerate(layout_blocks[start_at:], start=start_at):
+        text = block.get("text")
+        if not isinstance(text, str):
+            continue
+        normalized = text.casefold()
+        if any(needle in normalized for needle in needles):
+            return index
+    return None
+
+
+def infer_region_name(
+    *,
+    index: int,
+    table_start: int | None,
+    totals_start: int | None,
+    bill_to_start: int | None,
+    ship_to_start: int | None,
+    block_count: int,
+) -> str:
+    """Infer the coarse document region for an OCR block index."""
+
+    if totals_start is not None and index >= totals_start:
+        return "totals" if index < block_count - 3 else "footer"
+    if table_start is not None and index >= table_start:
+        return "line_item_table"
+    if ship_to_start is not None and index >= ship_to_start:
+        return "ship_to"
+    if bill_to_start is not None and index >= bill_to_start:
+        return "bill_to"
+    return "supplier" if index > 0 else "header"
+
+
+def add_block_to_region(
+    region: dict[str, object],
+    block: dict[str, object],
+) -> None:
+    """Append one OCR block to a normalized region contract."""
+
+    block_id = block.get("id")
+    block_ids = region["block_ids"]
+    if isinstance(block_id, str) and isinstance(block_ids, list):
+        block_ids.append(block_id)
+
+    text = block.get("text")
+    if isinstance(text, str):
+        existing_text = region["text"]
+        region["text"] = (
+            f"{existing_text}\n{text}".strip()
+            if isinstance(existing_text, str)
+            else text
+        )
+
+    region["bounding_box"] = merge_region_bounding_box(
+        region.get("bounding_box"),
+        block.get("bounding_box"),
+    )
+
+    confidence = block.get("confidence")
+    if isinstance(confidence, int | float):
+        current = region.get("confidence")
+        region["confidence"] = (
+            confidence
+            if not isinstance(current, int | float)
+            else min(float(current), float(confidence))
+        )
+
+
+def merge_region_bounding_box(
+    existing: object,
+    incoming: object,
+) -> list[float] | None:
+    """Merge axis-aligned boxes represented as [x1, y1, x2, y2]."""
+
+    if not is_axis_aligned_bbox(incoming):
+        return cast(list[float], existing) if is_axis_aligned_bbox(existing) else None
+    incoming_box = cast(list[float], incoming)
+    if not is_axis_aligned_bbox(existing):
+        return incoming_box
+    existing_box = cast(list[float], existing)
+    return [
+        min(existing_box[0], incoming_box[0]),
+        min(existing_box[1], incoming_box[1]),
+        max(existing_box[2], incoming_box[2]),
+        max(existing_box[3], incoming_box[3]),
+    ]
+
+
+def is_axis_aligned_bbox(value: object) -> bool:
+    """Return whether value is a simple [x1, y1, x2, y2] box."""
+
+    return (
+        isinstance(value, list)
+        and len(value) == 4
+        and all(isinstance(item, int | float) for item in value)
+    )
+
+
+def ocr_layout_regions_from_state(
+    state: WorkflowState,
+) -> dict[str, dict[str, object]]:
+    """Return normalized OCR layout regions stored by layout analysis."""
+
+    regions = state.scratchpad.get(OCR_LAYOUT_REGIONS_KEY)
+    if not isinstance(regions, dict):
+        return {}
+    return {
+        str(name): region
+        for name, region in regions.items()
+        if isinstance(region, dict)
+    }
+
+
+def build_ocr_layout_diagnostics(
+    *,
+    provider_name: str,
+    full_text: str,
+    layout_blocks: list[dict[str, object]],
+    layout_regions: dict[str, dict[str, object]],
+    provider_metadata: dict[str, object],
+) -> dict[str, object]:
+    """Summarize OCR layout quality without storing huge provider payloads."""
+
+    blocks_with_bbox = [
+        block for block in layout_blocks if isinstance(block.get("bounding_box"), list)
+    ]
+    blocks_with_confidence = [
+        block
+        for block in layout_blocks
+        if isinstance(block.get("confidence"), int | float)
+    ]
+    return {
+        "provider_name": provider_name,
+        "text_char_count": len(full_text),
+        "text_block_count": len(layout_blocks),
+        "blocks_with_bounding_box_count": len(blocks_with_bbox),
+        "blocks_with_confidence_count": len(blocks_with_confidence),
+        "layout_available": bool(blocks_with_bbox),
+        "region_count": len(layout_regions),
+        "region_names": sorted(layout_regions.keys()),
+        "provider_metadata_keys": sorted(provider_metadata.keys()),
     }

@@ -1,0 +1,51 @@
+INVOICE
+Invoice Fly.
+NO.1234
+1/01/2036
+ALBERT SORT
+Due date:
+5740, N.Sheridan Road.
+P.O. Number:
+Chicago, IL-60660
+Albert@invoicefly.com
+123-456-789
+BILL TO:
+SHIP TO:
+SAM ALTMAN
+CLIENT NAME
+Fifth Avenue New York,
+Client Street, City,
+10029
+State, Zip Code
+DESCRIPTION
+QTY
+PRICE
+TOTAL
+Item 1
+2
+$100
+$200
+Item 2
+1
+$150
+$150
+Item 3
+2
+$300
+$600
+Item 4
+1
+$300
+$300
+SUB TOTAL
+$1250
+TAX (21%)
+$262
+DISCOUNT
+$0
+SHIPPING
+$0
+TOTAL AMOUNT
+$1512
+BALANCE DUE
+$1512

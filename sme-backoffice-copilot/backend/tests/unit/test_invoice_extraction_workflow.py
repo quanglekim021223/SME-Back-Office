@@ -22,12 +22,14 @@ from app.workflows import (
     INVOICE_TOTALS_GROUP_KEY,
     METADATA_EXTRACTOR_AGENT,
     OCR_FULL_TEXT_KEY,
+    OCR_LAYOUT_REGIONS_KEY,
     QA_VALIDATION_AGENT,
     TABLE_EXTRACTOR_AGENT,
     TOTALS_EXTRACTOR_AGENT,
     AgentExecutionContext,
     AgentHandoffEnvelope,
     AgentRunStatus,
+    AssembledInvoiceDraft,
     ConfidenceLevel,
     HandoffType,
     InvoiceAssemblyNode,
@@ -155,6 +157,48 @@ class OllamaStyleStructuredOutputLLMProvider:
         )
 
 
+class CapturingLLMProvider:
+    def __init__(self) -> None:
+        self.requests: list[LLMGenerationRequest] = []
+
+    @property
+    def name(self) -> str:
+        return "mock_llm"
+
+    async def generate(
+        self,
+        *,
+        request: LLMGenerationRequest,
+        context: LLMProviderRunContext,
+    ) -> LLMGenerationResult:
+        del context
+        self.requests.append(request)
+        return LLMGenerationResult(
+            provider_name=self.name,
+            model_name="capture",
+            output_text="{}",
+            structured_output={
+                "schema_version": "invoice-table-group.v1",
+                "extraction_status": "extracted",
+                "line_items": [
+                    {
+                        "line_number": 1,
+                        "description": "Region item",
+                        "quantity": "1.00",
+                        "unit_price": "10.00",
+                        "tax_amount": None,
+                        "line_total": "10.00",
+                        "evidence_refs": [],
+                        "confidence": "medium",
+                    }
+                ],
+                "table_region_ref": "ocr:region:line_item_table",
+                "evidence_refs": [],
+                "confidence": "medium",
+            },
+        )
+
+
 def create_state() -> WorkflowState:
     return WorkflowState(
         tenant_id=uuid4(),
@@ -258,6 +302,57 @@ def test_totals_normalizer_converts_schema_shaped_numeric_amounts() -> None:
     assert totals.subtotal_amount == "250.00"
     assert totals.tax_amount == "12.50"
     assert totals.total_amount == "262.50"
+
+
+def test_table_normalizer_sanitizes_duplicate_hallucinated_totals() -> None:
+    payload = normalize_provider_invoice_group_payload(
+        schema_name="invoice-table-group.v1",
+        payload={
+            "schema_version": "invoice-table-group.v1",
+            "extraction_status": "extracted",
+            "line_items": [
+                {
+                    "line_number": 1,
+                    "description": "SERVICE RSLL AUTOCARSS",
+                    "quantity": "1.00",
+                    "unit_price": "1300.00",
+                    "line_total": "1300.00",
+                },
+                {
+                    "line_number": 2,
+                    "description": "CONITECH TIMING CHAIN KIT+WHATER PUMP",
+                    "quantity": None,
+                    "unit_price": None,
+                    "line_total": "1300.00",
+                },
+                {
+                    "line_number": 3,
+                    "description": "CASTROL OIL 5L 5W30",
+                    "quantity": "—",
+                    "unit_price": None,
+                    "line_total": "1300.00",
+                },
+                {
+                    "line_number": 4,
+                    "description": "ANTIFREEZER COOLANT",
+                    "quantity": None,
+                    "unit_price": None,
+                    "line_total": "1300.00",
+                },
+            ],
+            "evidence_refs": [],
+            "confidence": "medium",
+        },
+    )
+
+    table = InvoiceTableGroup.model_validate(payload)
+
+    # Item 1 should preserve its total
+    assert table.line_items[0].line_total == "1300.00"
+    # Items 2, 3, 4 should have their line_total cleared to None
+    assert table.line_items[1].line_total is None
+    assert table.line_items[2].line_total is None
+    assert table.line_items[3].line_total is None
 
 
 @pytest.mark.asyncio
@@ -504,6 +599,54 @@ async def test_invoice_extractors_normalize_ollama_style_json_shapes() -> None:
 
 
 @pytest.mark.asyncio
+async def test_table_extractor_prefers_layout_region_over_full_ocr_text() -> None:
+    state = create_state()
+    state.scratchpad[OCR_FULL_TEXT_KEY] = (
+        "Supplier: Header Supplier\n"
+        "Description Qty Unit Total\n"
+        "Region item 1.00 10.00 10.00\n"
+        "Footer terms should stay outside table prompt"
+    )
+    state.scratchpad[OCR_LAYOUT_REGIONS_KEY] = {
+        "line_item_table": {
+            "region_type": "line_item_table",
+            "block_ids": ["ocr:block:2"],
+            "text": "Description Qty Unit Total\nRegion item 1.00 10.00 10.00",
+            "bounding_box": None,
+            "confidence": None,
+            "source": "ocr_layout_blocks",
+        }
+    }
+    llm_provider = CapturingLLMProvider()
+    context = AgentExecutionContext(
+        tenant_id=state.tenant_id,
+        document_id=state.document_id,
+        workflow_run_id=state.workflow_run_id,
+        provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+        llm_provider=llm_provider,
+    )
+
+    result = await TableExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=TABLE_EXTRACTOR_AGENT,
+            stage=WorkflowStage.TABLE_EXTRACTION,
+        ),
+    )
+
+    assert result.status == AgentRunStatus.SUCCEEDED
+    assert len(llm_provider.requests) == 1
+    prompt_text = "\n".join(
+        message.content for message in llm_provider.requests[0].messages
+    )
+    assert "Region item 1.00 10.00 10.00" in prompt_text
+    assert "Header Supplier" not in prompt_text
+    assert "Footer terms" not in prompt_text
+
+
+@pytest.mark.asyncio
 async def test_invoice_assembly_node_combines_groups_and_routes_to_qa() -> None:
     state = create_state()
     context = create_context(state)
@@ -541,6 +684,131 @@ async def test_qa_validation_agent_routes_valid_placeholder_to_classification() 
     assert result.handoffs[0].source_agent == QA_VALIDATION_AGENT
     assert result.handoffs[0].target_agent == CLASSIFICATION_AGENT
     assert result.handoffs[0].stage == WorkflowStage.CLASSIFICATION
+
+
+@pytest.mark.asyncio
+async def test_qa_validation_agent_flags_financially_incomplete_draft() -> None:
+    state = create_state()
+    context = create_context(state)
+    draft = AssembledInvoiceDraft(
+        document_id=state.document_id,
+        groups=InvoiceExtractionGroups(
+            metadata=InvoiceMetadataGroup(invoice_number="INV-001"),
+            table=InvoiceTableGroup(
+                extraction_status=InvoiceExtractionStatus.EXTRACTED,
+                line_items=[
+                    InvoiceLineItemCandidate(
+                        line_number=1,
+                        description="Service",
+                        quantity="1.00",
+                        unit_price="100.00",
+                        line_total="100.00",
+                    )
+                ],
+            ),
+            totals=InvoiceTotalsGroup(
+                extraction_status=InvoiceExtractionStatus.EXTRACTED,
+                subtotal_amount="100.00",
+                tax_amount=None,
+                total_amount=None,
+            ),
+        ),
+        assembly_status=InvoiceExtractionStatus.EXTRACTED,
+    )
+    state.scratchpad[ASSEMBLED_INVOICE_DRAFT_KEY] = draft.model_dump(mode="json")
+
+    result = await QAValidationAgent().run(state=state, context=context)
+
+    assert result.status == AgentRunStatus.REVIEW_REQUIRED
+    assert result.output["validation_status"] == "review_required"
+    assert any(
+        signal.code == "ERR_AMOUNT_INVALID" for signal in result.qa_error_signals
+    )
+    assert result.handoffs == []
+
+
+@pytest.mark.asyncio
+async def test_qa_validation_agent_flags_subtotal_line_item_mismatch() -> None:
+    state = create_state()
+    context = create_context(state)
+    draft = AssembledInvoiceDraft(
+        document_id=state.document_id,
+        groups=InvoiceExtractionGroups(
+            metadata=InvoiceMetadataGroup(invoice_number="INV-002"),
+            table=InvoiceTableGroup(
+                extraction_status=InvoiceExtractionStatus.EXTRACTED,
+                line_items=[
+                    InvoiceLineItemCandidate(
+                        line_number=1,
+                        description="Service",
+                        line_total="80.00",
+                    )
+                ],
+            ),
+            totals=InvoiceTotalsGroup(
+                extraction_status=InvoiceExtractionStatus.EXTRACTED,
+                subtotal_amount="100.00",
+                tax_amount="10.00",
+                total_amount="110.00",
+            ),
+        ),
+        assembly_status=InvoiceExtractionStatus.EXTRACTED,
+    )
+    state.scratchpad[ASSEMBLED_INVOICE_DRAFT_KEY] = draft.model_dump(mode="json")
+
+    result = await QAValidationAgent().run(state=state, context=context)
+
+    assert result.status == AgentRunStatus.REVIEW_REQUIRED
+    assert any(
+        signal.code == "ERR_SUBTOTAL_LINE_ITEMS_MISMATCH"
+        for signal in result.qa_error_signals
+    )
+
+
+@pytest.mark.asyncio
+async def test_qa_validation_agent_flags_party_role_confusion() -> None:
+    state = create_state()
+    context = create_context(state)
+    draft = AssembledInvoiceDraft(
+        document_id=state.document_id,
+        groups=InvoiceExtractionGroups(
+            metadata=InvoiceMetadataGroup(
+                invoice_number="INV-ROLE-001",
+                supplier_name="John Sample",
+                customer_name="Service Demo Autocare Ltd",
+            ),
+            table=InvoiceTableGroup(),
+            totals=InvoiceTotalsGroup(),
+        ),
+        assembly_status=InvoiceExtractionStatus.EXTRACTED,
+    )
+    state.scratchpad[ASSEMBLED_INVOICE_DRAFT_KEY] = draft.model_dump(mode="json")
+    state.scratchpad[OCR_LAYOUT_REGIONS_KEY] = {
+        "supplier": {
+            "region_type": "supplier",
+            "block_ids": ["ocr:block:1"],
+            "text": "Service Demo Autocare Ltd\nHorton Park Ave\nBradford",
+            "bounding_box": None,
+            "confidence": None,
+            "source": "ocr_layout_blocks",
+        },
+        "bill_to": {
+            "region_type": "bill_to",
+            "block_ids": ["ocr:block:8"],
+            "text": "Bill to:\nJohn Sample\n7 Example Road",
+            "bounding_box": None,
+            "confidence": None,
+            "source": "ocr_layout_blocks",
+        },
+    }
+
+    result = await QAValidationAgent().run(state=state, context=context)
+
+    assert result.status == AgentRunStatus.REVIEW_REQUIRED
+    assert any(
+        signal.code == "ERR_PARTY_ROLE_CONFUSION"
+        for signal in result.qa_error_signals
+    )
 
 
 @pytest.mark.asyncio
@@ -586,7 +854,9 @@ async def test_qa_validation_agent_routes_to_review_required_for_blocking_signal
     blocking_signal = QAErrorSignal(
         code="ERR_LLM_PROVIDER_FAILED",
         severity=QAErrorSeverity.BLOCKING,
-        message="Metadata extractor provider extraction failed and requires human review.",
+        message=(
+            "Metadata extractor provider extraction failed and requires human review."
+        ),
         source_agent=METADATA_EXTRACTOR_AGENT,
         retryable=False,
     )
@@ -602,9 +872,7 @@ async def test_qa_validation_agent_routes_to_review_required_for_blocking_signal
 
 
 @pytest.mark.asyncio
-async def test_invoice_extractor_emits_blocking_qa_signal_when_provider_schema_fails() -> (
-    None
-):
+async def test_extractor_emits_blocking_signal_on_bad_provider_schema() -> None:
     """When the LLM returns a schema-invalid shape, a blocking QA signal is added.
 
     This covers Task 1: failure path when provider output fails validation.  Even
@@ -643,9 +911,7 @@ async def test_invoice_extractor_emits_blocking_qa_signal_when_provider_schema_f
 
 
 @pytest.mark.asyncio
-async def test_invoice_extractor_emits_blocking_qa_signal_when_provider_call_fails() -> (
-    None
-):
+async def test_extractor_emits_blocking_signal_when_provider_call_fails() -> None:
     """When the LLM provider raises a ProviderError, a blocking QA signal is added.
 
     This covers Task 2: fallback to review-required state when provider fails.
@@ -696,4 +962,3 @@ async def test_invoice_extractor_emits_blocking_qa_signal_when_provider_call_fai
     assert qa_signal.retryable is False
     assert qa_signal.source_agent == METADATA_EXTRACTOR_AGENT
     assert "ERR_LLM_PROVIDER_FAILED" in qa_signal.code
-

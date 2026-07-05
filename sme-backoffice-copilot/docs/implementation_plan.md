@@ -307,29 +307,31 @@ Goal: reduce case-specific parser heuristics by preserving OCR layout, detecting
 document regions, and giving extractor agents structured page context instead
 of only flattened OCR text.
 
-- [ ] Preserve OCR text blocks and bounding boxes from PaddleOCR provider output.
-- [ ] Store OCR layout blocks in shared workflow state.
-- [ ] Define document region contracts for header, supplier, bill-to, ship-to, line-item table, totals, and footer.
-- [ ] Implement OCR block grouping into page regions.
-- [ ] Implement layout-aware party role detection.
-- [ ] Implement layout-aware totals region detection.
-- [ ] Pass layout regions to metadata/table/totals extractor agents.
-- [ ] Prefer region-aware extraction over plain-text fallback.
-- [ ] Keep deterministic fallback as a safety net instead of the primary extractor.
-- [ ] Add regression invoice fixtures for multi-column invoices.
-- [ ] Add receipt-style invoice regression fixture.
-- [ ] Add `Bill No.` / `Receipt No.` invoice-number extraction rule.
-- [ ] Add locale-aware date parsing for `DD/MM/YY` receipts.
-- [ ] Add subtotal-vs-line-items QA validator.
-- [ ] Route subtotal mismatch to human review with structured QA error signal.
-- [ ] Add angled-photo invoice regression fixture.
-- [ ] Add supplier detection from top-left sender block.
-- [ ] Add multi-line line-item description grouping.
-- [ ] Add UK/EU date ambiguity handling for `DD/MM/YYYY` vs `MM/DD/YYYY`.
-- [ ] Add discount/VAT/total arithmetic validator.
-- [ ] Flag schema-valid but financially-incomplete extraction as review-required.
-- [ ] Add validation rules for party-role confusion.
-- [ ] Add evaluation cases for layout-heavy invoices.
+- [x] Preserve OCR text blocks and bounding boxes from PaddleOCR provider output.
+- [x] Normalize OCR provider output into common layout blocks.
+- [x] Store OCR layout blocks in shared workflow state.
+- [x] Store OCR layout diagnostics in workflow metadata.
+- [x] Define document region contracts for header, supplier, bill-to, ship-to, line-item table, totals, and footer.
+- [x] Implement OCR block grouping into page regions.
+- [x] Implement layout-aware party role detection.
+- [x] Implement layout-aware totals region detection.
+- [x] Pass layout regions to metadata/table/totals extractor agents.
+- [x] Prefer region-aware extraction over plain-text fallback.
+- [x] Keep deterministic fallback as a safety net instead of the primary extractor.
+- [x] Add regression invoice fixtures for multi-column invoices.
+- [x] Add receipt-style invoice regression fixture.
+- [x] Add `Bill No.` / `Receipt No.` invoice-number extraction rule.
+- [x] Add locale-aware date parsing for `DD/MM/YY` receipts.
+- [x] Add subtotal-vs-line-items QA validator.
+- [x] Route subtotal mismatch to human review with structured QA error signal.
+- [x] Add angled-photo invoice regression fixture.
+- [x] Add supplier detection from top-left sender block.
+- [x] Add multi-line line-item description grouping.
+- [x] Add UK/EU date ambiguity handling for `DD/MM/YYYY` vs `MM/DD/YYYY`.
+- [x] Add discount/VAT/total arithmetic validator.
+- [x] Flag schema-valid but financially-incomplete extraction as review-required.
+- [x] Add validation rules for party-role confusion.
+- [x] Add evaluation cases for layout-heavy invoices.
 
 ## Phase 9.6 — Agent orchestration and tracing observability
 

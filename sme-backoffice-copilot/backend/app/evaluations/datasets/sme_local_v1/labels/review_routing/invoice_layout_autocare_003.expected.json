@@ -1,0 +1,14 @@
+{
+  "schema_version": "evaluation.expected-review-routing.v1",
+  "case_id": "invoice_layout_autocare_003",
+  "should_create_review_task": true,
+  "expected_tasks": [
+    {
+      "task_type": "extraction",
+      "target_ref": "invoice:INV-EVAL-003",
+      "reason_code": "layout_heavy_invoice_requires_human_review",
+      "priority": "high"
+    }
+  ],
+  "notes": "Angled-photo invoice with supplier/customer role risk and multi-line item descriptions should be reviewed before financial reporting."
+}

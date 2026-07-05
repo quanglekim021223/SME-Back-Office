@@ -493,8 +493,8 @@ export function ReviewTaskDetailClient({
           </div>
           {sourceReferences.length > 0 ? (
             <div className="evidence-ref-list">
-              {sourceReferences.map((reference) => (
-                <code key={reference}>{reference}</code>
+              {sourceReferences.map((reference, index) => (
+                <code key={`${reference}-${index}`}>{reference}</code>
               ))}
             </div>
           ) : (

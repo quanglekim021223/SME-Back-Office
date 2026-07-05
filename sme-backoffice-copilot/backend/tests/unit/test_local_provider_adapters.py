@@ -238,6 +238,16 @@ async def test_paddleocr_provider_normalizes_v3_predict_output_shape() -> None:
     assert result.provider_name == "paddleocr"
     assert result.full_text == "Invoice #INV-001\nTotal 110.00"
     assert len(result.text_blocks) == 2
+    assert result.text_blocks[1].bounding_box == [
+        0.0,
+        30.0,
+        100.0,
+        30.0,
+        100.0,
+        50.0,
+        0.0,
+        50.0,
+    ]
     assert result.text_blocks[1].confidence == pytest.approx(0.97)
     assert result.confidence == pytest.approx(0.98)
 

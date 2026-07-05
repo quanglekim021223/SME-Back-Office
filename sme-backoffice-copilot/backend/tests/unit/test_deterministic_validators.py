@@ -29,7 +29,9 @@ def test_parse_decimal_accepts_money_like_values_without_guessing_invalid_input(
 
 
 def test_parse_iso_date_accepts_iso_dates_only() -> None:
-    assert parse_iso_date("2026-07-01").isoformat() == "2026-07-01"
+    parsed = parse_iso_date("2026-07-01")
+    assert parsed is not None
+    assert parsed.isoformat() == "2026-07-01"
     assert parse_iso_date("07/01/2026") is None
     assert parse_iso_date(None) is None
 
@@ -54,10 +56,7 @@ def test_invoice_arithmetic_validator_detects_total_mismatch() -> None:
     result = validate_invoice_arithmetic(groups)
 
     assert result.passed is False
-    assert {issue.code for issue in result.issues} == {
-        "ERR_LOGIC_MATH",
-        "ERR_LINE_TOTAL_MISMATCH",
-    }
+    assert {issue.code for issue in result.issues} == {"ERR_LOGIC_MATH"}
     assert result.issues[0].severity == ValidationSeverity.ERROR
 
 
@@ -71,6 +70,40 @@ def test_invoice_arithmetic_validator_detects_invalid_amounts() -> None:
 
     assert result.passed is False
     assert any(issue.code == "ERR_AMOUNT_INVALID" for issue in result.issues)
+
+
+def test_invoice_arithmetic_validator_detects_subtotal_line_item_mismatch() -> None:
+    fixture = load_invoice_extraction_fixture()
+    payload = fixture.extraction_groups.model_dump(mode="json")
+    payload["totals"]["subtotal_amount"] = "200.00"
+    payload["totals"]["tax_amount"] = "10.00"
+    payload["totals"]["total_amount"] = "210.00"
+    groups = InvoiceExtractionGroups.model_validate(payload)
+
+    result = validate_invoice_arithmetic(groups)
+
+    assert result.passed is False
+    assert any(
+        issue.code == "ERR_SUBTOTAL_LINE_ITEMS_MISMATCH"
+        for issue in result.issues
+    )
+
+
+def test_invoice_arithmetic_validator_allows_discount_and_vat_total_math() -> None:
+    fixture = load_invoice_extraction_fixture()
+    payload = fixture.extraction_groups.model_dump(mode="json")
+    payload["table"]["line_items"][0]["line_total"] = "1300.00"
+    payload["table"]["line_items"] = payload["table"]["line_items"][:1]
+    payload["totals"]["subtotal_amount"] = "1235.00"
+    payload["totals"]["tax_amount"] = "247.00"
+    payload["totals"]["total_amount"] = "1482.00"
+    groups = InvoiceExtractionGroups.model_validate(payload)
+
+    result = validate_invoice_arithmetic(groups)
+
+    assert result.passed is True
+    assert result.metrics["inferred_discount_amount"] == "65.00"
+    assert result.metrics["expected_total_amount"] == "1482.00"
 
 
 def test_invoice_date_validator_passes_fixture_output() -> None:

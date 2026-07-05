@@ -1,8 +1,12 @@
+from pathlib import Path
+
 from app.extraction.invoice_text_parser import (
     parse_invoice_metadata_group_payload,
     parse_invoice_table_group_payload,
     parse_invoice_totals_group_payload,
 )
+
+FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "invoices"
 
 SAMPLE_INVOICE_OCR_TEXT = """Your Company Inc.
 1234 Company St,
@@ -84,60 +88,6 @@ Payment is due in 14 days
 Please make checks payable to: Your Company Inc.
 """
 
-INVOICE_FLY_OCR_TEXT = """INVOICE
-Invoice Fly.
-NO.1234
-1/01/2036
-ALBERT SORT
-Due date:
-5740, N.Sheridan Road.
-P.O. Number:
-Chicago, IL-60660
-Albert@invoicefly.com
-123-456-789
-BILL TO:
-SHIP TO:
-SAM ALTMAN
-CLIENT NAME
-Fifth Avenue New York,
-Client Street, City,
-10029
-State, Zip Code
-DESCRIPTION
-QTY
-PRICE
-TOTAL
-Item 1
-2
-$100
-$200
-Item 2
-1
-$150
-$150
-Item 3
-2
-$300
-$600
-Item 4
-1
-$300
-$300
-SUB TOTAL
-$1250
-TAX (21%)
-$262
-DISCOUNT
-$0
-SHIPPING
-$0
-TOTAL AMOUNT
-$1512
-BALANCE DUE
-$1512
-"""
-
-
 def test_invoice_text_parser_extracts_metadata_from_common_invoice_ocr() -> None:
     payload = parse_invoice_metadata_group_payload(
         ocr_text=SAMPLE_INVOICE_OCR_TEXT,
@@ -202,12 +152,14 @@ def test_invoice_text_parser_extracts_totals_from_line_split_paddleocr_text() ->
 
 
 def test_invoice_text_parser_prefers_bill_to_party_in_two_column_invoice() -> None:
+    ocr_text = (FIXTURE_DIR / "multi_column_invoice_fly.txt").read_text()
+
     metadata = parse_invoice_metadata_group_payload(
-        ocr_text=INVOICE_FLY_OCR_TEXT,
+        ocr_text=ocr_text,
         evidence_refs=["page:1"],
     )
     totals = parse_invoice_totals_group_payload(
-        ocr_text=INVOICE_FLY_OCR_TEXT,
+        ocr_text=ocr_text,
         evidence_refs=["page:1"],
     )
 
@@ -217,6 +169,127 @@ def test_invoice_text_parser_prefers_bill_to_party_in_two_column_invoice() -> No
     assert metadata["issue_date"] == "2036-01-01"
     assert metadata["due_date"] is None
     assert totals["total_amount"] == "1512.00"
+
+
+def test_invoice_text_parser_extracts_receipt_number_and_day_first_date() -> None:
+    ocr_text = (FIXTURE_DIR / "receipt_restaurant_gst.txt").read_text()
+
+    metadata = parse_invoice_metadata_group_payload(
+        ocr_text=ocr_text,
+        evidence_refs=["page:1"],
+    )
+
+    assert metadata["invoice_number"] == "53"
+    assert metadata["supplier_name"] == "SHIVSAGAR"
+    assert metadata["issue_date"] == "2017-07-01"
+
+
+def test_invoice_text_parser_detects_top_left_supplier_block() -> None:
+    ocr_text = """INVOICE
+Invoice No:
+INV-0006487548
+Payment Terms:
+Credit Card
+Date:
+02/01/2024
+SERVICE RSLL AUTOCARSS
+HORTON PARK AVE
+BRADFORD
+Bill to:
+john smith
+"""
+
+    metadata = parse_invoice_metadata_group_payload(
+        ocr_text=ocr_text,
+        evidence_refs=["page:1"],
+    )
+
+    assert metadata["supplier_name"] == "SERVICE RSLL AUTOCARSS"
+    assert metadata["customer_name"] == "john smith"
+
+
+def test_invoice_text_parser_resolves_uk_long_date_ambiguity() -> None:
+    ocr_text = """INVOICE
+Invoice No: INV-GB-001
+Date: 02/01/2024
+Due Date: 03/01/2024
+ACME UK SERVICES LTD
+Bill to:
+john smith
+VAT 20%
+Total £120.00
+United Kingdom
+"""
+
+    metadata = parse_invoice_metadata_group_payload(
+        ocr_text=ocr_text,
+        evidence_refs=["page:1"],
+    )
+
+    assert metadata["issue_date"] == "2024-01-02"
+    assert metadata["due_date"] == "2024-01-03"
+    assert metadata["currency"] == "GBP"
+
+
+def test_invoice_text_parser_keeps_us_long_date_default_month_first() -> None:
+    ocr_text = """INVOICE
+Invoice # US-001
+Invoice date 02/01/2024
+Due date 03/01/2024
+Your Company Inc.
+Bill To
+Customer Name
+Total (USD) $120.00
+"""
+
+    metadata = parse_invoice_metadata_group_payload(
+        ocr_text=ocr_text,
+        evidence_refs=["page:1"],
+    )
+
+    assert metadata["issue_date"] == "2024-02-01"
+    assert metadata["due_date"] == "2024-03-01"
+
+
+def test_invoice_text_parser_groups_multiline_line_item_descriptions() -> None:
+    ocr_text = (
+        Path(__file__).parents[2]
+        / "app"
+        / "evaluations"
+        / "datasets"
+        / "sme_local_v1"
+        / "documents"
+        / "invoices"
+        / "invoice_layout_autocare_003.txt"
+    ).read_text()
+
+    metadata = parse_invoice_metadata_group_payload(
+        ocr_text=ocr_text,
+        evidence_refs=["page:1"],
+    )
+    totals = parse_invoice_totals_group_payload(
+        ocr_text=ocr_text,
+        evidence_refs=["page:1"],
+    )
+    table = parse_invoice_table_group_payload(
+        ocr_text=ocr_text,
+        evidence_refs=["page:1"],
+    )
+
+    assert metadata["supplier_name"] == "SERVICE DEMO AUTOCARE LTD"
+    assert metadata["currency"] == "GBP"
+    assert metadata["issue_date"] == "2024-01-02"
+    assert metadata["due_date"] == "2024-01-02"
+    assert totals["total_amount"] == "1482.00"
+
+    line_items = table["line_items"]
+    assert isinstance(line_items, list)
+    assert len(line_items) == 1
+    assert line_items[0]["quantity"] == "1.00"
+    assert line_items[0]["unit_price"] == "1300.00"
+    assert line_items[0]["line_total"] == "1300.00"
+    assert "CONITECH TIMING CHAIN KIT" in line_items[0]["description"]
+    assert "ANTIFREEZE COOLANT" in line_items[0]["description"]
 
 
 def test_invoice_text_parser_recovers_noisy_flat_tesseract_output() -> None:

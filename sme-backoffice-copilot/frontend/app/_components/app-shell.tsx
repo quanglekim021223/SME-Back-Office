@@ -27,12 +27,19 @@ const navigationItems: NavigationItem[] = [
     icon: "UP",
   },
   {
+    href: "/invoices",
+    label: "Invoices",
+    description: "Extracted and validated invoices",
+    icon: "IV",
+  },
+  {
     href: "/review",
     label: "Review",
     description: "Human review queue",
     icon: "RV",
   },
 ];
+
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();

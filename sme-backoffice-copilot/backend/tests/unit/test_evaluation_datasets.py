@@ -34,7 +34,7 @@ def test_labelled_dataset_manifest_loads() -> None:
     assert manifest.version == "0.1.0"
     assert manifest.deidentification.synthetic_entities is True
     assert "real_tax_ids" in manifest.deidentification.removed_fields
-    assert len(manifest.cases) == 3
+    assert len(manifest.cases) == 4
     assert all(case.label_paths for case in manifest.cases)
 
 
@@ -51,6 +51,14 @@ def test_labelled_dataset_cases_describe_supported_evaluation_tasks() -> None:
     assert invoice_case.label_paths[EvaluationTaskKind.EXTRACTION].endswith(
         "invoice_revenue_services_001.expected.json"
     )
+
+    layout_case = find_dataset_case(
+        manifest=manifest,
+        case_id="invoice_layout_autocare_003",
+    )
+    assert layout_case.document_type == EvaluationDocumentType.INVOICE
+    assert EvaluationTaskKind.EXTRACTION in layout_case.task_tags
+    assert EvaluationTaskKind.REVIEW_ROUTING in layout_case.task_tags
 
     statement_case = find_dataset_case(
         manifest=manifest,
@@ -73,6 +81,11 @@ def test_labelled_dataset_fixture_text_loads_for_invoice_and_statement() -> None
     assert "Invoice Number: INV-EVAL-001" in invoice_text
     assert "Supplier: Demo Advisory Studio LLC" in invoice_text
     assert "No real customer, bank, or tax data." in invoice_text
+    layout_text = load_dataset_fixture_text(
+        case_id="invoice_layout_autocare_003",
+    )
+    assert "Layout notes: photographed at an angle" in layout_text
+    assert "Invoice No: INV-EVAL-003" in layout_text
     assert "posted_at,value_at,direction,description" in statement_text
     assert "INV-EVAL-001,1100.00,USD" in statement_text
 
@@ -94,6 +107,23 @@ def test_expected_extraction_label_loads() -> None:
     assert len(label.line_items) == 2
     assert label.line_items[0].description == "Team workspace subscription"
     assert "line_items" in label.required_fields
+
+
+def test_layout_heavy_expected_extraction_label_loads() -> None:
+    label = load_expected_extraction_label(case_id="invoice_layout_autocare_003")
+
+    assert label.case_id == "invoice_layout_autocare_003"
+    assert label.invoice_number == "INV-EVAL-003"
+    assert label.direction == InvoiceDirection.PAYABLE
+    assert label.supplier_name == "Service Demo Autocare Ltd"
+    assert label.customer_name == "John Sample"
+    assert label.issue_date == "2024-01-02"
+    assert label.currency == "GBP"
+    assert label.subtotal_amount == 1235
+    assert label.tax_amount == 247
+    assert label.total_amount == 1482
+    assert len(label.line_items) == 1
+    assert "CONITECH TIMING CHAIN KIT" in label.line_items[0].description
 
 
 def test_expected_classification_label_loads() -> None:
@@ -135,9 +165,15 @@ def test_expected_review_routing_label_loads() -> None:
     statement_label = load_expected_review_routing_label(
         case_id="statement_operating_july_2026",
     )
+    layout_label = load_expected_review_routing_label(
+        case_id="invoice_layout_autocare_003",
+    )
 
     assert invoice_label.should_create_review_task is False
     assert invoice_label.expected_tasks == []
+    assert layout_label.should_create_review_task is True
+    assert layout_label.expected_tasks[0].task_type == ReviewTaskType.EXTRACTION
+    assert layout_label.expected_tasks[0].priority == ReviewTaskPriority.HIGH
     assert statement_label.should_create_review_task is True
     assert len(statement_label.expected_tasks) == 2
     assert statement_label.expected_tasks[0].task_type == ReviewTaskType.RECONCILIATION

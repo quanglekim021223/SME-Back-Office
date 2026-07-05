@@ -1,0 +1,38 @@
+{
+  "schema_version": "evaluation.expected-extraction.v1",
+  "case_id": "invoice_layout_autocare_003",
+  "invoice_number": "INV-EVAL-003",
+  "direction": "payable",
+  "supplier_name": "Service Demo Autocare Ltd",
+  "supplier_tax_id": null,
+  "customer_name": "John Sample",
+  "customer_tax_id": null,
+  "issue_date": "2024-01-02",
+  "due_date": "2024-01-02",
+  "currency": "GBP",
+  "subtotal_amount": "1235.00",
+  "tax_amount": "247.00",
+  "total_amount": "1482.00",
+  "line_items": [
+    {
+      "line_number": 1,
+      "description": "SERVICE DEMO AUTOCARE LTD CONITECH TIMING CHAIN KIT + WATER PUMP CASTROL OIL 5L 5W30 ANTIFREEZE COOLANT",
+      "quantity": "1.00",
+      "unit_price": "1300.00",
+      "tax_amount": "247.00",
+      "line_total": "1300.00"
+    }
+  ],
+  "required_fields": [
+    "invoice_number",
+    "supplier_name",
+    "customer_name",
+    "issue_date",
+    "currency",
+    "line_items",
+    "subtotal_amount",
+    "tax_amount",
+    "total_amount"
+  ],
+  "amount_tolerance": "0.01"
+}

@@ -58,6 +58,21 @@
       "notes": "Inbound SaaS expense invoice with multiple line items for table extraction and expense classification."
     },
     {
+      "case_id": "invoice_layout_autocare_003",
+      "document_type": "invoice",
+      "fixture_path": "documents/invoices/invoice_layout_autocare_003.txt",
+      "mime_type": "text/plain",
+      "task_tags": [
+        "extraction",
+        "review_routing"
+      ],
+      "label_paths": {
+        "extraction": "labels/extraction/invoice_layout_autocare_003.expected.json",
+        "review_routing": "labels/review_routing/invoice_layout_autocare_003.expected.json"
+      },
+      "notes": "Synthetic angled-photo invoice transcript for layout-heavy extraction evaluation: top-left supplier block, top-right invoice facts, multi-line item description, discount, VAT, and paid/balance totals."
+    },
+    {
       "case_id": "statement_operating_july_2026",
       "document_type": "bank_statement",
       "fixture_path": "documents/statements/statement_operating_july_2026.csv",

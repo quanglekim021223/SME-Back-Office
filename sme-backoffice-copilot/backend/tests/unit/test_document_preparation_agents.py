@@ -9,6 +9,9 @@ from app.workflows import (
     DOCUMENT_LAYOUT_ANALYZER_AGENT,
     METADATA_EXTRACTOR_AGENT,
     OCR_FULL_TEXT_KEY,
+    OCR_LAYOUT_BLOCKS_KEY,
+    OCR_LAYOUT_DIAGNOSTICS_KEY,
+    OCR_LAYOUT_REGIONS_KEY,
     OCR_RESULT_KEY,
     PRIVACY_POLICY_GATE_AGENT,
     TABLE_EXTRACTOR_AGENT,
@@ -75,7 +78,9 @@ async def test_document_intake_agent_routes_to_privacy_gate() -> None:
     assert handoff.handoff_type == HandoffType.CONTROL
     assert handoff.stage == WorkflowStage.PRIVACY_POLICY_GATE
     assert handoff.confidence == ConfidenceLevel.HIGH
-    assert "original" in handoff.payload["artifacts"]
+    artifacts = handoff.payload["artifacts"]
+    assert isinstance(artifacts, dict)
+    assert "original" in artifacts
 
 
 @pytest.mark.asyncio
@@ -112,9 +117,10 @@ async def test_document_layout_analyzer_agent_routes_to_extraction_agents() -> N
     result = await agent.run(state=state, context=create_context(state))
 
     assert result.status == AgentRunStatus.SUCCEEDED
-    assert result.output["layout_detected"] is False
-    assert result.output["requires_ocr"] is True
-    assert result.metrics == {"layout_group_count": 3}
+    output = result.output
+    assert output["layout_detected"] is False
+    assert output["requires_ocr"] is True
+    assert result.metrics == {"layout_group_count": 3, "layout_region_count": 0}
     assert {handoff.target_agent for handoff in result.handoffs} == {
         METADATA_EXTRACTOR_AGENT,
         TABLE_EXTRACTOR_AGENT,
@@ -129,7 +135,7 @@ async def test_document_layout_analyzer_agent_routes_to_extraction_agents() -> N
         handoff.confidence == ConfidenceLevel.UNKNOWN for handoff in result.handoffs
     )
     assert all(
-        handoff.payload["layout_groups"] == result.output["layout_groups"]
+        handoff.payload["layout_groups"] == output["layout_groups"]
         for handoff in result.handoffs
     )
 
@@ -142,21 +148,58 @@ async def test_document_layout_analyzer_runs_selected_ocr_provider() -> None:
         document_id=state.document_id,
         workflow_run_id=state.workflow_run_id,
         provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
-        ocr_provider=MockOCRProvider(),
+        ocr_provider=MockOCRProvider(
+            full_text=(
+                "Invoice #INV-MOCK-001\n"
+                "Supplier: Mock Supplier Ltd\n"
+                "Bill To: SME Demo Company\n"
+                "Description Qty Unit Total\n"
+                "Mock consulting service 1 100.00 110.00\n"
+                "Subtotal: 100.00\n"
+                "Tax: 10.00\n"
+                "Total: 110.00\n"
+                "Currency: USD"
+            ),
+        ),
     )
     agent = DocumentLayoutAnalyzerAgent()
 
     result = await agent.run(state=state, context=context)
 
     assert result.status == AgentRunStatus.SUCCEEDED
-    assert result.output["ocr_available"] is True
-    assert result.output["requires_ocr"] is False
-    assert result.output["ocr_provider"] == "mock_ocr"
+    output = result.output
+    assert output["ocr_available"] is True
+    assert output["requires_ocr"] is False
+    assert output["ocr_provider"] == "mock_ocr"
     assert OCR_RESULT_KEY in state.scratchpad
     assert OCR_FULL_TEXT_KEY in state.scratchpad
-    assert "Invoice #INV-MOCK-001" in state.scratchpad[OCR_FULL_TEXT_KEY]
+    assert OCR_LAYOUT_BLOCKS_KEY in state.scratchpad
+    assert OCR_LAYOUT_DIAGNOSTICS_KEY in state.scratchpad
+    assert OCR_LAYOUT_REGIONS_KEY in state.scratchpad
+    ocr_text = state.scratchpad[OCR_FULL_TEXT_KEY]
+    assert isinstance(ocr_text, str)
+    assert "Invoice #INV-MOCK-001" in ocr_text
+    diagnostics = state.scratchpad[OCR_LAYOUT_DIAGNOSTICS_KEY]
+    assert isinstance(diagnostics, dict)
+    assert diagnostics["provider_name"] == "mock_ocr"
+    assert diagnostics["text_block_count"] > 0
+    assert diagnostics["layout_available"] is False
+    assert diagnostics["region_count"] > 0
+    assert "line_item_table" in diagnostics["region_names"]
+    assert output["ocr_layout_diagnostics"] == diagnostics
+    regions = state.scratchpad[OCR_LAYOUT_REGIONS_KEY]
+    assert isinstance(regions, dict)
+    assert "line_item_table" in regions
+    table_region = regions["line_item_table"]
+    assert isinstance(table_region, dict)
+    assert table_region["block_ids"]
+    assert "Mock consulting service" in table_region["text"]
     assert all(
         handoff.payload["ocr_result_ref"] == OCR_RESULT_KEY
+        for handoff in result.handoffs
+    )
+    assert all(
+        handoff.payload["ocr_layout_regions_ref"] == OCR_LAYOUT_REGIONS_KEY
         for handoff in result.handoffs
     )
 

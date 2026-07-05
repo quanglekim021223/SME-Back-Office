@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from enum import StrEnum
 from typing import Any, cast
@@ -34,6 +35,7 @@ from app.workflows.contracts import (
 from app.workflows.document_preparation import (
     METADATA_EXTRACTOR_AGENT,
     OCR_FULL_TEXT_KEY,
+    OCR_LAYOUT_REGIONS_KEY,
     TABLE_EXTRACTOR_AGENT,
     TOTALS_EXTRACTOR_AGENT,
     build_control_handoff,
@@ -291,8 +293,8 @@ async def run_llm_group_extraction_if_available(
     if context.provider_runtime is None or context.llm_provider is None:
         return None
 
-    ocr_text = state.scratchpad.get(OCR_FULL_TEXT_KEY)
-    if not isinstance(ocr_text, str) or not ocr_text.strip():
+    ocr_text = ocr_context_for_schema(state=state, schema_name=schema_name)
+    if not ocr_text.strip():
         return AgentRunResult(
             status=AgentRunStatus.FAILED,
             confidence=ConfidenceLevel.HIGH,
@@ -436,6 +438,42 @@ def invoice_group_schema_example(schema_name: str) -> str:
             "}"
         )
     return "{}"
+
+
+def ocr_context_for_schema(
+    *,
+    state: WorkflowState,
+    schema_name: str,
+) -> str:
+    """Return region-specific OCR context, falling back to full OCR text."""
+
+    regions = state.scratchpad.get(OCR_LAYOUT_REGIONS_KEY)
+    if isinstance(regions, dict):
+        region_names = region_names_for_schema(schema_name)
+        region_text = "\n\n".join(
+            text
+            for name in region_names
+            if isinstance((region := regions.get(name)), dict)
+            and isinstance((text := region.get("text")), str)
+            and text.strip()
+        )
+        if region_text.strip():
+            return region_text
+
+    full_text = state.scratchpad.get(OCR_FULL_TEXT_KEY)
+    return full_text if isinstance(full_text, str) else ""
+
+
+def region_names_for_schema(schema_name: str) -> tuple[str, ...]:
+    """Return OCR region names relevant to one invoice extraction group."""
+
+    if schema_name == "invoice-metadata-group.v1":
+        return ("header", "supplier", "bill_to", "ship_to")
+    if schema_name == "invoice-table-group.v1":
+        return ("line_item_table",)
+    if schema_name == "invoice-totals-group.v1":
+        return ("totals",)
+    return ()
 
 
 def contract_validation_failure_result(
@@ -710,6 +748,54 @@ def normalize_provider_metadata_payload(
     }
 
 
+def sanitize_duplicate_line_totals(
+    line_items: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Clear obvious copied totals from continuation rows.
+
+    Local LLMs sometimes copy the first valid line total into later text-only
+    continuation rows.  Keep this conservative: only clear a duplicate total
+    when both quantity and unit price are empty.
+    """
+    if not line_items:
+        return line_items
+
+    sanitized = [dict(item) for item in line_items]
+    empty_values = {"", "-", "—", "null", "none"}
+
+    def is_empty(value: object) -> bool:
+        return value is None or str(value).strip().lower() in empty_values
+
+    def to_decimal(value: object) -> Decimal | None:
+        try:
+            return Decimal(str(value).strip().replace(",", ""))
+        except (InvalidOperation, ValueError):
+            return None
+
+    reference_total: Decimal | None = None
+    for item in line_items:
+        qty = to_decimal(item.get("quantity"))
+        unit = to_decimal(item.get("unit_price"))
+        total = to_decimal(item.get("line_total"))
+        if qty is None or unit is None or total is None:
+            continue
+        if total > 0 and abs((qty * unit) - total) <= Decimal("0.01"):
+            reference_total = total
+            break
+
+    if reference_total is None:
+        return sanitized
+
+    for item in sanitized:
+        total = to_decimal(item.get("line_total"))
+        if total != reference_total:
+            continue
+        if is_empty(item.get("quantity")) and is_empty(item.get("unit_price")):
+            item["line_total"] = None
+
+    return sanitized
+
+
 def normalize_provider_table_payload(
     *,
     payload: dict[str, object],
@@ -766,13 +852,16 @@ def normalize_provider_table_payload(
             }
         )
 
+    # Sanitize duplicates
+    sanitized_items = sanitize_duplicate_line_totals(line_items)
+
     return {
         "schema_version": "invoice-table-group.v1",
-        "extraction_status": "extracted" if line_items else "placeholder",
-        "line_items": line_items,
-        "table_region_ref": "llm:normalized:table" if line_items else None,
+        "extraction_status": "extracted" if sanitized_items else "placeholder",
+        "line_items": sanitized_items,
+        "table_region_ref": "llm:normalized:table" if sanitized_items else None,
         "evidence_refs": evidence_refs or ["llm:normalized:table"],
-        "confidence": "medium" if line_items else "unknown",
+        "confidence": "medium" if sanitized_items else "unknown",
     }
 
 
@@ -859,10 +948,9 @@ def normalize_schema_conformant_table_payload(
     normalized = dict(payload)
     line_items = normalized.get("line_items")
     if isinstance(line_items, list):
-        normalized_items: list[object] = []
+        normalized_items: list[dict[str, object]] = []
         for item in line_items:
             if not isinstance(item, dict):
-                normalized_items.append(item)
                 continue
             normalized_item = dict(item)
             for key in (
@@ -877,7 +965,7 @@ def normalize_schema_conformant_table_payload(
                         normalized_item[key]
                     )
             normalized_items.append(normalized_item)
-        normalized["line_items"] = normalized_items
+        normalized["line_items"] = sanitize_duplicate_line_totals(normalized_items)
     return normalized
 
 
@@ -1029,9 +1117,7 @@ def ocr_text_fallback_payload(
 ) -> dict[str, object] | None:
     """Build a group payload from OCR text when provider JSON is unusable."""
 
-    ocr_text = state.scratchpad.get(OCR_FULL_TEXT_KEY)
-    if not isinstance(ocr_text, str):
-        ocr_text = ""
+    ocr_text = ocr_context_for_schema(state=state, schema_name=schema_name)
     evidence_refs = get_handoff_evidence_refs(handoff)
 
     if schema_name == "invoice-metadata-group.v1":
@@ -1512,6 +1598,13 @@ class QAValidationAgent:
         if context_error is not None:
             return context_error
 
+        review_signals = [
+            *build_financial_review_signals(state),
+            *build_party_role_confusion_signals(state),
+        ]
+        if review_signals:
+            state.qa_error_signals.extend(review_signals)
+
         correction_signals = [
             signal
             for signal in state.qa_error_signals
@@ -1596,3 +1689,162 @@ def create_total_amount_correction_signal(
         observed_value=observed_value,
         retryable=True,
     )
+
+
+def build_financial_review_signals(state: WorkflowState) -> list[QAErrorSignal]:
+    """Validate the assembled invoice draft and emit review-required QA signals."""
+
+    draft_payload = state.scratchpad.get(ASSEMBLED_INVOICE_DRAFT_KEY)
+    if draft_payload is None:
+        return []
+
+    try:
+        draft = AssembledInvoiceDraft.model_validate(draft_payload)
+    except ValidationError:
+        return []
+
+    from app.validation.deterministic import validate_invoice_arithmetic
+
+    result = validate_invoice_arithmetic(draft.groups)
+    if result.passed:
+        return []
+
+    signals: list[QAErrorSignal] = []
+    for issue in result.issues:
+        signals.append(
+            QAErrorSignal(
+                code=issue.code,
+                severity=QAErrorSeverity.ERROR,
+                message=issue.message,
+                source_agent=QA_VALIDATION_AGENT,
+                expected_value=issue.expected_value,
+                observed_value=issue.observed_value,
+                context={
+                    "validator_name": result.validator_name,
+                    "field_path": issue.field_path,
+                    "metrics": result.metrics,
+                    **issue.context,
+                },
+                retryable=False,
+            )
+        )
+    return signals
+
+
+def build_party_role_confusion_signals(state: WorkflowState) -> list[QAErrorSignal]:
+    """Emit review signals when supplier/customer roles look swapped."""
+
+    draft_payload = state.scratchpad.get(ASSEMBLED_INVOICE_DRAFT_KEY)
+    if draft_payload is None:
+        return []
+
+    try:
+        draft = AssembledInvoiceDraft.model_validate(draft_payload)
+    except ValidationError:
+        return []
+
+    metadata = draft.groups.metadata
+    if metadata is None:
+        return []
+
+    supplier_name = metadata.supplier_name
+    customer_name = metadata.customer_name
+    supplier_key = normalize_party_key(supplier_name)
+    customer_key = normalize_party_key(customer_name)
+    signals: list[QAErrorSignal] = []
+
+    if supplier_key and supplier_key == customer_key:
+        signals.append(
+            create_party_role_confusion_signal(
+                message="Supplier and customer were extracted as the same party.",
+                field_path="groups.metadata.supplier_name",
+                expected_value="supplier and customer should be different parties",
+                observed_value=supplier_name,
+                context={
+                    "supplier_name": supplier_name,
+                    "customer_name": customer_name,
+                },
+            )
+        )
+
+    regions = state.scratchpad.get(OCR_LAYOUT_REGIONS_KEY)
+    if not isinstance(regions, dict):
+        return signals
+
+    supplier_region_key = normalize_party_key(region_text(regions, "supplier"))
+    bill_to_region_key = normalize_party_key(region_text(regions, "bill_to"))
+    if (
+        supplier_key
+        and customer_key
+        and contains_party(bill_to_region_key, supplier_key)
+        and contains_party(supplier_region_key, customer_key)
+    ):
+        signals.append(
+            create_party_role_confusion_signal(
+                message=(
+                    "Supplier and customer appear to be swapped across supplier "
+                    "and bill-to OCR regions."
+                ),
+                field_path="groups.metadata",
+                expected_value={
+                    "supplier_region": supplier_name,
+                    "bill_to_region": customer_name,
+                },
+                observed_value={
+                    "supplier_name": supplier_name,
+                    "customer_name": customer_name,
+                },
+                context={
+                    "supplier_region_text": region_text(regions, "supplier"),
+                    "bill_to_region_text": region_text(regions, "bill_to"),
+                },
+            )
+        )
+
+    return signals
+
+
+def create_party_role_confusion_signal(
+    *,
+    message: str,
+    field_path: str,
+    expected_value: object,
+    observed_value: object,
+    context: dict[str, object],
+) -> QAErrorSignal:
+    """Create a non-retryable review signal for party-role ambiguity."""
+
+    return QAErrorSignal(
+        code="ERR_PARTY_ROLE_CONFUSION",
+        severity=QAErrorSeverity.ERROR,
+        message=message,
+        source_agent=QA_VALIDATION_AGENT,
+        expected_value=expected_value,
+        observed_value=observed_value,
+        context={"field_path": field_path, **context},
+        retryable=False,
+    )
+
+
+def region_text(regions: dict[object, object], name: str) -> str | None:
+    """Return text from one OCR region contract."""
+
+    region = regions.get(name)
+    if not isinstance(region, dict):
+        return None
+    text = region.get("text")
+    return text if isinstance(text, str) else None
+
+
+def normalize_party_key(value: str | None) -> str:
+    """Normalize party names/text for loose region containment checks."""
+
+    if not value:
+        return ""
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def contains_party(region_key: str, party_key: str) -> bool:
+    """Return whether normalized OCR region text contains a party name."""
+
+    return bool(region_key and party_key and party_key in region_key)

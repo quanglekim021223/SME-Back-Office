@@ -333,6 +333,89 @@ export function correctReconciliation(
   );
 }
 
+// ── Invoice types ────────────────────────────────────────────────────────────
+
+export type InvoiceLineItemResponse = {
+  id: string;
+  invoice_id: string;
+  line_number: number;
+  description: string | null;
+  product_code: string | null;
+  quantity: string | null;
+  unit_of_measure: string | null;
+  unit_price_amount: string | null;
+  net_amount: string | null;
+  tax_rate: string | null;
+  tax_amount: string | null;
+  total_amount: string | null;
+  currency: string | null;
+  confidence: string | null;
+};
+
+export type InvoiceResponse = {
+  id: string;
+  tenant_id: string;
+  document_id: string | null;
+  version: number;
+  status: string;
+  direction: string;
+  invoice_number: string | null;
+  supplier_name: string | null;
+  supplier_tax_id: string | null;
+  customer_name: string | null;
+  customer_tax_id: string | null;
+  issue_date: string | null;
+  due_date: string | null;
+  currency: string | null;
+  subtotal_amount: string | null;
+  tax_amount: string | null;
+  total_amount: string | null;
+  confidence: string | null;
+  notes: string | null;
+  supersedes_invoice_id: string | null;
+  source_processing_run_id: string | null;
+  line_items: InvoiceLineItemResponse[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type InvoiceListResponse = {
+  items: Omit<InvoiceResponse, "line_items" | "supplier_tax_id" | "customer_tax_id" | "notes" | "source_processing_run_id">[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export function listInvoices({
+  limit = 50,
+  offset = 0,
+  status,
+  excludeSuperseded = true,
+}: {
+  limit?: number;
+  offset?: number;
+  status?: string;
+  excludeSuperseded?: boolean;
+} = {}) {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+    exclude_superseded: String(excludeSuperseded),
+  });
+
+  if (status) {
+    params.set("status", status);
+  }
+
+  return apiGet<InvoiceListResponse>(`/invoices?${params.toString()}`);
+}
+
+export function getInvoice(invoiceId: string) {
+  return apiGet<InvoiceResponse>(`/invoices/${invoiceId}`);
+}
+
+
+
 export function formatApiError(error: unknown) {
   if (error instanceof ApiClientError) {
     return `${error.message} (${error.code}, ${error.status})`;
