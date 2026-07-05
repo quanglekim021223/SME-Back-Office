@@ -1,0 +1,38 @@
+INVOICE
+Source: synthetic angled-photo OCR transcription
+Layout notes: photographed at an angle, supplier block at upper left, invoice facts at upper right, bill-to block mid page, totals at lower right.
+
+SERVICE DEMO AUTOCARE LTD
+Horton Park Ave
+Bradford
+BD7 3BL
+Email: service-demo-autocare@example.invalid
+Phone: +44 7000 000000
+
+Invoice No: INV-EVAL-003
+Payment Terms: Credit Card
+Date: 02/01/2024
+Due Date: 02/01/2024
+PO No: PO-EVAL-003
+
+Bill to:
+John Sample
+7 Example Road
+Bradford
+BD5 0NR
+United Kingdom
+
+Description                                      Quantity       Rate          Amount
+SERVICE DEMO AUTOCARE LTD                       1.00 gal       £1,300.00    £1,300.00
+CONITECH TIMING CHAIN KIT + WATER PUMP
+CASTROL OIL 5L 5W30
+ANTIFREEZE COOLANT
+
+Subtotal                                                                  £1,300.00
+Discount (5 %)                                                            £-65.00
+VAT 20%                                                                   £247.00
+Total                                                                     £1,482.00
+Paid                                                                      £1,482.00
+Balance Due                                                               £0.00
+
+Notes: Synthetic invoice used only for layout-heavy evaluation. No real customer, bank, or tax data.
