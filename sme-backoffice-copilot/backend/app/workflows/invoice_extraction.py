@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from enum import StrEnum
 from typing import Any, cast
@@ -1547,9 +1548,12 @@ class QAValidationAgent:
         if context_error is not None:
             return context_error
 
-        financial_signals = build_financial_review_signals(state)
-        if financial_signals:
-            state.qa_error_signals.extend(financial_signals)
+        review_signals = [
+            *build_financial_review_signals(state),
+            *build_party_role_confusion_signals(state),
+        ]
+        if review_signals:
+            state.qa_error_signals.extend(review_signals)
 
         correction_signals = [
             signal
@@ -1675,3 +1679,122 @@ def build_financial_review_signals(state: WorkflowState) -> list[QAErrorSignal]:
             )
         )
     return signals
+
+
+def build_party_role_confusion_signals(state: WorkflowState) -> list[QAErrorSignal]:
+    """Emit review signals when supplier/customer roles look swapped."""
+
+    draft_payload = state.scratchpad.get(ASSEMBLED_INVOICE_DRAFT_KEY)
+    if draft_payload is None:
+        return []
+
+    try:
+        draft = AssembledInvoiceDraft.model_validate(draft_payload)
+    except ValidationError:
+        return []
+
+    metadata = draft.groups.metadata
+    if metadata is None:
+        return []
+
+    supplier_name = metadata.supplier_name
+    customer_name = metadata.customer_name
+    supplier_key = normalize_party_key(supplier_name)
+    customer_key = normalize_party_key(customer_name)
+    signals: list[QAErrorSignal] = []
+
+    if supplier_key and supplier_key == customer_key:
+        signals.append(
+            create_party_role_confusion_signal(
+                message="Supplier and customer were extracted as the same party.",
+                field_path="groups.metadata.supplier_name",
+                expected_value="supplier and customer should be different parties",
+                observed_value=supplier_name,
+                context={
+                    "supplier_name": supplier_name,
+                    "customer_name": customer_name,
+                },
+            )
+        )
+
+    regions = state.scratchpad.get(OCR_LAYOUT_REGIONS_KEY)
+    if not isinstance(regions, dict):
+        return signals
+
+    supplier_region_key = normalize_party_key(region_text(regions, "supplier"))
+    bill_to_region_key = normalize_party_key(region_text(regions, "bill_to"))
+    if (
+        supplier_key
+        and customer_key
+        and contains_party(bill_to_region_key, supplier_key)
+        and contains_party(supplier_region_key, customer_key)
+    ):
+        signals.append(
+            create_party_role_confusion_signal(
+                message=(
+                    "Supplier and customer appear to be swapped across supplier "
+                    "and bill-to OCR regions."
+                ),
+                field_path="groups.metadata",
+                expected_value={
+                    "supplier_region": supplier_name,
+                    "bill_to_region": customer_name,
+                },
+                observed_value={
+                    "supplier_name": supplier_name,
+                    "customer_name": customer_name,
+                },
+                context={
+                    "supplier_region_text": region_text(regions, "supplier"),
+                    "bill_to_region_text": region_text(regions, "bill_to"),
+                },
+            )
+        )
+
+    return signals
+
+
+def create_party_role_confusion_signal(
+    *,
+    message: str,
+    field_path: str,
+    expected_value: object,
+    observed_value: object,
+    context: dict[str, object],
+) -> QAErrorSignal:
+    """Create a non-retryable review signal for party-role ambiguity."""
+
+    return QAErrorSignal(
+        code="ERR_PARTY_ROLE_CONFUSION",
+        severity=QAErrorSeverity.ERROR,
+        message=message,
+        source_agent=QA_VALIDATION_AGENT,
+        expected_value=expected_value,
+        observed_value=observed_value,
+        context={"field_path": field_path, **context},
+        retryable=False,
+    )
+
+
+def region_text(regions: dict[object, object], name: str) -> str | None:
+    """Return text from one OCR region contract."""
+
+    region = regions.get(name)
+    if not isinstance(region, dict):
+        return None
+    text = region.get("text")
+    return text if isinstance(text, str) else None
+
+
+def normalize_party_key(value: str | None) -> str:
+    """Normalize party names/text for loose region containment checks."""
+
+    if not value:
+        return ""
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def contains_party(region_key: str, party_key: str) -> bool:
+    """Return whether normalized OCR region text contains a party name."""
+
+    return bool(region_key and party_key and party_key in region_key)

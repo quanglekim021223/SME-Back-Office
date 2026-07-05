@@ -330,7 +330,7 @@ of only flattened OCR text.
 - [x] Add UK/EU date ambiguity handling for `DD/MM/YYYY` vs `MM/DD/YYYY`.
 - [x] Add discount/VAT/total arithmetic validator.
 - [x] Flag schema-valid but financially-incomplete extraction as review-required.
-- [ ] Add validation rules for party-role confusion.
+- [x] Add validation rules for party-role confusion.
 - [x] Add evaluation cases for layout-heavy invoices.
 
 ## Phase 9.6 — Agent orchestration and tracing observability

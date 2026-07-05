@@ -715,6 +715,52 @@ async def test_qa_validation_agent_flags_subtotal_line_item_mismatch() -> None:
 
 
 @pytest.mark.asyncio
+async def test_qa_validation_agent_flags_party_role_confusion() -> None:
+    state = create_state()
+    context = create_context(state)
+    draft = AssembledInvoiceDraft(
+        document_id=state.document_id,
+        groups=InvoiceExtractionGroups(
+            metadata=InvoiceMetadataGroup(
+                invoice_number="INV-ROLE-001",
+                supplier_name="John Sample",
+                customer_name="Service Demo Autocare Ltd",
+            ),
+            table=InvoiceTableGroup(),
+            totals=InvoiceTotalsGroup(),
+        ),
+        assembly_status=InvoiceExtractionStatus.EXTRACTED,
+    )
+    state.scratchpad[ASSEMBLED_INVOICE_DRAFT_KEY] = draft.model_dump(mode="json")
+    state.scratchpad[OCR_LAYOUT_REGIONS_KEY] = {
+        "supplier": {
+            "region_type": "supplier",
+            "block_ids": ["ocr:block:1"],
+            "text": "Service Demo Autocare Ltd\nHorton Park Ave\nBradford",
+            "bounding_box": None,
+            "confidence": None,
+            "source": "ocr_layout_blocks",
+        },
+        "bill_to": {
+            "region_type": "bill_to",
+            "block_ids": ["ocr:block:8"],
+            "text": "Bill to:\nJohn Sample\n7 Example Road",
+            "bounding_box": None,
+            "confidence": None,
+            "source": "ocr_layout_blocks",
+        },
+    }
+
+    result = await QAValidationAgent().run(state=state, context=context)
+
+    assert result.status == AgentRunStatus.REVIEW_REQUIRED
+    assert any(
+        signal.code == "ERR_PARTY_ROLE_CONFUSION"
+        for signal in result.qa_error_signals
+    )
+
+
+@pytest.mark.asyncio
 async def test_qa_validation_agent_routes_targeted_self_correction() -> None:
     state = create_state()
     context = create_context(state)
