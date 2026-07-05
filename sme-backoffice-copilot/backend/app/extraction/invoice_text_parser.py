@@ -24,8 +24,8 @@ class ParsedInvoiceLine:
     line_total: str
 
 
-MONEY_PATTERN = r"\$?\s*([0-9][0-9,]*\.\d{2})"
-WHOLE_DOLLAR_PATTERN = r"\$\s*([0-9][0-9,]*)"
+MONEY_PATTERN = r"[$£]?\s*([0-9][0-9,]*\.\d{2})"
+WHOLE_DOLLAR_PATTERN = r"[$£]\s*([0-9][0-9,]*)"
 DATE_PATTERN = r"([0-9]{1,2}[-/][0-9]{1,2}[-/][0-9]{2,4})"
 
 
@@ -306,11 +306,17 @@ def find_currency(text: str) -> str | None:
         return code_match.group(1).upper()
     if "$" in text:
         return "USD"
+    if "£" in text:
+        return "GBP"
     return None
 
 
 def find_supplier_name(lines: list[str]) -> str | None:
     """Return the first plausible supplier/company line."""
+
+    sender_block_name = find_supplier_name_from_sender_block(lines)
+    if sender_block_name is not None:
+        return sender_block_name
 
     flattened = " ".join(lines)
     company_match = re.search(
@@ -335,6 +341,22 @@ def find_supplier_name(lines: list[str]) -> str | None:
             continue
         if cleaned:
             return cleaned
+    return None
+
+
+def find_supplier_name_from_sender_block(lines: list[str]) -> str | None:
+    """Find a supplier from the sender block before bill-to/customer sections."""
+
+    for line in lines[:18]:
+        lower_line = line.lower().strip(" :.")
+        if lower_line in {"bill to", "billto", "ship to", "client name"}:
+            break
+        if is_invoice_fact_line(line):
+            continue
+        cleaned = clean_party_name(line)
+        if not is_plausible_supplier_name(cleaned):
+            continue
+        return cleaned
     return None
 
 
@@ -420,6 +442,51 @@ def is_plausible_party_name(value: str | None) -> bool:
     if re.search(r"\d", value):
         return False
     return bool(re.search(r"[A-Za-z]", value))
+
+
+def is_plausible_supplier_name(value: str | None) -> bool:
+    """Return whether a sender-block line can be a supplier name."""
+
+    if not is_plausible_party_name(value):
+        return False
+    if value is None:
+        return False
+    lower_value = value.lower()
+    blocked_fragments = (
+        "payment terms",
+        "credit card",
+        "due date",
+        "date",
+        "po no",
+        "p.o.",
+        "email",
+        "phone",
+        "upload logo",
+        "source:",
+        "layout notes",
+        "synthetic",
+        "photographed",
+    )
+    if any(fragment in lower_value for fragment in blocked_fragments):
+        return False
+    return bool(re.search(r"[A-Za-z]{3,}", value))
+
+
+def is_invoice_fact_line(line: str) -> bool:
+    """Return whether a line is an invoice fact label/value, not a party name."""
+
+    lower_line = line.lower()
+    return bool(
+        lower_line.strip(" :.") == "invoice"
+        or "invoice no" in lower_line
+        or "invoice #" in lower_line
+        or "invoice number" in lower_line
+        or "payment terms" in lower_line
+        or "due date" in lower_line
+        or lower_line.startswith("source:")
+        or "layout notes" in lower_line
+        or re.fullmatch(r"[a-z]{0,3}[0-9][a-z0-9-]*", lower_line.strip())
+    )
 
 
 def clean_party_name(value: str | None) -> str | None:
@@ -555,17 +622,38 @@ def parse_line_items_from_lines(text: str) -> list[ParsedInvoiceLine]:
     """Parse line items when OCR preserves one row per line."""
 
     parsed: list[ParsedInvoiceLine] = []
-    row_pattern = re.compile(
+    quantity_first_row_pattern = re.compile(
         r"^\s*(?P<quantity>\d+(?:\.\d+)?)\s+"
         r"(?P<description>.+?)\s+"
-        r"(?P<unit_price>\$?\s*\d+(?:,\d{3})*(?:\.\d{2})?)\s+"
-        r"(?P<line_total>\$?\s*\d+(?:,\d{3})*(?:\.\d{2})?)\s*$"
+        r"(?P<unit_price>[$£]?\s*\d+(?:,\d{3})*(?:\.\d{2})?)\s+"
+        r"(?P<line_total>[$£]?\s*\d+(?:,\d{3})*(?:\.\d{2})?)\s*$"
+    )
+    description_first_row_pattern = re.compile(
+        r"^\s*(?P<description>.+?)\s+"
+        r"(?P<quantity>\d+(?:\.\d+)?)\s*(?:[A-Za-z]{1,8})?\s+"
+        r"(?P<unit_price>[$£]\s*\d+(?:,\d{3})*(?:\.\d{2})?)\s+"
+        r"(?P<line_total>[$£]\s*\d+(?:,\d{3})*(?:\.\d{2})?)\s*$"
     )
 
     for line in normalized_lines(text):
         if should_skip_table_line(line):
             continue
-        match = row_pattern.match(line)
+        if parsed and is_line_item_continuation(line):
+            previous = parsed[-1]
+            parsed[-1] = ParsedInvoiceLine(
+                line_number=previous.line_number,
+                quantity=previous.quantity,
+                description=(
+                    f"{previous.description} {clean_line_description(line)}".strip()
+                ),
+                unit_price=previous.unit_price,
+                line_total=previous.line_total,
+            )
+            continue
+
+        match = quantity_first_row_pattern.match(line) or (
+            description_first_row_pattern.match(line)
+        )
         if match is None:
             continue
         unit_price = normalize_money_token(match.group("unit_price"))
@@ -649,7 +737,7 @@ def extract_table_region_text(text: str) -> str:
 def normalize_money_token(value: str) -> str:
     """Normalize OCR money tokens, including missing decimal points."""
 
-    cleaned = value.replace("$", "").replace(",", "").strip()
+    cleaned = value.replace("$", "").replace("£", "").replace(",", "").strip()
     if "." in cleaned:
         return format_decimal(Decimal(cleaned))
     digits = re.sub(r"\D", "", cleaned)
@@ -722,7 +810,41 @@ def should_skip_table_line(line: str) -> bool:
             "unit price",
             "subtotal",
             "sales tax",
+            "discount",
+            "vat",
+            "tax ",
+            "tax(",
+            "shipping",
+            "amount paid",
+            "balance due",
             "total",
             "terms and conditions",
         )
     )
+
+
+def is_line_item_continuation(line: str) -> bool:
+    """Return whether a line should extend the previous item description."""
+
+    lower_line = line.lower()
+    if should_skip_table_line(line) or is_invoice_fact_line(line):
+        return False
+    if find_money_values(line) or re.fullmatch(r"\d+(?:\.\d+)?(?:\s+[a-z]+)?", line):
+        return False
+    if any(
+        token in lower_line
+        for token in (
+            "bill to",
+            "ship to",
+            "balance due",
+            "paid",
+            "discount",
+            "vat",
+            "tax",
+            "created by",
+            "payment",
+            "notes:",
+        )
+    ):
+        return False
+    return bool(re.search(r"[A-Za-z]", line))

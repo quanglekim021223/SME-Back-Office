@@ -184,6 +184,69 @@ def test_invoice_text_parser_extracts_receipt_number_and_day_first_date() -> Non
     assert metadata["issue_date"] == "2017-07-01"
 
 
+def test_invoice_text_parser_detects_top_left_supplier_block() -> None:
+    ocr_text = """INVOICE
+Invoice No:
+INV-0006487548
+Payment Terms:
+Credit Card
+Date:
+02/01/2024
+SERVICE RSLL AUTOCARSS
+HORTON PARK AVE
+BRADFORD
+Bill to:
+john smith
+"""
+
+    metadata = parse_invoice_metadata_group_payload(
+        ocr_text=ocr_text,
+        evidence_refs=["page:1"],
+    )
+
+    assert metadata["supplier_name"] == "SERVICE RSLL AUTOCARSS"
+    assert metadata["customer_name"] == "john smith"
+
+
+def test_invoice_text_parser_groups_multiline_line_item_descriptions() -> None:
+    ocr_text = (
+        Path(__file__).parents[2]
+        / "app"
+        / "evaluations"
+        / "datasets"
+        / "sme_local_v1"
+        / "documents"
+        / "invoices"
+        / "invoice_layout_autocare_003.txt"
+    ).read_text()
+
+    metadata = parse_invoice_metadata_group_payload(
+        ocr_text=ocr_text,
+        evidence_refs=["page:1"],
+    )
+    totals = parse_invoice_totals_group_payload(
+        ocr_text=ocr_text,
+        evidence_refs=["page:1"],
+    )
+    table = parse_invoice_table_group_payload(
+        ocr_text=ocr_text,
+        evidence_refs=["page:1"],
+    )
+
+    assert metadata["supplier_name"] == "SERVICE DEMO AUTOCARE LTD"
+    assert metadata["currency"] == "GBP"
+    assert totals["total_amount"] == "1482.00"
+
+    line_items = table["line_items"]
+    assert isinstance(line_items, list)
+    assert len(line_items) == 1
+    assert line_items[0]["quantity"] == "1.00"
+    assert line_items[0]["unit_price"] == "1300.00"
+    assert line_items[0]["line_total"] == "1300.00"
+    assert "CONITECH TIMING CHAIN KIT" in line_items[0]["description"]
+    assert "ANTIFREEZE COOLANT" in line_items[0]["description"]
+
+
 def test_invoice_text_parser_recovers_noisy_flat_tesseract_output() -> None:
     metadata = parse_invoice_metadata_group_payload(
         ocr_text=NOISY_FLAT_INVOICE_OCR_TEXT,

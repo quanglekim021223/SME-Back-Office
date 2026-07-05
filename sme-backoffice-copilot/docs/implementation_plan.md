@@ -325,8 +325,8 @@ of only flattened OCR text.
 - [x] Add subtotal-vs-line-items QA validator.
 - [x] Route subtotal mismatch to human review with structured QA error signal.
 - [x] Add angled-photo invoice regression fixture.
-- [ ] Add supplier detection from top-left sender block.
-- [ ] Add multi-line line-item description grouping.
+- [x] Add supplier detection from top-left sender block.
+- [x] Add multi-line line-item description grouping.
 - [ ] Add UK/EU date ambiguity handling for `DD/MM/YYYY` vs `MM/DD/YYYY`.
 - [x] Add discount/VAT/total arithmetic validator.
 - [x] Flag schema-valid but financially-incomplete extraction as review-required.
