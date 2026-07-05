@@ -748,6 +748,54 @@ def normalize_provider_metadata_payload(
     }
 
 
+def sanitize_duplicate_line_totals(
+    line_items: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Clear obvious copied totals from continuation rows.
+
+    Local LLMs sometimes copy the first valid line total into later text-only
+    continuation rows.  Keep this conservative: only clear a duplicate total
+    when both quantity and unit price are empty.
+    """
+    if not line_items:
+        return line_items
+
+    sanitized = [dict(item) for item in line_items]
+    empty_values = {"", "-", "—", "null", "none"}
+
+    def is_empty(value: object) -> bool:
+        return value is None or str(value).strip().lower() in empty_values
+
+    def to_decimal(value: object) -> Decimal | None:
+        try:
+            return Decimal(str(value).strip().replace(",", ""))
+        except (InvalidOperation, ValueError):
+            return None
+
+    reference_total: Decimal | None = None
+    for item in line_items:
+        qty = to_decimal(item.get("quantity"))
+        unit = to_decimal(item.get("unit_price"))
+        total = to_decimal(item.get("line_total"))
+        if qty is None or unit is None or total is None:
+            continue
+        if total > 0 and abs((qty * unit) - total) <= Decimal("0.01"):
+            reference_total = total
+            break
+
+    if reference_total is None:
+        return sanitized
+
+    for item in sanitized:
+        total = to_decimal(item.get("line_total"))
+        if total != reference_total:
+            continue
+        if is_empty(item.get("quantity")) and is_empty(item.get("unit_price")):
+            item["line_total"] = None
+
+    return sanitized
+
+
 def normalize_provider_table_payload(
     *,
     payload: dict[str, object],
@@ -804,13 +852,16 @@ def normalize_provider_table_payload(
             }
         )
 
+    # Sanitize duplicates
+    sanitized_items = sanitize_duplicate_line_totals(line_items)
+
     return {
         "schema_version": "invoice-table-group.v1",
-        "extraction_status": "extracted" if line_items else "placeholder",
-        "line_items": line_items,
-        "table_region_ref": "llm:normalized:table" if line_items else None,
+        "extraction_status": "extracted" if sanitized_items else "placeholder",
+        "line_items": sanitized_items,
+        "table_region_ref": "llm:normalized:table" if sanitized_items else None,
         "evidence_refs": evidence_refs or ["llm:normalized:table"],
-        "confidence": "medium" if line_items else "unknown",
+        "confidence": "medium" if sanitized_items else "unknown",
     }
 
 
@@ -897,10 +948,9 @@ def normalize_schema_conformant_table_payload(
     normalized = dict(payload)
     line_items = normalized.get("line_items")
     if isinstance(line_items, list):
-        normalized_items: list[object] = []
+        normalized_items: list[dict[str, object]] = []
         for item in line_items:
             if not isinstance(item, dict):
-                normalized_items.append(item)
                 continue
             normalized_item = dict(item)
             for key in (
@@ -915,7 +965,7 @@ def normalize_schema_conformant_table_payload(
                         normalized_item[key]
                     )
             normalized_items.append(normalized_item)
-        normalized["line_items"] = normalized_items
+        normalized["line_items"] = sanitize_duplicate_line_totals(normalized_items)
     return normalized
 
 

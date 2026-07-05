@@ -19,6 +19,7 @@ from app.providers import (
     build_provider_privacy_gate_from_settings,
     build_provider_routing_config_from_settings,
 )
+from app.providers.image_preprocessing import PreprocessingOCRProvider
 
 
 def test_provider_factories_build_default_mock_providers() -> None:
@@ -42,6 +43,7 @@ def test_provider_factories_build_local_ollama_and_tesseract(
     monkeypatch.setenv("OCR_PROVIDER", "tesseract")
     monkeypatch.setenv("TESSERACT_BINARY_PATH", "/opt/homebrew/bin/tesseract")
     monkeypatch.setenv("TESSERACT_LANGUAGE", "eng+vie")
+    monkeypatch.setenv("OCR_PREPROCESSING_ENABLED", "true")
     settings = Settings(_env_file=None)
 
     llm_provider = build_llm_provider_from_settings(settings)
@@ -50,24 +52,45 @@ def test_provider_factories_build_local_ollama_and_tesseract(
     assert isinstance(llm_provider, OllamaLLMProvider)
     assert llm_provider.name == "ollama"
     assert llm_provider.model_name == "llama3.1:8b"
+    # With preprocessing enabled, the OCR provider is wrapped
+    assert isinstance(ocr_provider, PreprocessingOCRProvider)
+    assert isinstance(ocr_provider._inner, TesseractOCRProvider)
+    assert ocr_provider._inner.binary_path == "/opt/homebrew/bin/tesseract"
+    assert ocr_provider._inner.language == "eng+vie"
+
+
+def test_provider_factories_tesseract_unwrapped_when_preprocessing_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OCR_PROVIDER", "tesseract")
+    monkeypatch.setenv("OCR_PREPROCESSING_ENABLED", "false")
+    settings = Settings(_env_file=None)
+
+    ocr_provider = build_ocr_provider_from_settings(settings)
+
+    # Without preprocessing the raw provider is returned directly
     assert isinstance(ocr_provider, TesseractOCRProvider)
     assert ocr_provider.name == "tesseract"
-    assert ocr_provider.binary_path == "/opt/homebrew/bin/tesseract"
-    assert ocr_provider.language == "eng+vie"
 
 
 def test_provider_factories_build_local_optional_ocr_adapters(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OCR_PROVIDER", "paddleocr")
+    monkeypatch.setenv("OCR_PREPROCESSING_ENABLED", "true")
     settings = Settings(_env_file=None)
 
-    assert isinstance(build_ocr_provider_from_settings(settings), PaddleOCRProvider)
+    provider = build_ocr_provider_from_settings(settings)
+    # Preprocessing wrapper is explicitly enabled; inner provider is PaddleOCR
+    assert isinstance(provider, PreprocessingOCRProvider)
+    assert isinstance(provider._inner, PaddleOCRProvider)
 
     monkeypatch.setenv("OCR_PROVIDER", "chandraocr")
     settings = Settings(_env_file=None)
 
-    assert isinstance(build_ocr_provider_from_settings(settings), ChandraOCRProvider)
+    provider = build_ocr_provider_from_settings(settings)
+    assert isinstance(provider, PreprocessingOCRProvider)
+    assert isinstance(provider._inner, ChandraOCRProvider)
 
 
 def test_provider_factories_build_openai_provider(

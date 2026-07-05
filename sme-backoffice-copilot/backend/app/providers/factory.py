@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from app.core.config import LLMProviderType, OCRProviderType, Settings
 from app.providers.base import ProviderDeploymentMode
+from app.providers.image_preprocessing import (
+    ImagePreprocessingConfig,
+    PreprocessingOCRProvider,
+)
 from app.providers.llm import LLMProvider
 from app.providers.local_ocr import (
     ChandraOCRProvider,
@@ -46,27 +50,46 @@ def build_llm_provider_from_settings(settings: Settings) -> LLMProvider:
 
 
 def build_ocr_provider_from_settings(settings: Settings) -> OCRProvider:
-    """Build the selected OCR provider adapter from application settings."""
+    """Build the selected OCR provider adapter from application settings.
+
+    When ``ocr_preprocessing_enabled`` is *True* in settings, all real (non-mock)
+    providers are wrapped in :class:`PreprocessingOCRProvider` so that images are
+    automatically enhanced before OCR runs.
+    """
+
+    preprocessing_config = ImagePreprocessingConfig(
+        enabled=settings.ocr_preprocessing_enabled,
+        deskew=settings.ocr_preprocessing_deskew,
+        denoise=settings.ocr_preprocessing_denoise,
+        binarize=settings.ocr_preprocessing_binarize,
+        upscale_min_px=settings.ocr_preprocessing_upscale_min_px,
+        clahe_clip_limit=settings.ocr_preprocessing_clahe_clip_limit,
+        clahe_tile_grid_size=settings.ocr_preprocessing_clahe_tile_grid_size,
+    )
 
     match settings.ocr_provider:
         case OCRProviderType.MOCK:
             return MockOCRProvider()
         case OCRProviderType.TESSERACT:
-            return TesseractOCRProvider(
+            inner: OCRProvider = TesseractOCRProvider(
                 binary_path=settings.tesseract_binary_path,
                 language=settings.tesseract_language,
                 timeout_seconds=settings.provider_timeout_seconds,
             )
         case OCRProviderType.PADDLEOCR:
-            return PaddleOCRProvider(
+            inner = PaddleOCRProvider(
                 language=settings.paddleocr_language,
                 timeout_seconds=settings.provider_timeout_seconds,
             )
         case OCRProviderType.CHANDRAOCR:
-            return ChandraOCRProvider(
+            inner = ChandraOCRProvider(
                 language=settings.chandraocr_language,
                 timeout_seconds=settings.provider_timeout_seconds,
             )
+
+    if preprocessing_config.enabled:
+        return PreprocessingOCRProvider(inner=inner, config=preprocessing_config)
+    return inner
 
 
 def build_provider_routing_config_from_settings(

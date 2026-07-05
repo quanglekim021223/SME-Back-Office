@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.auth import Principal
 from app.models.accounting import (
@@ -20,7 +21,7 @@ from app.models.accounting import (
     ReconciliationStatus,
 )
 from app.models.base import utc_now
-from app.models.invoice import Invoice, InvoiceStatus
+from app.models.invoice import Invoice, InvoiceLineItem, InvoiceStatus
 from app.models.operations import (
     AuditActorType,
     AuditEvent,
@@ -197,9 +198,13 @@ class SqlAlchemyReviewTaskDecisionPersistence:
     ) -> Invoice | None:
         """Return one tenant-owned invoice."""
 
-        statement = select(Invoice).where(
-            Invoice.tenant_id == tenant_id,
-            Invoice.id == invoice_id,
+        statement = (
+            select(Invoice)
+            .where(
+                Invoice.tenant_id == tenant_id,
+                Invoice.id == invoice_id,
+            )
+            .options(selectinload(Invoice.line_items))
         )
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
@@ -861,6 +866,25 @@ def create_corrected_invoice(
         confidence=current.confidence,
         notes=current.notes,
     )
+    replacement.line_items = [
+        InvoiceLineItem(
+            id=uuid4(),
+            tenant_id=item.tenant_id,
+            line_number=item.line_number,
+            description=item.description,
+            product_code=item.product_code,
+            quantity=item.quantity,
+            unit_of_measure=item.unit_of_measure,
+            unit_price_amount=item.unit_price_amount,
+            net_amount=item.net_amount,
+            tax_rate=item.tax_rate,
+            tax_amount=item.tax_amount,
+            total_amount=item.total_amount,
+            currency=item.currency,
+            confidence=item.confidence,
+        )
+        for item in current.line_items
+    ]
     apply_invoice_field_corrections(replacement, corrected_fields)
     return replacement
 

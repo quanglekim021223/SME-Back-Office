@@ -304,6 +304,57 @@ def test_totals_normalizer_converts_schema_shaped_numeric_amounts() -> None:
     assert totals.total_amount == "262.50"
 
 
+def test_table_normalizer_sanitizes_duplicate_hallucinated_totals() -> None:
+    payload = normalize_provider_invoice_group_payload(
+        schema_name="invoice-table-group.v1",
+        payload={
+            "schema_version": "invoice-table-group.v1",
+            "extraction_status": "extracted",
+            "line_items": [
+                {
+                    "line_number": 1,
+                    "description": "SERVICE RSLL AUTOCARSS",
+                    "quantity": "1.00",
+                    "unit_price": "1300.00",
+                    "line_total": "1300.00",
+                },
+                {
+                    "line_number": 2,
+                    "description": "CONITECH TIMING CHAIN KIT+WHATER PUMP",
+                    "quantity": None,
+                    "unit_price": None,
+                    "line_total": "1300.00",
+                },
+                {
+                    "line_number": 3,
+                    "description": "CASTROL OIL 5L 5W30",
+                    "quantity": "—",
+                    "unit_price": None,
+                    "line_total": "1300.00",
+                },
+                {
+                    "line_number": 4,
+                    "description": "ANTIFREEZER COOLANT",
+                    "quantity": None,
+                    "unit_price": None,
+                    "line_total": "1300.00",
+                },
+            ],
+            "evidence_refs": [],
+            "confidence": "medium",
+        },
+    )
+
+    table = InvoiceTableGroup.model_validate(payload)
+
+    # Item 1 should preserve its total
+    assert table.line_items[0].line_total == "1300.00"
+    # Items 2, 3, 4 should have their line_total cleared to None
+    assert table.line_items[1].line_total is None
+    assert table.line_items[2].line_total is None
+    assert table.line_items[3].line_total is None
+
+
 @pytest.mark.asyncio
 async def test_metadata_table_and_totals_extractors_route_to_invoice_assembly() -> None:
     state = create_state()

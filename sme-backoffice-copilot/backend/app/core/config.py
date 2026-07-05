@@ -60,6 +60,15 @@ class Settings(BaseSettings):
     tesseract_language: str = "eng"
     paddleocr_language: str = "en"
     chandraocr_language: str = "en"
+    # Image preprocessing pipeline (runs before OCR for all local engines)
+    ocr_preprocessing_enabled: bool = False
+    ocr_preprocessing_deskew: bool = True
+    ocr_preprocessing_denoise: bool = False
+    ocr_preprocessing_binarize: bool = False
+    ocr_preprocessing_upscale_min_px: int = 0
+    ocr_preprocessing_clahe_clip_limit: float = 2.0
+    ocr_preprocessing_clahe_tile_grid_size: int = 8
+
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
     openai_api_key: str = ""
