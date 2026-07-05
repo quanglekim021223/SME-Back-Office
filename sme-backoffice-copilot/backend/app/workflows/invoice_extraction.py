@@ -1547,6 +1547,10 @@ class QAValidationAgent:
         if context_error is not None:
             return context_error
 
+        financial_signals = build_financial_review_signals(state)
+        if financial_signals:
+            state.qa_error_signals.extend(financial_signals)
+
         correction_signals = [
             signal
             for signal in state.qa_error_signals
@@ -1631,3 +1635,43 @@ def create_total_amount_correction_signal(
         observed_value=observed_value,
         retryable=True,
     )
+
+
+def build_financial_review_signals(state: WorkflowState) -> list[QAErrorSignal]:
+    """Validate the assembled invoice draft and emit review-required QA signals."""
+
+    draft_payload = state.scratchpad.get(ASSEMBLED_INVOICE_DRAFT_KEY)
+    if draft_payload is None:
+        return []
+
+    try:
+        draft = AssembledInvoiceDraft.model_validate(draft_payload)
+    except ValidationError:
+        return []
+
+    from app.validation.deterministic import validate_invoice_arithmetic
+
+    result = validate_invoice_arithmetic(draft.groups)
+    if result.passed:
+        return []
+
+    signals: list[QAErrorSignal] = []
+    for issue in result.issues:
+        signals.append(
+            QAErrorSignal(
+                code=issue.code,
+                severity=QAErrorSeverity.ERROR,
+                message=issue.message,
+                source_agent=QA_VALIDATION_AGENT,
+                expected_value=issue.expected_value,
+                observed_value=issue.observed_value,
+                context={
+                    "validator_name": result.validator_name,
+                    "field_path": issue.field_path,
+                    "metrics": result.metrics,
+                    **issue.context,
+                },
+                retryable=False,
+            )
+        )
+    return signals

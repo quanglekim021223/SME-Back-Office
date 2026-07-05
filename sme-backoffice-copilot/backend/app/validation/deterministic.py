@@ -192,7 +192,7 @@ def validate_invoice_arithmetic(
                 )
             )
 
-    if groups.table is not None and groups.table.line_items and total is not None:
+    if groups.table is not None and groups.table.line_items:
         line_totals = [
             parse_decimal(line_item.line_total) for line_item in groups.table.line_items
         ]
@@ -212,11 +212,36 @@ def validate_invoice_arithmetic(
         else:
             line_total_sum = sum(valid_line_totals, Decimal("0"))
             metrics["line_total_sum"] = str(line_total_sum)
-            if abs(line_total_sum - total) > tolerance:
+            if subtotal is not None:
+                subtotal_delta = line_total_sum - subtotal
+                metrics["line_total_minus_subtotal"] = str(subtotal_delta)
+                if total is not None and abs(line_total_sum - total) <= tolerance:
+                    metrics["line_totals_match"] = "total_amount"
+                elif abs(subtotal_delta) <= tolerance:
+                    metrics["line_totals_match"] = "subtotal_amount"
+                elif subtotal_delta > tolerance:
+                    metrics["inferred_discount_amount"] = str(subtotal_delta)
+                else:
+                    issues.append(
+                        ValidationIssue(
+                            code="ERR_SUBTOTAL_LINE_ITEMS_MISMATCH",
+                            message=(
+                                "Invoice line totals are less than the extracted "
+                                "subtotal."
+                            ),
+                            field_path="groups.totals.subtotal_amount",
+                            expected_value=str(line_total_sum),
+                            observed_value=str(subtotal),
+                        )
+                    )
+            elif total is not None and abs(line_total_sum - total) > tolerance:
                 issues.append(
                     ValidationIssue(
                         code="ERR_LINE_TOTAL_MISMATCH",
-                        message="Invoice line totals do not match invoice total.",
+                        message=(
+                            "Invoice line totals do not match invoice total and "
+                            "subtotal is missing."
+                        ),
                         field_path="groups.table.line_items",
                         expected_value=str(total),
                         observed_value=str(line_total_sum),

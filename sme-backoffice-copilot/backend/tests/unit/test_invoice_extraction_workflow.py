@@ -29,6 +29,7 @@ from app.workflows import (
     AgentExecutionContext,
     AgentHandoffEnvelope,
     AgentRunStatus,
+    AssembledInvoiceDraft,
     ConfidenceLevel,
     HandoffType,
     InvoiceAssemblyNode,
@@ -632,6 +633,85 @@ async def test_qa_validation_agent_routes_valid_placeholder_to_classification() 
     assert result.handoffs[0].source_agent == QA_VALIDATION_AGENT
     assert result.handoffs[0].target_agent == CLASSIFICATION_AGENT
     assert result.handoffs[0].stage == WorkflowStage.CLASSIFICATION
+
+
+@pytest.mark.asyncio
+async def test_qa_validation_agent_flags_financially_incomplete_draft() -> None:
+    state = create_state()
+    context = create_context(state)
+    draft = AssembledInvoiceDraft(
+        document_id=state.document_id,
+        groups=InvoiceExtractionGroups(
+            metadata=InvoiceMetadataGroup(invoice_number="INV-001"),
+            table=InvoiceTableGroup(
+                extraction_status=InvoiceExtractionStatus.EXTRACTED,
+                line_items=[
+                    InvoiceLineItemCandidate(
+                        line_number=1,
+                        description="Service",
+                        quantity="1.00",
+                        unit_price="100.00",
+                        line_total="100.00",
+                    )
+                ],
+            ),
+            totals=InvoiceTotalsGroup(
+                extraction_status=InvoiceExtractionStatus.EXTRACTED,
+                subtotal_amount="100.00",
+                tax_amount=None,
+                total_amount=None,
+            ),
+        ),
+        assembly_status=InvoiceExtractionStatus.EXTRACTED,
+    )
+    state.scratchpad[ASSEMBLED_INVOICE_DRAFT_KEY] = draft.model_dump(mode="json")
+
+    result = await QAValidationAgent().run(state=state, context=context)
+
+    assert result.status == AgentRunStatus.REVIEW_REQUIRED
+    assert result.output["validation_status"] == "review_required"
+    assert any(
+        signal.code == "ERR_AMOUNT_INVALID" for signal in result.qa_error_signals
+    )
+    assert result.handoffs == []
+
+
+@pytest.mark.asyncio
+async def test_qa_validation_agent_flags_subtotal_line_item_mismatch() -> None:
+    state = create_state()
+    context = create_context(state)
+    draft = AssembledInvoiceDraft(
+        document_id=state.document_id,
+        groups=InvoiceExtractionGroups(
+            metadata=InvoiceMetadataGroup(invoice_number="INV-002"),
+            table=InvoiceTableGroup(
+                extraction_status=InvoiceExtractionStatus.EXTRACTED,
+                line_items=[
+                    InvoiceLineItemCandidate(
+                        line_number=1,
+                        description="Service",
+                        line_total="80.00",
+                    )
+                ],
+            ),
+            totals=InvoiceTotalsGroup(
+                extraction_status=InvoiceExtractionStatus.EXTRACTED,
+                subtotal_amount="100.00",
+                tax_amount="10.00",
+                total_amount="110.00",
+            ),
+        ),
+        assembly_status=InvoiceExtractionStatus.EXTRACTED,
+    )
+    state.scratchpad[ASSEMBLED_INVOICE_DRAFT_KEY] = draft.model_dump(mode="json")
+
+    result = await QAValidationAgent().run(state=state, context=context)
+
+    assert result.status == AgentRunStatus.REVIEW_REQUIRED
+    assert any(
+        signal.code == "ERR_SUBTOTAL_LINE_ITEMS_MISMATCH"
+        for signal in result.qa_error_signals
+    )
 
 
 @pytest.mark.asyncio

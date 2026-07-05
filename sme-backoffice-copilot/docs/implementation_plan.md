@@ -322,14 +322,14 @@ of only flattened OCR text.
 - [x] Add receipt-style invoice regression fixture.
 - [x] Add `Bill No.` / `Receipt No.` invoice-number extraction rule.
 - [x] Add locale-aware date parsing for `DD/MM/YY` receipts.
-- [ ] Add subtotal-vs-line-items QA validator.
-- [ ] Route subtotal mismatch to human review with structured QA error signal.
+- [x] Add subtotal-vs-line-items QA validator.
+- [x] Route subtotal mismatch to human review with structured QA error signal.
 - [ ] Add angled-photo invoice regression fixture.
 - [ ] Add supplier detection from top-left sender block.
 - [ ] Add multi-line line-item description grouping.
 - [ ] Add UK/EU date ambiguity handling for `DD/MM/YYYY` vs `MM/DD/YYYY`.
-- [ ] Add discount/VAT/total arithmetic validator.
-- [ ] Flag schema-valid but financially-incomplete extraction as review-required.
+- [x] Add discount/VAT/total arithmetic validator.
+- [x] Flag schema-valid but financially-incomplete extraction as review-required.
 - [ ] Add validation rules for party-role confusion.
 - [ ] Add evaluation cases for layout-heavy invoices.
 
