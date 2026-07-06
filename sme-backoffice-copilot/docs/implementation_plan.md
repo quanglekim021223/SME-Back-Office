@@ -344,9 +344,9 @@ data.
 - [x] Add LangGraph dependency and local configuration.
 - [x] Create LangGraph workflow adapter behind existing workflow contracts.
 - [x] Convert current document preparation steps into LangGraph nodes.
-- [ ] Convert invoice metadata/table/totals extractors into LangGraph nodes.
-- [ ] Convert invoice assembly and QA validation into LangGraph nodes.
-- [ ] Add conditional QA routing edge for valid, retry, review-required, and failed paths.
+- [x] Convert invoice metadata/table/totals extractors into LangGraph nodes.
+- [x] Convert invoice assembly and QA validation into LangGraph nodes.
+- [x] Add conditional QA routing edge for valid, retry, review-required, and failed paths.
 - [ ] Add targeted self-correction loop in LangGraph.
 - [ ] Add retry exhaustion path in LangGraph.
 - [x] Preserve existing workflow persistence for agent step executions.

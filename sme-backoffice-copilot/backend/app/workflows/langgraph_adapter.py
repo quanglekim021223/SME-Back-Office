@@ -21,10 +21,22 @@ from app.workflows.contracts import AgentHandoffEnvelope, WorkflowState
 from app.workflows.document_preparation import (
     DOCUMENT_INTAKE_AGENT,
     DOCUMENT_LAYOUT_ANALYZER_AGENT,
+    METADATA_EXTRACTOR_AGENT,
     PRIVACY_POLICY_GATE_AGENT,
+    TABLE_EXTRACTOR_AGENT,
+    TOTALS_EXTRACTOR_AGENT,
     DocumentIntakeAgent,
     DocumentLayoutAnalyzerAgent,
     PrivacyPolicyGateAgent,
+)
+from app.workflows.invoice_extraction import (
+    INVOICE_ASSEMBLY_NODE,
+    QA_VALIDATION_AGENT,
+    InvoiceAssemblyNode,
+    MetadataExtractorAgent,
+    QAValidationAgent,
+    TableExtractorAgent,
+    TotalsExtractorAgent,
 )
 from app.workflows.runtime import WorkflowRuntimeService
 
@@ -36,6 +48,7 @@ class LangGraphDocumentPreparationState(TypedDict):
     workflow_run: WorkflowRun
     context: AgentExecutionContext
     latest_result: AgentRunResult | None
+    results_by_agent: dict[str, AgentRunResult]
     step_executions: list[AgentStepExecution]
     handoffs: list[AgentHandoff]
 
@@ -67,13 +80,10 @@ class LangGraphWorkflowAdapter:
     ) -> LangGraphWorkflowResult:
         """Run document intake, privacy gate, and layout analysis as graph nodes."""
 
-        graph_state = LangGraphDocumentPreparationState(
-            workflow_state=state,
+        graph_state = _initial_graph_state(
+            state=state,
             workflow_run=workflow_run,
             context=context,
-            latest_result=None,
-            step_executions=[],
-            handoffs=[],
         )
 
         if is_langgraph_available():
@@ -89,6 +99,35 @@ class LangGraphWorkflowAdapter:
         final_state = await self._run_document_preparation_fallback(graph_state)
         return _build_result(final_state, used_langgraph=False)
 
+    async def run_invoice_extraction_until_qa(
+        self,
+        *,
+        state: WorkflowState,
+        workflow_run: WorkflowRun,
+        context: AgentExecutionContext,
+        require_langgraph: bool = False,
+    ) -> LangGraphWorkflowResult:
+        """Run document preparation, invoice extraction, assembly, and QA nodes."""
+
+        graph_state = _initial_graph_state(
+            state=state,
+            workflow_run=workflow_run,
+            context=context,
+        )
+
+        if is_langgraph_available():
+            final_state = await self._run_invoice_extraction_graph(graph_state)
+            return _build_result(final_state, used_langgraph=True)
+
+        if require_langgraph:
+            raise RuntimeError(
+                "LangGraph is not installed in this environment. Install backend "
+                "dependencies before requiring the graph adapter."
+            )
+
+        final_state = await self._run_invoice_extraction_fallback(graph_state)
+        return _build_result(final_state, used_langgraph=False)
+
     async def _run_document_preparation_graph(
         self,
         graph_state: LangGraphDocumentPreparationState,
@@ -102,13 +141,17 @@ class LangGraphWorkflowAdapter:
         builder = StateGraph(LangGraphDocumentPreparationState)
         builder.add_node(
             DOCUMENT_INTAKE_AGENT,
-            self._node(DocumentIntakeAgent(), handoff_target=None),
+            self._node(
+                DocumentIntakeAgent(),
+                handoff_target=None,
+            ),
         )
         builder.add_node(
             PRIVACY_POLICY_GATE_AGENT,
             self._node(
                 PrivacyPolicyGateAgent(),
                 handoff_target=PRIVACY_POLICY_GATE_AGENT,
+                handoff_source_agent=DOCUMENT_INTAKE_AGENT,
             ),
         )
         builder.add_node(
@@ -116,6 +159,7 @@ class LangGraphWorkflowAdapter:
             self._node(
                 DocumentLayoutAnalyzerAgent(),
                 handoff_target=DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                handoff_source_agent=PRIVACY_POLICY_GATE_AGENT,
             ),
         )
 
@@ -142,6 +186,78 @@ class LangGraphWorkflowAdapter:
         result = await compiled.ainvoke(graph_state)
         return cast(LangGraphDocumentPreparationState, result)
 
+    async def _run_invoice_extraction_graph(
+        self,
+        graph_state: LangGraphDocumentPreparationState,
+    ) -> LangGraphDocumentPreparationState:
+        """Compile and run the invoice extraction graph with lazy imports."""
+
+        from langgraph.graph import END
+        from langgraph.graph import StateGraph as RawStateGraph
+
+        StateGraph = cast(Any, RawStateGraph)
+        builder = StateGraph(LangGraphDocumentPreparationState)
+        self._add_document_preparation_nodes(builder)
+        self._add_invoice_extraction_nodes(builder)
+
+        builder.set_entry_point(DOCUMENT_INTAKE_AGENT)
+        self._add_conditional_next_edge(
+            builder,
+            source=DOCUMENT_INTAKE_AGENT,
+            next_node=PRIVACY_POLICY_GATE_AGENT,
+            end_node=END,
+        )
+        self._add_conditional_next_edge(
+            builder,
+            source=PRIVACY_POLICY_GATE_AGENT,
+            next_node=DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            end_node=END,
+        )
+        self._add_conditional_next_edge(
+            builder,
+            source=DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            next_node=METADATA_EXTRACTOR_AGENT,
+            end_node=END,
+        )
+        self._add_conditional_next_edge(
+            builder,
+            source=METADATA_EXTRACTOR_AGENT,
+            next_node=TABLE_EXTRACTOR_AGENT,
+            end_node=END,
+        )
+        self._add_conditional_next_edge(
+            builder,
+            source=TABLE_EXTRACTOR_AGENT,
+            next_node=TOTALS_EXTRACTOR_AGENT,
+            end_node=END,
+        )
+        self._add_conditional_next_edge(
+            builder,
+            source=TOTALS_EXTRACTOR_AGENT,
+            next_node=INVOICE_ASSEMBLY_NODE,
+            end_node=END,
+        )
+        self._add_conditional_next_edge(
+            builder,
+            source=INVOICE_ASSEMBLY_NODE,
+            next_node=QA_VALIDATION_AGENT,
+            end_node=END,
+        )
+        builder.add_conditional_edges(
+            QA_VALIDATION_AGENT,
+            _route_after_qa,
+            {
+                "valid": END,
+                "retry": END,
+                "review_required": END,
+                "failed": END,
+            },
+        )
+
+        compiled = builder.compile()
+        result = await compiled.ainvoke(graph_state)
+        return cast(LangGraphDocumentPreparationState, result)
+
     async def _run_document_preparation_fallback(
         self,
         graph_state: LangGraphDocumentPreparationState,
@@ -157,16 +273,150 @@ class LangGraphWorkflowAdapter:
                 graph_state,
                 agent=agent,
                 handoff_target=handoff_target,
+                handoff_source_agent=None,
             )
             if _is_terminal_result(graph_state["latest_result"]):
                 break
         return graph_state
+
+    async def _run_invoice_extraction_fallback(
+        self,
+        graph_state: LangGraphDocumentPreparationState,
+    ) -> LangGraphDocumentPreparationState:
+        """Run invoice extraction nodes directly when LangGraph is unavailable."""
+
+        for agent, handoff_target, handoff_source_agent in (
+            (DocumentIntakeAgent(), None, None),
+            (
+                PrivacyPolicyGateAgent(),
+                PRIVACY_POLICY_GATE_AGENT,
+                DOCUMENT_INTAKE_AGENT,
+            ),
+            (
+                DocumentLayoutAnalyzerAgent(),
+                DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                PRIVACY_POLICY_GATE_AGENT,
+            ),
+            (
+                MetadataExtractorAgent(),
+                METADATA_EXTRACTOR_AGENT,
+                DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            ),
+            (
+                TableExtractorAgent(),
+                TABLE_EXTRACTOR_AGENT,
+                DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            ),
+            (
+                TotalsExtractorAgent(),
+                TOTALS_EXTRACTOR_AGENT,
+                DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            ),
+            (InvoiceAssemblyNode(), None, None),
+            (QAValidationAgent(), QA_VALIDATION_AGENT, INVOICE_ASSEMBLY_NODE),
+        ):
+            graph_state = await self._run_agent_node(
+                graph_state,
+                agent=agent,
+                handoff_target=handoff_target,
+                handoff_source_agent=handoff_source_agent,
+            )
+            if _is_terminal_result(graph_state["latest_result"]):
+                break
+        return graph_state
+
+    def _add_document_preparation_nodes(self, builder: Any) -> None:
+        """Add document preparation agents as graph nodes."""
+
+        builder.add_node(
+            DOCUMENT_INTAKE_AGENT,
+            self._node(
+                DocumentIntakeAgent(),
+                handoff_target=None,
+            ),
+        )
+        builder.add_node(
+            PRIVACY_POLICY_GATE_AGENT,
+            self._node(
+                PrivacyPolicyGateAgent(),
+                handoff_target=PRIVACY_POLICY_GATE_AGENT,
+                handoff_source_agent=DOCUMENT_INTAKE_AGENT,
+            ),
+        )
+        builder.add_node(
+            DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            self._node(
+                DocumentLayoutAnalyzerAgent(),
+                handoff_target=DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                handoff_source_agent=PRIVACY_POLICY_GATE_AGENT,
+            ),
+        )
+
+    def _add_invoice_extraction_nodes(self, builder: Any) -> None:
+        """Add invoice extraction, assembly, and QA agents as graph nodes."""
+
+        builder.add_node(
+            METADATA_EXTRACTOR_AGENT,
+            self._node(
+                MetadataExtractorAgent(),
+                handoff_target=METADATA_EXTRACTOR_AGENT,
+                handoff_source_agent=DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            ),
+        )
+        builder.add_node(
+            TABLE_EXTRACTOR_AGENT,
+            self._node(
+                TableExtractorAgent(),
+                handoff_target=TABLE_EXTRACTOR_AGENT,
+                handoff_source_agent=DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            ),
+        )
+        builder.add_node(
+            TOTALS_EXTRACTOR_AGENT,
+            self._node(
+                TotalsExtractorAgent(),
+                handoff_target=TOTALS_EXTRACTOR_AGENT,
+                handoff_source_agent=DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            ),
+        )
+        builder.add_node(
+            INVOICE_ASSEMBLY_NODE,
+            self._node(InvoiceAssemblyNode(), handoff_target=None),
+        )
+        builder.add_node(
+            QA_VALIDATION_AGENT,
+            self._node(
+                QAValidationAgent(),
+                handoff_target=QA_VALIDATION_AGENT,
+                handoff_source_agent=INVOICE_ASSEMBLY_NODE,
+            ),
+        )
+
+    def _add_conditional_next_edge(
+        self,
+        builder: Any,
+        *,
+        source: str,
+        next_node: str,
+        end_node: str,
+    ) -> None:
+        """Add a standard edge that stops on failed or review-required results."""
+
+        builder.add_conditional_edges(
+            source,
+            _route_after(next_node),
+            {
+                next_node: next_node,
+                "end": end_node,
+            },
+        )
 
     def _node(
         self,
         agent: BaseAgent,
         *,
         handoff_target: str | None,
+        handoff_source_agent: str | None = None,
     ) -> Callable[
         [LangGraphDocumentPreparationState],
         Awaitable[LangGraphDocumentPreparationState],
@@ -180,6 +430,7 @@ class LangGraphWorkflowAdapter:
                 graph_state,
                 agent=agent,
                 handoff_target=handoff_target,
+                handoff_source_agent=handoff_source_agent,
             )
 
         return run_node
@@ -190,15 +441,21 @@ class LangGraphWorkflowAdapter:
         *,
         agent: BaseAgent,
         handoff_target: str | None,
+        handoff_source_agent: str | None,
     ) -> LangGraphDocumentPreparationState:
         """Run one existing agent and persist its step and outgoing handoffs."""
 
         state = graph_state["workflow_state"]
         workflow_run = graph_state["workflow_run"]
+        source_result = (
+            graph_state["latest_result"]
+            if handoff_source_agent is None
+            else graph_state["results_by_agent"].get(handoff_source_agent)
+        )
         result = await agent.run(
             state=state,
             context=graph_state["context"],
-            handoff=_handoff_to(graph_state["latest_result"], handoff_target),
+            handoff=_handoff_to(source_result, handoff_target),
         )
         step = self.runtime.record_agent_step(
             workflow_run=workflow_run,
@@ -224,6 +481,10 @@ class LangGraphWorkflowAdapter:
             workflow_run=workflow_run,
             context=graph_state["context"],
             latest_result=result,
+            results_by_agent={
+                **graph_state["results_by_agent"],
+                agent.definition.name: result,
+            },
             step_executions=[*graph_state["step_executions"], step],
             handoffs=[*graph_state["handoffs"], *recorded_handoffs],
         )
@@ -237,6 +498,25 @@ def is_langgraph_available() -> bool:
     except ImportError:
         return False
     return True
+
+
+def _initial_graph_state(
+    *,
+    state: WorkflowState,
+    workflow_run: WorkflowRun,
+    context: AgentExecutionContext,
+) -> LangGraphDocumentPreparationState:
+    """Build the initial graph state for any LangGraph adapter run."""
+
+    return LangGraphDocumentPreparationState(
+        workflow_state=state,
+        workflow_run=workflow_run,
+        context=context,
+        latest_result=None,
+        results_by_agent={},
+        step_executions=[],
+        handoffs=[],
+    )
 
 
 def _build_result(
@@ -290,3 +570,18 @@ def _route_after(next_node: str) -> Callable[[dict[str, Any]], str]:
         return next_node
 
     return route
+
+
+def _route_after_qa(graph_state: dict[str, Any]) -> str:
+    """Route the QA result to a named outcome edge."""
+
+    latest_result = graph_state.get("latest_result")
+    if not isinstance(latest_result, AgentRunResult):
+        return "failed"
+    if latest_result.status == AgentRunStatus.SUCCEEDED:
+        return "valid"
+    if latest_result.status == AgentRunStatus.RETRY_REQUESTED:
+        return "retry"
+    if latest_result.status == AgentRunStatus.REVIEW_REQUIRED:
+        return "review_required"
+    return "failed"

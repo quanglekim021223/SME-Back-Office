@@ -35,8 +35,23 @@ The first adapter pass is intentionally narrow:
 - when LangGraph is not installed in the local virtualenv, the adapter can run
   the same nodes sequentially for tests and development.
 
-Invoice extraction, QA routing, retry loops, and graph checkpointing remain in
-later Phase 9.6 tasks.
+The adapter now also has an invoice extraction entrypoint that runs:
+
+```text
+document_intake
+→ privacy_policy_gate
+→ document_layout_analyzer
+→ metadata_extractor
+→ table_extractor
+→ totals_extractor
+→ invoice_assembly
+→ qa_validator
+```
+
+The QA node has explicit graph outcome edges for `valid`, `retry`,
+`review_required`, and `failed`. For now, those outcomes terminate the graph;
+the retry self-correction loop, retry exhaustion handling, and graph
+checkpointing remain in later Phase 9.6 tasks.
 
 ## Tracing backend decision
 
