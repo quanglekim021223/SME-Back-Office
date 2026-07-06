@@ -6,7 +6,7 @@ runtime still owns persistence for workflow runs, agent steps, and handoffs.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
 
@@ -17,7 +17,12 @@ from app.workflows.agents import (
     AgentRunStatus,
     BaseAgent,
 )
-from app.workflows.contracts import AgentHandoffEnvelope, WorkflowState
+from app.workflows.contracts import (
+    AgentHandoffEnvelope,
+    HandoffType,
+    WorkflowState,
+    WorkflowStateStatus,
+)
 from app.workflows.document_preparation import (
     DOCUMENT_INTAKE_AGENT,
     DOCUMENT_LAYOUT_ANALYZER_AGENT,
@@ -38,7 +43,9 @@ from app.workflows.invoice_extraction import (
     TableExtractorAgent,
     TotalsExtractorAgent,
 )
-from app.workflows.runtime import WorkflowRuntimeService
+from app.workflows.runtime import RetryDecision, WorkflowRuntimeService
+
+LANGGRAPH_RETRY_GATE_NODE = "langgraph_retry_gate"
 
 
 class LangGraphDocumentPreparationState(TypedDict):
@@ -51,6 +58,10 @@ class LangGraphDocumentPreparationState(TypedDict):
     results_by_agent: dict[str, AgentRunResult]
     step_executions: list[AgentStepExecution]
     handoffs: list[AgentHandoff]
+    retry_allowed: bool
+    retry_target_agent: str | None
+    retry_decisions: list[RetryDecision]
+    checkpoints: list[dict[str, object]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +72,8 @@ class LangGraphWorkflowResult:
     workflow_run: WorkflowRun
     step_executions: list[AgentStepExecution]
     handoffs: list[AgentHandoff]
+    retry_decisions: list[RetryDecision]
+    checkpoints: list[dict[str, object]]
     used_langgraph: bool
 
 
@@ -199,6 +212,7 @@ class LangGraphWorkflowAdapter:
         builder = StateGraph(LangGraphDocumentPreparationState)
         self._add_document_preparation_nodes(builder)
         self._add_invoice_extraction_nodes(builder)
+        builder.add_node(LANGGRAPH_RETRY_GATE_NODE, self._retry_gate_node)
 
         builder.set_entry_point(DOCUMENT_INTAKE_AGENT)
         self._add_conditional_next_edge(
@@ -248,8 +262,19 @@ class LangGraphWorkflowAdapter:
             _route_after_qa,
             {
                 "valid": END,
-                "retry": END,
+                "retry": LANGGRAPH_RETRY_GATE_NODE,
                 "review_required": END,
+                "failed": END,
+            },
+        )
+        builder.add_conditional_edges(
+            LANGGRAPH_RETRY_GATE_NODE,
+            _route_after_retry_gate,
+            {
+                METADATA_EXTRACTOR_AGENT: METADATA_EXTRACTOR_AGENT,
+                TABLE_EXTRACTOR_AGENT: TABLE_EXTRACTOR_AGENT,
+                TOTALS_EXTRACTOR_AGENT: TOTALS_EXTRACTOR_AGENT,
+                "exhausted": END,
                 "failed": END,
             },
         )
@@ -285,35 +310,108 @@ class LangGraphWorkflowAdapter:
     ) -> LangGraphDocumentPreparationState:
         """Run invoice extraction nodes directly when LangGraph is unavailable."""
 
-        for agent, handoff_target, handoff_source_agent in (
-            (DocumentIntakeAgent(), None, None),
-            (
-                PrivacyPolicyGateAgent(),
-                PRIVACY_POLICY_GATE_AGENT,
-                DOCUMENT_INTAKE_AGENT,
+        graph_state = await self._run_invoice_extraction_segment(
+            graph_state,
+            segment="full",
+        )
+
+        while _route_after_qa(graph_state) == "retry":
+            graph_state = self._retry_gate_node(graph_state)
+            if not graph_state["retry_allowed"]:
+                break
+            graph_state = await self._run_invoice_extraction_segment(
+                graph_state,
+                segment=graph_state["retry_target_agent"],
+            )
+
+        return graph_state
+
+    async def _run_invoice_extraction_segment(
+        self,
+        graph_state: LangGraphDocumentPreparationState,
+        *,
+        segment: str | None,
+    ) -> LangGraphDocumentPreparationState:
+        """Run a full or targeted invoice extraction segment without LangGraph."""
+
+        node_plan = {
+            "full": (
+                (DocumentIntakeAgent(), None, None),
+                (
+                    PrivacyPolicyGateAgent(),
+                    PRIVACY_POLICY_GATE_AGENT,
+                    DOCUMENT_INTAKE_AGENT,
+                ),
+                (
+                    DocumentLayoutAnalyzerAgent(),
+                    DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                    PRIVACY_POLICY_GATE_AGENT,
+                ),
+                (
+                    MetadataExtractorAgent(),
+                    METADATA_EXTRACTOR_AGENT,
+                    DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                ),
+                (
+                    TableExtractorAgent(),
+                    TABLE_EXTRACTOR_AGENT,
+                    DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                ),
+                (
+                    TotalsExtractorAgent(),
+                    TOTALS_EXTRACTOR_AGENT,
+                    DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                ),
+                (InvoiceAssemblyNode(), None, None),
+                (QAValidationAgent(), QA_VALIDATION_AGENT, INVOICE_ASSEMBLY_NODE),
             ),
-            (
-                DocumentLayoutAnalyzerAgent(),
-                DOCUMENT_LAYOUT_ANALYZER_AGENT,
-                PRIVACY_POLICY_GATE_AGENT,
+            METADATA_EXTRACTOR_AGENT: (
+                (
+                    MetadataExtractorAgent(),
+                    METADATA_EXTRACTOR_AGENT,
+                    DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                ),
+                (
+                    TableExtractorAgent(),
+                    TABLE_EXTRACTOR_AGENT,
+                    DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                ),
+                (
+                    TotalsExtractorAgent(),
+                    TOTALS_EXTRACTOR_AGENT,
+                    DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                ),
+                (InvoiceAssemblyNode(), None, None),
+                (QAValidationAgent(), QA_VALIDATION_AGENT, INVOICE_ASSEMBLY_NODE),
             ),
-            (
-                MetadataExtractorAgent(),
-                METADATA_EXTRACTOR_AGENT,
-                DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            TABLE_EXTRACTOR_AGENT: (
+                (
+                    TableExtractorAgent(),
+                    TABLE_EXTRACTOR_AGENT,
+                    DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                ),
+                (
+                    TotalsExtractorAgent(),
+                    TOTALS_EXTRACTOR_AGENT,
+                    DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                ),
+                (InvoiceAssemblyNode(), None, None),
+                (QAValidationAgent(), QA_VALIDATION_AGENT, INVOICE_ASSEMBLY_NODE),
             ),
-            (
-                TableExtractorAgent(),
-                TABLE_EXTRACTOR_AGENT,
-                DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            TOTALS_EXTRACTOR_AGENT: (
+                (
+                    TotalsExtractorAgent(),
+                    TOTALS_EXTRACTOR_AGENT,
+                    DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                ),
+                (InvoiceAssemblyNode(), None, None),
+                (QAValidationAgent(), QA_VALIDATION_AGENT, INVOICE_ASSEMBLY_NODE),
             ),
-            (
-                TotalsExtractorAgent(),
-                TOTALS_EXTRACTOR_AGENT,
-                DOCUMENT_LAYOUT_ANALYZER_AGENT,
-            ),
-            (InvoiceAssemblyNode(), None, None),
-            (QAValidationAgent(), QA_VALIDATION_AGENT, INVOICE_ASSEMBLY_NODE),
+        }
+
+        for agent, handoff_target, handoff_source_agent in node_plan.get(
+            segment or "",
+            (),
         ):
             graph_state = await self._run_agent_node(
                 graph_state,
@@ -447,10 +545,16 @@ class LangGraphWorkflowAdapter:
 
         state = graph_state["workflow_state"]
         workflow_run = graph_state["workflow_run"]
+        latest_result = graph_state["latest_result"]
         source_result = (
-            graph_state["latest_result"]
-            if handoff_source_agent is None
-            else graph_state["results_by_agent"].get(handoff_source_agent)
+            latest_result
+            if handoff_target is not None
+            and _result_has_handoff_to(latest_result, handoff_target)
+            else (
+                latest_result
+                if handoff_source_agent is None
+                else graph_state["results_by_agent"].get(handoff_source_agent)
+            )
         )
         result = await agent.run(
             state=state,
@@ -476,6 +580,9 @@ class LangGraphWorkflowAdapter:
                 )
             )
 
+        step_executions = [*graph_state["step_executions"], step]
+        handoffs = [*graph_state["handoffs"], *recorded_handoffs]
+
         return LangGraphDocumentPreparationState(
             workflow_state=state,
             workflow_run=workflow_run,
@@ -485,8 +592,87 @@ class LangGraphWorkflowAdapter:
                 **graph_state["results_by_agent"],
                 agent.definition.name: result,
             },
-            step_executions=[*graph_state["step_executions"], step],
-            handoffs=[*graph_state["handoffs"], *recorded_handoffs],
+            step_executions=step_executions,
+            handoffs=handoffs,
+            retry_allowed=graph_state["retry_allowed"],
+            retry_target_agent=graph_state["retry_target_agent"],
+            retry_decisions=graph_state["retry_decisions"],
+            checkpoints=[
+                *graph_state["checkpoints"],
+                _checkpoint(
+                    label=agent.definition.name,
+                    state=state,
+                    step_count=len(step_executions),
+                    handoff_count=len(handoffs),
+                    latest_result=result,
+                ),
+            ],
+        )
+
+    def _retry_gate_node(
+        self,
+        graph_state: LangGraphDocumentPreparationState,
+    ) -> LangGraphDocumentPreparationState:
+        """Increment retry state and route QA correction to its target agent."""
+
+        state = graph_state["workflow_state"]
+        workflow_run = graph_state["workflow_run"]
+        latest_result = graph_state["latest_result"]
+        correction_handoff = _first_correction_handoff(latest_result)
+        if correction_handoff is None:
+            return cast(
+                LangGraphDocumentPreparationState,
+                {
+                    **graph_state,
+                    "retry_allowed": False,
+                    "retry_target_agent": None,
+                    "checkpoints": [
+                        *graph_state["checkpoints"],
+                        _checkpoint(
+                            label=LANGGRAPH_RETRY_GATE_NODE,
+                            state=state,
+                            step_count=len(graph_state["step_executions"]),
+                            handoff_count=len(graph_state["handoffs"]),
+                            latest_result=latest_result,
+                            retry_allowed=False,
+                            retry_target_agent=None,
+                        ),
+                    ],
+                },
+            )
+
+        decision = self.runtime.request_retry(
+            workflow_run=workflow_run,
+            state=state,
+            agent_name=correction_handoff.target_agent,
+            error_code="RETRY_EXHAUSTED",
+            error_message=(
+                f"Retry budget exhausted for agent '{correction_handoff.target_agent}'."
+            ),
+        )
+
+        return cast(
+            LangGraphDocumentPreparationState,
+            {
+                **graph_state,
+                "retry_allowed": decision.retry_allowed,
+                "retry_target_agent": (
+                    correction_handoff.target_agent if decision.retry_allowed else None
+                ),
+                "retry_decisions": [*graph_state["retry_decisions"], decision],
+                "checkpoints": [
+                    *graph_state["checkpoints"],
+                    _checkpoint(
+                        label=LANGGRAPH_RETRY_GATE_NODE,
+                        state=state,
+                        step_count=len(graph_state["step_executions"]),
+                        handoff_count=len(graph_state["handoffs"]),
+                        latest_result=latest_result,
+                        retry_allowed=decision.retry_allowed,
+                        retry_target_agent=correction_handoff.target_agent,
+                    ),
+                ],
+            },
         )
 
 
@@ -516,6 +702,10 @@ def _initial_graph_state(
         results_by_agent={},
         step_executions=[],
         handoffs=[],
+        retry_allowed=True,
+        retry_target_agent=None,
+        retry_decisions=[],
+        checkpoints=[],
     )
 
 
@@ -531,6 +721,8 @@ def _build_result(
         workflow_run=graph_state["workflow_run"],
         step_executions=list(graph_state["step_executions"]),
         handoffs=list(graph_state["handoffs"]),
+        retry_decisions=list(graph_state["retry_decisions"]),
+        checkpoints=list(graph_state["checkpoints"]),
         used_langgraph=used_langgraph,
     )
 
@@ -549,6 +741,61 @@ def _handoff_to(
     raise ValueError(f"No handoff found for target agent '{target_agent}'.")
 
 
+def _first_correction_handoff(
+    result: AgentRunResult | None,
+) -> AgentHandoffEnvelope | None:
+    """Return the first targeted correction handoff from a retry result."""
+
+    if result is None:
+        return None
+    for handoff in result.handoffs:
+        if handoff.handoff_type == HandoffType.CORRECTION:
+            return handoff
+    return None
+
+
+def _result_has_handoff_to(
+    result: AgentRunResult | None,
+    target_agent: str,
+) -> bool:
+    """Return whether an agent result has a handoff to the target agent."""
+
+    if result is None:
+        return False
+    return any(handoff.target_agent == target_agent for handoff in result.handoffs)
+
+
+def _checkpoint(
+    *,
+    label: str,
+    state: WorkflowState,
+    step_count: int,
+    handoff_count: int,
+    latest_result: AgentRunResult | None,
+    retry_allowed: bool | None = None,
+    retry_target_agent: str | None = None,
+) -> dict[str, object]:
+    """Build a small local debug checkpoint without sensitive payload bodies."""
+
+    checkpoint: dict[str, object] = {
+        "label": label,
+        "workflow_status": state.status.value,
+        "stage": state.stage.value,
+        "current_agent": state.current_agent,
+        "completed_agents": list(state.completed_agents),
+        "retry_counts": dict(state.retry_counts),
+        "step_count": step_count,
+        "handoff_count": handoff_count,
+    }
+    if latest_result is not None:
+        checkpoint["result_status"] = latest_result.status.value
+        checkpoint["result_error_code"] = latest_result.error_code
+    if retry_allowed is not None:
+        checkpoint["retry_allowed"] = retry_allowed
+        checkpoint["retry_target_agent"] = retry_target_agent
+    return checkpoint
+
+
 def _is_terminal_result(result: AgentRunResult | None) -> bool:
     """Return whether a node result should stop the graph early."""
 
@@ -560,10 +807,10 @@ def _is_terminal_result(result: AgentRunResult | None) -> bool:
     }
 
 
-def _route_after(next_node: str) -> Callable[[dict[str, Any]], str]:
+def _route_after(next_node: str) -> Callable[[Mapping[str, Any]], str]:
     """Return a small conditional edge router for graph nodes."""
 
-    def route(graph_state: dict[str, Any]) -> str:
+    def route(graph_state: Mapping[str, Any]) -> str:
         latest_result = graph_state.get("latest_result")
         if _is_terminal_result(latest_result):
             return "end"
@@ -572,7 +819,7 @@ def _route_after(next_node: str) -> Callable[[dict[str, Any]], str]:
     return route
 
 
-def _route_after_qa(graph_state: dict[str, Any]) -> str:
+def _route_after_qa(graph_state: Mapping[str, Any]) -> str:
     """Route the QA result to a named outcome edge."""
 
     latest_result = graph_state.get("latest_result")
@@ -584,4 +831,27 @@ def _route_after_qa(graph_state: dict[str, Any]) -> str:
         return "retry"
     if latest_result.status == AgentRunStatus.REVIEW_REQUIRED:
         return "review_required"
+    return "failed"
+
+
+def _route_after_retry_gate(graph_state: Mapping[str, Any]) -> str:
+    """Route retry gate output to the targeted extractor or terminal edge."""
+
+    workflow_state = graph_state.get("workflow_state")
+    if (
+        isinstance(workflow_state, WorkflowState)
+        and workflow_state.status == WorkflowStateStatus.DEAD_LETTERED
+    ):
+        return "exhausted"
+
+    if not graph_state.get("retry_allowed"):
+        return "exhausted"
+
+    retry_target_agent = graph_state.get("retry_target_agent")
+    if retry_target_agent in {
+        METADATA_EXTRACTOR_AGENT,
+        TABLE_EXTRACTOR_AGENT,
+        TOTALS_EXTRACTOR_AGENT,
+    }:
+        return str(retry_target_agent)
     return "failed"

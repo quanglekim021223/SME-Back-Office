@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from app.models.workflow import AgentStepStatus, WorkflowRun
+from app.models.workflow import WorkflowRun
 from app.workflows.agents import AgentExecutionContext
-from app.workflows.contracts import WorkflowState
+from app.workflows.contracts import WorkflowState, WorkflowStateStatus
 from app.workflows.document_preparation import (
     DOCUMENT_INTAKE_AGENT,
     DOCUMENT_LAYOUT_ANALYZER_AGENT,
@@ -22,6 +22,7 @@ from app.workflows.invoice_extraction import (
     create_total_amount_correction_signal,
 )
 from app.workflows.langgraph_adapter import (
+    LANGGRAPH_RETRY_GATE_NODE,
     LangGraphWorkflowAdapter,
     is_langgraph_available,
 )
@@ -33,7 +34,10 @@ from app.workflows.replay import (
 from app.workflows.runtime import WorkflowRuntimeService
 
 
-def _build_runtime_context() -> tuple[
+def _build_runtime_context(
+    *,
+    max_retries: int | None = None,
+) -> tuple[
     InMemoryWorkflowRuntimePersistence,
     WorkflowRuntimeService,
     WorkflowState,
@@ -42,6 +46,8 @@ def _build_runtime_context() -> tuple[
     persistence = InMemoryWorkflowRuntimePersistence()
     runtime = WorkflowRuntimeService(persistence)
     state = create_replay_state()
+    if max_retries is not None:
+        state.max_retries = max_retries
     workflow_run = runtime.start_workflow(
         state=state,
         workflow_name="langgraph_document_preparation_test",
@@ -149,10 +155,10 @@ async def test_invoice_extraction_adapter_runs_through_qa_valid_path() -> None:
 
 
 @pytest.mark.asyncio
-async def test_invoice_extraction_adapter_routes_qa_retry_path() -> None:
-    """QA retry results should stop on the retry outcome edge for now."""
+async def test_invoice_extraction_adapter_routes_targeted_qa_retry_path() -> None:
+    """QA retry handoffs should rerun the targeted extractor before exhaustion."""
 
-    persistence, runtime, state, workflow_run = _build_runtime_context()
+    persistence, runtime, state, workflow_run = _build_runtime_context(max_retries=1)
     state.qa_error_signals.append(
         create_total_amount_correction_signal(
             expected_value="110.00",
@@ -177,8 +183,14 @@ async def test_invoice_extraction_adapter_routes_qa_retry_path() -> None:
         context=context,
     )
 
-    assert result.step_executions[-1].agent_name == QA_VALIDATION_AGENT
-    assert result.step_executions[-1].status == AgentStepStatus.RETRYING.value
+    agent_names = [step.agent_name for step in result.step_executions]
+    assert agent_names.count(TOTALS_EXTRACTOR_AGENT) == 2
+    assert agent_names.count(INVOICE_ASSEMBLY_NODE) == 2
+    assert agent_names.count(QA_VALIDATION_AGENT) == 2
     assert persistence.handoffs == result.handoffs
     assert result.handoffs[-1].source_agent == QA_VALIDATION_AGENT
     assert result.handoffs[-1].target_agent == TOTALS_EXTRACTOR_AGENT
+    assert result.retry_decisions[0].retry_allowed is True
+    assert result.retry_decisions[-1].retry_allowed is False
+    assert state.status == WorkflowStateStatus.DEAD_LETTERED
+    assert result.checkpoints[-1]["label"] == LANGGRAPH_RETRY_GATE_NODE

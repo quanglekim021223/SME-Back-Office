@@ -49,9 +49,30 @@ document_intake
 ```
 
 The QA node has explicit graph outcome edges for `valid`, `retry`,
-`review_required`, and `failed`. For now, those outcomes terminate the graph;
-the retry self-correction loop, retry exhaustion handling, and graph
-checkpointing remain in later Phase 9.6 tasks.
+`review_required`, and `failed`. A retry result now enters a small retry gate:
+
+```text
+qa_validator
+→ langgraph_retry_gate
+→ targeted extractor
+→ invoice_assembly
+→ qa_validator
+```
+
+The retry gate uses the existing `WorkflowRuntimeService.request_retry()` logic,
+so retry exhaustion moves the workflow into `dead_lettered` without a second
+retry system. The adapter also records local debug checkpoints after every node
+and retry-gate decision. These checkpoints contain routing/status metadata only,
+not raw OCR or financial payload bodies.
+
+Local graph debug command:
+
+```bash
+cd backend
+python -m app.workflows.graph_debug --document-id <uuid>
+python -m app.workflows.graph_debug --document-id <uuid> --use-uploaded-document
+python -m app.workflows.graph_debug --document-id <uuid> --inject-correction
+```
 
 ## Tracing backend decision
 

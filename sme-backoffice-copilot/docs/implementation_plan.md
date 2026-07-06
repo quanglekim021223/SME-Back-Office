@@ -347,11 +347,11 @@ data.
 - [x] Convert invoice metadata/table/totals extractors into LangGraph nodes.
 - [x] Convert invoice assembly and QA validation into LangGraph nodes.
 - [x] Add conditional QA routing edge for valid, retry, review-required, and failed paths.
-- [ ] Add targeted self-correction loop in LangGraph.
-- [ ] Add retry exhaustion path in LangGraph.
+- [x] Add targeted self-correction loop in LangGraph.
+- [x] Add retry exhaustion path in LangGraph.
 - [x] Preserve existing workflow persistence for agent step executions.
 - [x] Preserve existing handoff persistence from graph node transitions.
-- [ ] Add checkpoint/replay support for local graph runs.
+- [x] Add checkpoint/replay support for local graph runs.
 - [ ] Add tracing provider interface for Langfuse or LangSmith.
 - [x] Choose first tracing backend: Langfuse local/self-host or LangSmith cloud.
 - [x] Add tracing provider configuration.
@@ -361,10 +361,10 @@ data.
 - [ ] Trace deterministic validators.
 - [ ] Trace QA error signals and correction routing.
 - [ ] Trace review-task creation.
-- [ ] Add local trace/debug command for one uploaded document.
-- [ ] Add tests for LangGraph happy path.
-- [ ] Add tests for LangGraph validation retry path.
-- [ ] Add tests for LangGraph retry exhaustion path.
+- [x] Add local trace/debug command for one uploaded document.
+- [x] Add tests for LangGraph happy path.
+- [x] Add tests for LangGraph validation retry path.
+- [x] Add tests for LangGraph retry exhaustion path.
 - [ ] Add tests proving sensitive fields are redacted from trace payloads.
 - [ ] Document LangGraph and tracing workflow in README.
 
