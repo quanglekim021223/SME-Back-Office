@@ -342,15 +342,15 @@ data.
 
 - [x] Decide LangGraph adoption scope.
 - [x] Add LangGraph dependency and local configuration.
-- [ ] Create LangGraph workflow adapter behind existing workflow contracts.
-- [ ] Convert current document preparation steps into LangGraph nodes.
+- [x] Create LangGraph workflow adapter behind existing workflow contracts.
+- [x] Convert current document preparation steps into LangGraph nodes.
 - [ ] Convert invoice metadata/table/totals extractors into LangGraph nodes.
 - [ ] Convert invoice assembly and QA validation into LangGraph nodes.
 - [ ] Add conditional QA routing edge for valid, retry, review-required, and failed paths.
 - [ ] Add targeted self-correction loop in LangGraph.
 - [ ] Add retry exhaustion path in LangGraph.
-- [ ] Preserve existing workflow persistence for agent step executions.
-- [ ] Preserve existing handoff persistence from graph node transitions.
+- [x] Preserve existing workflow persistence for agent step executions.
+- [x] Preserve existing handoff persistence from graph node transitions.
 - [ ] Add checkpoint/replay support for local graph runs.
 - [ ] Add tracing provider interface for Langfuse or LangSmith.
 - [x] Choose first tracing backend: Langfuse local/self-host or LangSmith cloud.

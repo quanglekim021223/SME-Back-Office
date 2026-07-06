@@ -78,6 +78,11 @@ from app.workflows.invoice_extraction import (
     collect_invoice_groups,
     create_total_amount_correction_signal,
 )
+from app.workflows.langgraph_adapter import (
+    LangGraphWorkflowAdapter,
+    LangGraphWorkflowResult,
+    is_langgraph_available,
+)
 from app.workflows.runtime import (
     RetryDecision,
     WorkflowRuntimePersistence,
@@ -131,6 +136,8 @@ __all__ = [
     "InvoiceMetadataGroup",
     "InvoiceTableGroup",
     "InvoiceTotalsGroup",
+    "LangGraphWorkflowAdapter",
+    "LangGraphWorkflowResult",
     "METADATA_EXTRACTOR_AGENT",
     "MetadataExtractorAgent",
     "OCR_FULL_TEXT_KEY",
@@ -174,6 +181,7 @@ __all__ = [
     "build_targeted_correction_handoff",
     "collect_invoice_groups",
     "create_total_amount_correction_signal",
+    "is_langgraph_available",
     "serialize_workflow_state",
     "workflow_status_to_model_status",
 ]

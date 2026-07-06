@@ -23,6 +23,21 @@ Out of scope for the first adapter pass:
 - sending financial payloads to cloud tracing by default;
 - changing provider routing semantics.
 
+## Adapter status
+
+The first adapter pass is intentionally narrow:
+
+- `LangGraphWorkflowAdapter` wraps the existing document preparation agents;
+- document intake, privacy/policy gate, and document layout analysis are graph
+  nodes;
+- agent step execution persistence still goes through `WorkflowRuntimeService`;
+- graph node transitions still persist normal `AgentHandoff` records;
+- when LangGraph is not installed in the local virtualenv, the adapter can run
+  the same nodes sequentially for tests and development.
+
+Invoice extraction, QA routing, retry loops, and graph checkpointing remain in
+later Phase 9.6 tasks.
+
 ## Tracing backend decision
 
 The first tracing backend target is Langfuse local/self-host.
