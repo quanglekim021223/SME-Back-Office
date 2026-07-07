@@ -352,21 +352,21 @@ data.
 - [x] Preserve existing workflow persistence for agent step executions.
 - [x] Preserve existing handoff persistence from graph node transitions.
 - [x] Add checkpoint/replay support for local graph runs.
-- [ ] Add tracing provider interface for Langfuse or LangSmith.
+- [x] Add tracing provider interface for Langfuse or LangSmith.
 - [x] Choose first tracing backend: Langfuse local/self-host or LangSmith cloud.
 - [x] Add tracing provider configuration.
-- [ ] Add redaction/minimization before sending trace payloads externally.
-- [ ] Trace OCR provider calls.
-- [ ] Trace LLM provider calls.
-- [ ] Trace deterministic validators.
-- [ ] Trace QA error signals and correction routing.
-- [ ] Trace review-task creation.
+- [x] Add redaction/minimization before sending trace payloads externally.
+- [x] Trace OCR provider calls.
+- [x] Trace LLM provider calls.
+- [x] Trace deterministic validators.
+- [x] Trace QA error signals and correction routing.
+- [x] Trace review-task creation.
 - [x] Add local trace/debug command for one uploaded document.
 - [x] Add tests for LangGraph happy path.
 - [x] Add tests for LangGraph validation retry path.
 - [x] Add tests for LangGraph retry exhaustion path.
-- [ ] Add tests proving sensitive fields are redacted from trace payloads.
-- [ ] Document LangGraph and tracing workflow in README.
+- [x] Add tests proving sensitive fields are redacted from trace payloads.
+- [x] Document LangGraph and tracing workflow in README.
 
 ## Phase 10 — Security and privacy hardening
 

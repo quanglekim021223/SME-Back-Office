@@ -15,6 +15,7 @@ from app.extraction import (
     parse_invoice_table_group_payload,
     parse_invoice_totals_group_payload,
 )
+from app.observability.tracing import record_trace_event
 from app.workflows.agents import (
     AgentDefinitionSpec,
     AgentExecutionContext,
@@ -295,6 +296,17 @@ async def run_llm_group_extraction_if_available(
 
     ocr_text = ocr_context_for_schema(state=state, schema_name=schema_name)
     if not ocr_text.strip():
+        record_trace_event(
+            context.trace_provider,
+            "llm.call.failed",
+            {
+                "agent_name": agent_name,
+                "schema_name": schema_name,
+                "task_type": str(task_type),
+                "error_code": "ERR_LLM_INPUT_MISSING",
+            },
+            correlation_id=context.correlation_id,
+        )
         return AgentRunResult(
             status=AgentRunStatus.FAILED,
             confidence=ConfidenceLevel.HIGH,
@@ -303,6 +315,24 @@ async def run_llm_group_extraction_if_available(
         )
 
     try:
+        record_trace_event(
+            context.trace_provider,
+            "llm.call.started",
+            {
+                "agent_name": agent_name,
+                "provider_name": getattr(context.llm_provider, "name", None),
+                "schema_name": schema_name,
+                "task_type": str(task_type),
+                "ocr_text_chars": len(ocr_text),
+                "has_correction_signal": (
+                    handoff is not None and handoff.qa_error_signal is not None
+                ),
+                "workflow_run_id": str(context.workflow_run_id)
+                if context.workflow_run_id is not None
+                else None,
+            },
+            correlation_id=context.correlation_id,
+        )
         invocation = await context.provider_runtime.generate_llm(
             provider=context.llm_provider,
             task_type=task_type,
@@ -326,6 +356,19 @@ async def run_llm_group_extraction_if_available(
             privacy_context=context.provider_privacy_context,
         )
     except ProviderError as exc:
+        record_trace_event(
+            context.trace_provider,
+            "llm.call.failed",
+            {
+                "agent_name": agent_name,
+                "provider_name": getattr(context.llm_provider, "name", None),
+                "schema_name": schema_name,
+                "task_type": str(task_type),
+                "error_code": "ERR_LLM_PROVIDER_FAILED",
+                "error_type": type(exc).__name__,
+            },
+            correlation_id=context.correlation_id,
+        )
         return AgentRunResult(
             status=AgentRunStatus.FAILED,
             confidence=ConfidenceLevel.HIGH,
@@ -334,12 +377,47 @@ async def run_llm_group_extraction_if_available(
         )
 
     if invocation.result.structured_output is None:
+        record_trace_event(
+            context.trace_provider,
+            "llm.call.failed",
+            {
+                "agent_name": agent_name,
+                "provider_name": invocation.result.provider_name,
+                "model_name": invocation.result.model_name,
+                "schema_name": schema_name,
+                "task_type": invocation.route.task_type.value,
+                "error_code": "ERR_LLM_OUTPUT_MISSING",
+            },
+            correlation_id=context.correlation_id,
+        )
         return AgentRunResult(
             status=AgentRunStatus.FAILED,
             confidence=ConfidenceLevel.HIGH,
             error_code="ERR_LLM_OUTPUT_MISSING",
             error_message=f"{agent_name} provider did not return structured JSON.",
         )
+    record_trace_event(
+        context.trace_provider,
+        "llm.call.finished",
+        {
+            "agent_name": agent_name,
+            "provider_name": invocation.result.provider_name,
+            "model_name": invocation.result.model_name,
+            "schema_name": schema_name,
+            "task_type": invocation.route.task_type.value,
+            "deployment_mode": invocation.route.deployment_mode.value,
+            "attempts": invocation.attempts,
+            "input_tokens": invocation.cost.input_tokens,
+            "output_tokens": invocation.cost.output_tokens,
+            "total_cost": str(invocation.cost.total_cost),
+            "currency": invocation.cost.currency,
+            "privacy_action": invocation.privacy_decision.action.value
+            if invocation.privacy_decision is not None
+            else None,
+            "has_structured_output": True,
+        },
+        correlation_id=context.correlation_id,
+    )
     return cast(dict[str, object], invocation.result.structured_output)
 
 
@@ -1604,17 +1682,66 @@ class QAValidationAgent:
         ]
         if review_signals:
             state.qa_error_signals.extend(review_signals)
+        record_trace_event(
+            context.trace_provider,
+            "deterministic_validators.finished",
+            {
+                "agent_name": QA_VALIDATION_AGENT,
+                "validator_group": "invoice_qa",
+                "new_signal_count": len(review_signals),
+                "signal_codes": sorted({signal.code for signal in review_signals}),
+                "total_signal_count": len(state.qa_error_signals),
+            },
+            correlation_id=context.correlation_id,
+        )
 
         correction_signals = [
             signal
             for signal in state.qa_error_signals
             if signal.retryable and signal.correction_target is not None
         ]
+        record_trace_event(
+            context.trace_provider,
+            "qa.error_signals.built",
+            {
+                "agent_name": QA_VALIDATION_AGENT,
+                "total_signal_count": len(state.qa_error_signals),
+                "correction_signal_count": len(correction_signals),
+                "blocking_signal_count": sum(
+                    1
+                    for signal in state.qa_error_signals
+                    if signal.severity == QAErrorSeverity.BLOCKING
+                ),
+                "signal_codes": sorted(
+                    {signal.code for signal in state.qa_error_signals}
+                ),
+            },
+            correlation_id=context.correlation_id,
+        )
         if correction_signals:
             correction_handoffs = [
                 build_targeted_correction_handoff(state=state, signal=signal)
                 for signal in correction_signals
             ]
+            record_trace_event(
+                context.trace_provider,
+                "qa.correction_routing",
+                {
+                    "agent_name": QA_VALIDATION_AGENT,
+                    "target_agents": sorted(
+                        {
+                            signal.correction_target.target_agent
+                            for signal in correction_signals
+                            if signal.correction_target is not None
+                        }
+                    ),
+                    "signal_codes": sorted(
+                        {signal.code for signal in correction_signals}
+                    ),
+                    "handoff_count": len(correction_handoffs),
+                },
+                correlation_id=context.correlation_id,
+            )
             return AgentRunResult(
                 status=AgentRunStatus.RETRY_REQUESTED,
                 output={
@@ -1633,6 +1760,19 @@ class QAValidationAgent:
             or signal.severity in {QAErrorSeverity.BLOCKING, QAErrorSeverity.ERROR}
         ]
         if non_retryable_signals:
+            record_trace_event(
+                context.trace_provider,
+                "qa.review_required",
+                {
+                    "agent_name": QA_VALIDATION_AGENT,
+                    "signal_count": len(non_retryable_signals),
+                    "signal_codes": sorted(
+                        {signal.code for signal in non_retryable_signals}
+                    ),
+                    "status": AgentRunStatus.REVIEW_REQUIRED.value,
+                },
+                correlation_id=context.correlation_id,
+            )
             return AgentRunResult(
                 status=AgentRunStatus.REVIEW_REQUIRED,
                 output={
@@ -1648,6 +1788,15 @@ class QAValidationAgent:
             "qa_error_count": 0,
             "validated_draft_ref": ASSEMBLED_INVOICE_DRAFT_KEY,
         }
+        record_trace_event(
+            context.trace_provider,
+            "qa.validation_passed",
+            {
+                "agent_name": QA_VALIDATION_AGENT,
+                "status": AgentRunStatus.SUCCEEDED.value,
+            },
+            correlation_id=context.correlation_id,
+        )
         return AgentRunResult(
             status=AgentRunStatus.SUCCEEDED,
             output=validation_output,

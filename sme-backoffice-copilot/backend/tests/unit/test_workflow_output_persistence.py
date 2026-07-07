@@ -8,6 +8,7 @@ from app.models.operations import (
     ReviewTaskStatus,
     ReviewTaskType,
 )
+from app.observability.tracing import InMemoryTraceProvider
 from app.providers import (
     MockLLMProvider,
     MockOCRProvider,
@@ -119,6 +120,34 @@ async def test_workflow_output_service_materializes_invoice_review_task() -> Non
     assert persistence.document_status_updates == [
         (state.tenant_id, state.document_id, DocumentStatus.REVIEW_REQUIRED)
     ]
+
+
+async def test_workflow_output_service_traces_review_task_creation() -> None:
+    state = create_replay_state()
+    result = await WorkflowReplayRunner(
+        provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+        llm_provider=MockLLMProvider(),
+        ocr_provider=MockOCRProvider(),
+    ).run(state=state)
+    persistence = FakeWorkflowOutputPersistence()
+    trace_provider = InMemoryTraceProvider()
+    service = WorkflowOutputPersistenceService(
+        persistence,
+        trace_provider=trace_provider,
+    )
+
+    materialized = await service.persist_invoice_review_from_workflow_result(result)
+
+    assert materialized is not None
+    event = next(
+        event
+        for event in trace_provider.events
+        if event.name == "review_task.created"
+    )
+    assert event.payload["source"] == "invoice_proposal"
+    assert event.payload["task_type"] == ReviewTaskType.EXTRACTION.value
+    assert event.payload["status"] == ReviewTaskStatus.OPEN.value
+    assert event.payload["has_invoice_id"] is True
 
 
 async def test_workflow_output_service_skips_when_invoice_draft_is_missing() -> None:

@@ -158,6 +158,7 @@ class WorkflowReplayRunner:
     llm_provider: LLMProvider | None
     ocr_provider: OCRProvider | None
     provider_privacy_context: Any | None
+    trace_provider: Any | None
 
     def __init__(
         self,
@@ -166,6 +167,7 @@ class WorkflowReplayRunner:
         llm_provider: Any | None = None,
         ocr_provider: Any | None = None,
         provider_privacy_context: Any | None = None,
+        trace_provider: Any | None = None,
     ) -> None:
         self.persistence = persistence or InMemoryWorkflowRuntimePersistence()
         self.runtime = WorkflowRuntimeService(self.persistence)
@@ -204,6 +206,7 @@ class WorkflowReplayRunner:
             self.ocr_provider = ocr_provider
 
         self.provider_privacy_context = provider_privacy_context
+        self.trace_provider = trace_provider
 
     async def run(
         self,
@@ -231,8 +234,114 @@ class WorkflowReplayRunner:
             llm_provider=self.llm_provider,
             ocr_provider=self.ocr_provider,
             provider_privacy_context=self.provider_privacy_context,
+            trace_provider=self.trace_provider,
         )
-        retry_decisions: list[RetryDecision] = []
+        from app.core.config import get_settings, WorkflowOrchestrationMode
+        from app.workflows.langgraph_adapter import LangGraphWorkflowAdapter, is_langgraph_available
+
+        settings = get_settings()
+        if (
+            settings.workflow_orchestration_mode == WorkflowOrchestrationMode.LANGGRAPH
+            and is_langgraph_available()
+            and scenario == ReplayScenario.HAPPY_PATH
+        ):
+            # Run using the LangGraph adapter
+            adapter = LangGraphWorkflowAdapter(self.runtime)
+            graph_result = await adapter.run_invoice_extraction_until_qa(
+                state=state,
+                workflow_run=workflow_run,
+                context=context,
+            )
+
+            # Copy graph results into runner's state
+            self.step_executions.extend(graph_result.step_executions)
+            self.handoffs.extend(graph_result.handoffs)
+            retry_decisions = list(graph_result.retry_decisions)
+
+            # Locate QA validation step to determine qa_result
+            qa_step = next(
+                (step for step in reversed(graph_result.step_executions) if step.agent_name == QA_VALIDATION_AGENT),
+                None
+            )
+            qa_status = AgentRunStatus.SUCCEEDED
+            if qa_step is not None:
+                if qa_step.status == "failed":
+                    qa_status = AgentRunStatus.FAILED
+                elif qa_step.status == "review_required":
+                    qa_status = AgentRunStatus.REVIEW_REQUIRED
+                elif qa_step.status == "retrying":
+                    qa_status = AgentRunStatus.RETRY_REQUESTED
+
+            # Map database handoff models back to AgentHandoffEnvelope pydantic models
+            from app.workflows.contracts import AgentHandoffEnvelope, HandoffType, WorkflowStage
+            
+            stage_map = {
+                "document_intake": WorkflowStage.DOCUMENT_INTAKE,
+                "privacy_policy_gate": WorkflowStage.PRIVACY_POLICY_GATE,
+                "document_layout_analyzer": WorkflowStage.LAYOUT_ANALYSIS,
+                "metadata_extractor": WorkflowStage.METADATA_EXTRACTION,
+                "table_extractor": WorkflowStage.TABLE_EXTRACTION,
+                "totals_extractor": WorkflowStage.TOTALS_EXTRACTION,
+                "invoice_assembly": WorkflowStage.INVOICE_ASSEMBLY,
+                "qa_validator": WorkflowStage.QA_VALIDATION,
+                "classification_agent": WorkflowStage.CLASSIFICATION,
+                "reconciliation_agent": WorkflowStage.RECONCILIATION,
+                "review_coordinator": WorkflowStage.REVIEW_COORDINATION,
+                "business_insight_agent": WorkflowStage.INSIGHT_GENERATION,
+            }
+
+            handoff_envelopes = []
+            for h in graph_result.handoffs:
+                handoff_envelopes.append(
+                    AgentHandoffEnvelope(
+                        handoff_id=h.id,
+                        tenant_id=h.tenant_id,
+                        document_id=state.document_id,
+                        workflow_run_id=h.workflow_run_id,
+                        source_agent=h.source_agent,
+                        target_agent=h.target_agent,
+                        handoff_type=HandoffType(h.handoff_type),
+                        stage=stage_map.get(h.target_agent, WorkflowStage.FAILED),
+                        payload={},
+                        attempt=h.attempt,
+                    )
+                )
+
+            qa_result = AgentRunResult(
+                status=qa_status,
+                output={},
+                handoffs=handoff_envelopes,
+                error_code=qa_step.error_code if qa_step else None,
+            )
+
+            if state.status in {WorkflowStateStatus.FAILED, WorkflowStateStatus.REVIEW_REQUIRED, WorkflowStateStatus.DEAD_LETTERED} or is_terminal_agent_result(qa_result):
+                return self._build_result(
+                    scenario=scenario,
+                    state=state,
+                    workflow_run=workflow_run,
+                    retry_decisions=retry_decisions,
+                )
+
+            # Otherwise proceed downstream
+            await self._run_successful_downstream(
+                workflow_run=workflow_run,
+                state=state,
+                context=context,
+                qa_result=qa_result,
+            )
+            self.runtime.update_workflow_status(
+                workflow_run=workflow_run,
+                state=state,
+                status=WorkflowStateStatus.COMPLETED,
+                stage=WorkflowStage.COMPLETED,
+                current_agent=BUSINESS_INSIGHT_AGENT,
+            )
+            return self._build_result(
+                scenario=scenario,
+                state=state,
+                workflow_run=workflow_run,
+                retry_decisions=retry_decisions,
+            )
 
         qa_result = await self._run_until_qa(
             workflow_run=workflow_run,
@@ -244,6 +353,7 @@ class WorkflowReplayRunner:
                 ReplayScenario.RETRY_EXHAUSTION,
             },
         )
+        retry_decisions: list[RetryDecision] = []
         if is_terminal_agent_result(qa_result):
             return self._build_result(
                 scenario=scenario,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import cast
 
+from app.observability.tracing import record_trace_event
 from app.workflows.agents import (
     AgentDefinitionSpec,
     AgentExecutionContext,
@@ -387,6 +388,16 @@ async def run_ocr_provider_if_available(
 
     input_data = original_artifact_input(state)
     if input_data is None:
+        record_trace_event(
+            context.trace_provider,
+            "ocr.call.failed",
+            {
+                "agent_name": DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                "error_code": "ERR_OCR_INPUT_MISSING",
+                "provider_name": getattr(context.ocr_provider, "name", None),
+            },
+            correlation_id=context.correlation_id,
+        )
         return AgentRunResult(
             status=AgentRunStatus.FAILED,
             confidence=ConfidenceLevel.HIGH,
@@ -395,6 +406,22 @@ async def run_ocr_provider_if_available(
         )
 
     try:
+        record_trace_event(
+            context.trace_provider,
+            "ocr.call.started",
+            {
+                "agent_name": DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                "provider_name": getattr(context.ocr_provider, "name", None),
+                "task_type": ProviderTaskType.DOCUMENT_OCR.value,
+                "media_type": getattr(input_data, "media_type", None),
+                "has_local_path": getattr(input_data, "local_path", None)
+                is not None,
+                "workflow_run_id": str(context.workflow_run_id)
+                if context.workflow_run_id is not None
+                else None,
+            },
+            correlation_id=context.correlation_id,
+        )
         invocation = await context.provider_runtime.extract_ocr(
             provider=context.ocr_provider,
             task_type=ProviderTaskType.DOCUMENT_OCR,
@@ -408,6 +435,18 @@ async def run_ocr_provider_if_available(
             privacy_context=context.provider_privacy_context,
         )
     except ProviderError as exc:
+        record_trace_event(
+            context.trace_provider,
+            "ocr.call.failed",
+            {
+                "agent_name": DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                "provider_name": getattr(context.ocr_provider, "name", None),
+                "task_type": ProviderTaskType.DOCUMENT_OCR.value,
+                "error_code": "ERR_OCR_PROVIDER_FAILED",
+                "error_type": type(exc).__name__,
+            },
+            correlation_id=context.correlation_id,
+        )
         return AgentRunResult(
             status=AgentRunStatus.FAILED,
             confidence=ConfidenceLevel.HIGH,
@@ -433,6 +472,25 @@ async def run_ocr_provider_if_available(
     state.scratchpad[OCR_LAYOUT_BLOCKS_KEY] = layout_blocks
     state.scratchpad[OCR_LAYOUT_REGIONS_KEY] = layout_regions
     state.scratchpad[OCR_LAYOUT_DIAGNOSTICS_KEY] = layout_diagnostics
+    record_trace_event(
+        context.trace_provider,
+        "ocr.call.finished",
+        {
+            "agent_name": DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            "provider_name": invocation.result.provider_name,
+            "task_type": invocation.route.task_type.value,
+            "deployment_mode": invocation.route.deployment_mode.value,
+            "attempts": invocation.attempts,
+            "full_text_length": len(invocation.result.full_text),
+            "text_block_count": len(invocation.result.text_blocks),
+            "layout_block_count": len(layout_blocks),
+            "layout_region_count": len(layout_regions),
+            "privacy_action": invocation.privacy_decision.action.value
+            if invocation.privacy_decision is not None
+            else None,
+        },
+        correlation_id=context.correlation_id,
+    )
     return {
         "provider_name": invocation.result.provider_name,
         "full_text_length": len(invocation.result.full_text),

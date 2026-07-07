@@ -12,6 +12,7 @@ from uuid import UUID
 from app.core.config import get_settings
 from app.core.db import async_session_factory
 from app.models.document import ArtifactType, Document, DocumentArtifact
+from app.observability.tracing import InMemoryTraceProvider, RedactingTraceProvider
 from app.providers import (
     ProviderRuntime,
     build_llm_provider_from_settings,
@@ -61,6 +62,11 @@ async def run_debug(args: argparse.Namespace) -> dict[str, object]:
     provider_runtime = ProviderRuntime(routing)
     llm_provider = build_llm_provider_from_settings(settings)
     ocr_provider = build_ocr_provider_from_settings(settings)
+    memory_trace_provider = InMemoryTraceProvider()
+    trace_provider = RedactingTraceProvider(
+        memory_trace_provider,
+        max_payload_chars=settings.tracing_max_payload_chars,
+    )
 
     persistence = InMemoryWorkflowRuntimePersistence()
     runtime = WorkflowRuntimeService(persistence)
@@ -101,6 +107,7 @@ async def run_debug(args: argparse.Namespace) -> dict[str, object]:
         provider_runtime=provider_runtime,
         llm_provider=llm_provider,
         ocr_provider=ocr_provider,
+        trace_provider=trace_provider,
     )
 
     result = await LangGraphWorkflowAdapter(runtime).run_invoice_extraction_until_qa(
@@ -149,6 +156,14 @@ async def run_debug(args: argparse.Namespace) -> dict[str, object]:
             for handoff in result.handoffs
         ],
         "checkpoints": result.checkpoints,
+        "trace_events": [
+            {
+                "name": event.name,
+                "correlation_id": event.correlation_id,
+                "payload": dict(event.payload),
+            }
+            for event in memory_trace_provider.events
+        ],
     }
 
 

@@ -24,6 +24,7 @@ from app.models.operations import (
     ReviewTaskStatus,
     ReviewTaskType,
 )
+from app.observability.tracing import record_trace_event
 from app.validation.deterministic import parse_decimal, parse_iso_date
 from app.workflows.contracts import ConfidenceLevel, WorkflowStateStatus
 from app.workflows.invoice_extraction import (
@@ -125,8 +126,14 @@ class MaterializedInvoiceReview:
 class WorkflowOutputPersistenceService:
     """Materialize completed workflow state into reviewable proposal records."""
 
-    def __init__(self, persistence: WorkflowOutputPersistence) -> None:
+    def __init__(
+        self,
+        persistence: WorkflowOutputPersistence,
+        *,
+        trace_provider: object | None = None,
+    ) -> None:
         self.persistence = persistence
+        self.trace_provider = trace_provider
 
     async def persist_invoice_review_from_workflow_result(
         self,
@@ -147,6 +154,11 @@ class WorkflowOutputPersistenceService:
             }:
                 review_task = build_review_task_for_failed_workflow(result)
                 self.persistence.add_review_task(review_task)
+                self._trace_review_task_created(
+                    review_task=review_task,
+                    source="workflow_failure",
+                    result=result,
+                )
                 await self.persistence.mark_document_status(
                     tenant_id=result.state.tenant_id,
                     document_id=result.state.document_id,
@@ -174,12 +186,46 @@ class WorkflowOutputPersistenceService:
 
         review_task = build_review_task_for_invoice(result=result, invoice=invoice)
         self.persistence.add_review_task(review_task)
+        self._trace_review_task_created(
+            review_task=review_task,
+            source="invoice_proposal",
+            result=result,
+        )
         await self.persistence.mark_document_status(
             tenant_id=result.state.tenant_id,
             document_id=result.state.document_id,
             status=DocumentStatus.REVIEW_REQUIRED,
         )
         return MaterializedInvoiceReview(invoice=invoice, review_task=review_task)
+
+    def _trace_review_task_created(
+        self,
+        *,
+        review_task: ReviewTask,
+        source: str,
+        result: WorkflowReplayResult,
+    ) -> None:
+        """Trace review-task creation without exposing extracted invoice content."""
+
+        record_trace_event(
+            self.trace_provider,
+            "review_task.created",
+            {
+                "source": source,
+                "review_task_id": str(review_task.id),
+                "task_type": review_task.task_type,
+                "target_type": review_task.target_type,
+                "status": review_task.status,
+                "priority": review_task.priority,
+                "reason_code": review_task.reason_code,
+                "source_agent": review_task.source_agent,
+                "has_invoice_id": review_task.invoice_id is not None,
+                "evidence_ref_count": len(review_task.evidence_refs or []),
+                "workflow_run_id": str(result.workflow_run.id),
+                "workflow_status": result.state.status.value,
+            },
+            correlation_id=result.workflow_run.correlation_id,
+        )
 
 
 def get_assembled_invoice_draft(
@@ -278,22 +324,38 @@ def build_line_items_from_draft(
     invoice_id: UUID,
     draft: AssembledInvoiceDraft,
 ) -> list[InvoiceLineItem]:
-    """Map table group rows to invoice line items."""
+    """Map table group rows to invoice line items, de-duplicating line numbers."""
 
     table = draft.groups.table
     if table is None:
         return []
-    return [
-        build_line_item(
-            tenant_id=tenant_id,
-            invoice_id=invoice_id,
-            item=item,
-            currency=draft.groups.totals.currency
-            if draft.groups.totals is not None
-            else None,
+
+    line_items = []
+    seen_line_numbers = set()
+    next_auto_line_number = 1
+
+    for item in table.line_items:
+        line_num = item.line_number
+        if line_num is None or line_num <= 0 or line_num in seen_line_numbers:
+            while next_auto_line_number in seen_line_numbers:
+                next_auto_line_number += 1
+            line_num = next_auto_line_number
+            next_auto_line_number += 1
+
+        seen_line_numbers.add(line_num)
+        item_copy = item.model_copy(update={"line_number": line_num})
+
+        line_items.append(
+            build_line_item(
+                tenant_id=tenant_id,
+                invoice_id=invoice_id,
+                item=item_copy,
+                currency=draft.groups.totals.currency
+                if draft.groups.totals is not None
+                else None,
+            )
         )
-        for item in table.line_items
-    ]
+    return line_items
 
 
 def build_line_item(

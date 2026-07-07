@@ -54,6 +54,7 @@ class AgentExecutionContext(BaseModel):
     llm_provider: Any | None = None
     ocr_provider: Any | None = None
     provider_privacy_context: Any | None = None
+    trace_provider: Any | None = None
 
 
 class AgentRunResult(BaseModel):

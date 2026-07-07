@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.models.workflow import WorkflowRun
+from app.observability.tracing import InMemoryTraceProvider
 from app.workflows.agents import AgentExecutionContext
 from app.workflows.contracts import WorkflowState, WorkflowStateStatus
 from app.workflows.document_preparation import (
@@ -122,6 +123,7 @@ async def test_invoice_extraction_adapter_runs_through_qa_valid_path() -> None:
 
     persistence, runtime, state, workflow_run = _build_runtime_context()
     replay_runner = WorkflowReplayRunner()
+    trace_provider = InMemoryTraceProvider()
     context = AgentExecutionContext(
         tenant_id=state.tenant_id,
         document_id=state.document_id,
@@ -130,6 +132,7 @@ async def test_invoice_extraction_adapter_runs_through_qa_valid_path() -> None:
         provider_runtime=replay_runner.provider_runtime,
         llm_provider=replay_runner.llm_provider,
         ocr_provider=replay_runner.ocr_provider,
+        trace_provider=trace_provider,
     )
 
     result = await LangGraphWorkflowAdapter(runtime).run_invoice_extraction_until_qa(
@@ -152,6 +155,12 @@ async def test_invoice_extraction_adapter_runs_through_qa_valid_path() -> None:
     assert persistence.handoffs == result.handoffs
     assert result.handoffs[-1].source_agent == QA_VALIDATION_AGENT
     assert result.handoffs[-1].target_agent == CLASSIFICATION_AGENT
+    event_names = [event.name for event in trace_provider.events]
+    assert "ocr.call.finished" in event_names
+    assert event_names.count("llm.call.finished") == 3
+    assert "deterministic_validators.finished" in event_names
+    assert "qa.error_signals.built" in event_names
+    assert "qa.validation_passed" in event_names
 
 
 @pytest.mark.asyncio

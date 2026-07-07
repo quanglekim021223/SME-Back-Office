@@ -18,6 +18,7 @@ class OCRProviderType(StrEnum):
     TESSERACT = "tesseract"
     PADDLEOCR = "paddleocr"
     CHANDRAOCR = "chandraocr"
+    AZURE_DI = "azure_di"
 
 
 class LLMProviderType(StrEnum):
@@ -90,6 +91,8 @@ class Settings(BaseSettings):
     tesseract_language: str = "eng"
     paddleocr_language: str = "en"
     chandraocr_language: str = "en"
+    azure_di_endpoint: str = ""
+    azure_di_key: str = ""
     # Image preprocessing pipeline (runs before OCR for all local engines)
     ocr_preprocessing_enabled: bool = False
     ocr_preprocessing_deskew: bool = True
