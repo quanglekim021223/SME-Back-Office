@@ -256,6 +256,27 @@ class AzureDIOCRProvider:
             else None
         )
 
+        prebuilt_extraction: dict[str, object] | None = None
+        if self.model_id == "prebuilt-invoice":
+            prebuilt_extraction = self._parse_prebuilt_invoice_fields(
+                result_payload=result_payload,
+            )
+
+        metadata: dict[str, object] = {
+            "artifact_uri": input_data.artifact_uri,
+            "content_hash": input_data.content_hash,
+            "local_path": input_data.local_path,
+            "tenant_id": str(context.tenant_id),
+            "document_id": str(context.document_id),
+            "workflow_run_id": str(context.workflow_run_id)
+            if context.workflow_run_id is not None
+            else None,
+            "model_id": self.model_id,
+            "page_count": len(pages),
+        }
+        if prebuilt_extraction is not None:
+            metadata["prebuilt_invoice_extraction"] = prebuilt_extraction
+
         return OCRResult(
             provider_name=self.name,
             provider_version=_API_VERSION,
@@ -263,16 +284,244 @@ class AzureDIOCRProvider:
             full_text=full_text,
             text_blocks=text_blocks,
             confidence=avg_confidence,
-            metadata={
-                "artifact_uri": input_data.artifact_uri,
-                "content_hash": input_data.content_hash,
-                "local_path": input_data.local_path,
-                "tenant_id": str(context.tenant_id),
-                "document_id": str(context.document_id),
-                "workflow_run_id": str(context.workflow_run_id)
-                if context.workflow_run_id is not None
-                else None,
-                "model_id": self.model_id,
-                "page_count": len(pages),
-            },
+            metadata=metadata,
         )
+
+    def _parse_prebuilt_invoice_fields(
+        self,
+        *,
+        result_payload: dict[str, object],
+    ) -> dict[str, object]:
+        """Parse structured invoice fields from an Azure DI prebuilt-invoice response.
+
+        Maps the ``analyzeResult.documents[0].fields`` dictionary returned by the
+        ``prebuilt-invoice`` model into the three internal extraction-group contracts
+        (metadata, table, totals) so that downstream LLM extraction agents can be
+        skipped entirely.
+
+        Returns a dict with keys ``metadata_group``, ``table_group``, and
+        ``totals_group`` — all ready to be written into the workflow scratchpad.
+        Returns an empty dict if no documents were found in the response.
+        """
+        # Safely handle if result_payload contains "analyzeResult" (for tests / nested inputs)
+        inner_payload = result_payload.get("analyzeResult")
+        if isinstance(inner_payload, dict):
+            payload = inner_payload
+        else:
+            payload = result_payload
+
+        documents = payload.get("documents")
+        if not isinstance(documents, list) or not documents:
+            return {}
+
+        doc = documents[0]
+        if not isinstance(doc, dict):
+            return {}
+
+        fields = doc.get("fields")
+        if not isinstance(fields, dict):
+            return {}
+
+        def _str(field_name: str) -> str | None:
+            """Extract a string value from an Azure DI field object."""
+            field = fields.get(field_name)
+            if not isinstance(field, dict):
+                return None
+            # Prefer explicit string representation
+            value = field.get("valueString") or field.get("content")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            return None
+
+        def _date(field_name: str) -> str | None:
+            """Extract an ISO date string from an Azure DI date field."""
+            field = fields.get(field_name)
+            if not isinstance(field, dict):
+                return None
+            value = field.get("valueDate") or field.get("content")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            return None
+
+        def _currency_amount(field_name: str) -> str | None:
+            """Extract a formatted decimal string from a currency field."""
+            field = fields.get(field_name)
+            if not isinstance(field, dict):
+                return None
+            currency_obj = field.get("valueCurrency")
+            if isinstance(currency_obj, dict):
+                amount = currency_obj.get("amount")
+                if isinstance(amount, int | float):
+                    return f"{amount:.2f}"
+            # Fallback: try raw content
+            content = field.get("content")
+            if isinstance(content, str) and content.strip():
+                cleaned = content.strip().lstrip("$€£¥").replace(",", "")
+                try:
+                    return f"{float(cleaned):.2f}"
+                except ValueError:
+                    return content.strip()
+            return None
+
+        def _currency_code(field_name: str) -> str | None:
+            """Extract ISO currency code from a currency field."""
+            field = fields.get(field_name)
+            if not isinstance(field, dict):
+                return None
+            currency_obj = field.get("valueCurrency")
+            if isinstance(currency_obj, dict):
+                code = currency_obj.get("currencyCode")
+                if isinstance(code, str) and code.strip():
+                    return code.strip()
+                symbol = currency_obj.get("currencySymbol")
+                if isinstance(symbol, str):
+                    # Map common symbols to ISO codes
+                    _SYMBOL_MAP = {"$": "USD", "€": "EUR", "£": "GBP", "¥": "JPY"}
+                    return _SYMBOL_MAP.get(symbol.strip())
+            return None
+
+        # ── Metadata group ────────────────────────────────────────────────────
+        # Derive currency from whichever amount field is available first
+        currency = (
+            _currency_code("InvoiceTotal")
+            or _currency_code("SubTotal")
+            or _currency_code("TotalTax")
+            or _currency_code("AmountDue")
+        )
+
+        metadata_group: dict[str, object] = {
+            "schema_version": "invoice-metadata-group.v1",
+            "extraction_status": "extracted",
+            "invoice_number": _str("InvoiceId"),
+            "supplier_name": _str("VendorName"),
+            "supplier_tax_id": _str("VendorTaxId"),
+            "customer_name": _str("CustomerName") or _str("CustomerAddressRecipient"),
+            "customer_tax_id": _str("CustomerId"),
+            "issue_date": _date("InvoiceDate"),
+            "due_date": _date("DueDate"),
+            "currency": currency,
+            "evidence_refs": ["azure_di:prebuilt-invoice"],
+            "confidence": "high",
+        }
+
+        # ── Table group (line items) ───────────────────────────────────────────
+        items_field = fields.get("Items")
+        line_items: list[dict[str, object]] = []
+        if isinstance(items_field, dict):
+            items_array = items_field.get("valueArray")
+            if isinstance(items_array, list):
+                for idx, item_entry in enumerate(items_array, start=1):
+                    if not isinstance(item_entry, dict):
+                        continue
+                    item_fields = item_entry.get("valueObject")
+                    if not isinstance(item_fields, dict):
+                        continue
+
+                    def _item_str(name: str) -> str | None:
+                        f = item_fields.get(name)
+                        if not isinstance(f, dict):
+                            return None
+                        v = f.get("valueString") or f.get("content")
+                        return v.strip() if isinstance(v, str) and v.strip() else None
+
+                    def _item_currency(name: str) -> str | None:
+                        f = item_fields.get(name)
+                        if not isinstance(f, dict):
+                            return None
+                        obj = f.get("valueCurrency")
+                        if isinstance(obj, dict):
+                            amt = obj.get("amount")
+                            if isinstance(amt, int | float):
+                                return f"{amt:.2f}"
+                        content = f.get("content")
+                        if isinstance(content, str):
+                            cleaned = content.strip().lstrip("$€£¥").replace(",", "")
+                            try:
+                                return f"{float(cleaned):.2f}"
+                            except ValueError:
+                                return content.strip()
+                        return None
+
+                    def _item_number(name: str) -> str | None:
+                        f = item_fields.get(name)
+                        if not isinstance(f, dict):
+                            return None
+                        v = f.get("valueNumber") or f.get("valueString") or f.get("content")
+                        if isinstance(v, int | float):
+                            return str(v)
+                        if isinstance(v, str) and v.strip():
+                            return v.strip()
+                        return None
+
+                    line_items.append(
+                        {
+                            "line_number": idx,
+                            "description": _item_str("Description"),
+                            "quantity": _item_number("Quantity"),
+                            "unit_price": _item_currency("UnitPrice"),
+                            "tax_amount": _item_currency("Tax"),
+                            "line_total": _item_currency("Amount"),
+                            "evidence_refs": [f"azure_di:prebuilt-invoice:item:{idx}"],
+                            "confidence": "high",
+                        }
+                    )
+
+        table_group: dict[str, object] = {
+            "schema_version": "invoice-table-group.v1",
+            "extraction_status": "extracted" if line_items else "placeholder",
+            "line_items": line_items,
+            "table_region_ref": "azure_di:prebuilt-invoice:Items",
+            "evidence_refs": ["azure_di:prebuilt-invoice"],
+            "confidence": "high" if line_items else "unknown",
+        }
+
+        # ── Totals group ──────────────────────────────────────────────────────
+        subtotal = _currency_amount("SubTotal")
+        tax_amount = _currency_amount("TotalTax")
+        total_amount = _currency_amount("InvoiceTotal") or _currency_amount("AmountDue")
+
+        # Financial plausibility check: total_amount must be >= subtotal_amount.
+        # If this constraint is violated (e.g. due to a stamp or smudge obscuring
+        # the amount on the document), Azure DI may return a corrupted value such as
+        # "0.419" for a total that is actually "419".  Downgrade confidence to "low"
+        # so that is_scratchpad_group_populated() refuses the fast-path and the LLM
+        # is invoked to reason about the correct total from the raw text.
+        totals_confidence: str
+        totals_status: str
+        if total_amount is not None and subtotal is not None:
+            try:
+                total_float = float(total_amount)
+                subtotal_float = float(subtotal)
+                if subtotal_float > 0 and total_float < subtotal_float:
+                    # Physically impossible: total cannot be less than subtotal
+                    totals_confidence = "low"
+                    totals_status = "low_confidence"
+                else:
+                    totals_confidence = "high"
+                    totals_status = "extracted"
+            except ValueError:
+                totals_confidence = "high"
+                totals_status = "extracted"
+        elif any(v is not None for v in (subtotal, tax_amount, total_amount)):
+            totals_confidence = "medium" if total_amount is None else "high"
+            totals_status = "extracted"
+        else:
+            totals_confidence = "unknown"
+            totals_status = "placeholder"
+
+        totals_group: dict[str, object] = {
+            "schema_version": "invoice-totals-group.v1",
+            "extraction_status": totals_status,
+            "subtotal_amount": subtotal,
+            "tax_amount": tax_amount,
+            "total_amount": total_amount,
+            "currency": currency,
+            "evidence_refs": ["azure_di:prebuilt-invoice"],
+            "confidence": totals_confidence,
+        }
+
+        return {
+            "metadata_group": metadata_group,
+            "table_group": table_group,
+            "totals_group": totals_group,
+        }

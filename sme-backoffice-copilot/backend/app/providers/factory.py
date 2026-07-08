@@ -93,6 +93,7 @@ def build_ocr_provider_from_settings(settings: Settings) -> OCRProvider:
             return AzureDIOCRProvider(
                 endpoint=settings.azure_di_endpoint,
                 key=settings.azure_di_key,
+                model_id=settings.azure_di_model_id,
                 timeout_seconds=settings.provider_timeout_seconds,
             )
 

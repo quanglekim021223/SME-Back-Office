@@ -1224,6 +1224,40 @@ def provider_task_type(value: str) -> Any:
     return ProviderTaskType(value)
 
 
+def is_scratchpad_group_populated(
+    *,
+    state: WorkflowState,
+    scratchpad_key: str,
+    handoff: AgentHandoffEnvelope | None,
+) -> bool:
+    """Return True when a scratchpad group is already populated by a fast-path source.
+
+    A group is considered populated when ALL of the following hold:
+    - The scratchpad already contains a non-empty dict for ``scratchpad_key``.
+    - The group's ``confidence`` field is NOT ``"low"`` (a low-confidence group,
+      e.g. one where Azure DI returned a physically-implausible total < subtotal,
+      must be corrected by the LLM).
+    - The handoff does NOT carry a QA correction signal (which would require
+      the LLM to refine specific fields even if the group already exists).
+
+    This enables the Adaptive Field-Level Fallback strategy: the extractor agent
+    skips its LLM call when the group was pre-populated (e.g. by Azure DI
+    prebuilt-invoice), but still invokes the LLM when QA requests a correction
+    or when the Azure DI extraction confidence is low.
+    """
+    if handoff is not None and handoff.qa_error_signal is not None:
+        # Always invoke the LLM when QA has identified a specific field error
+        return False
+    existing = state.scratchpad.get(scratchpad_key)
+    if not isinstance(existing, dict) or not existing:
+        return False
+    # Reject low-confidence groups so the LLM can correct implausible values
+    if existing.get("confidence") == "low":
+        return False
+    return True
+
+
+
 class MetadataExtractorAgent:
     """Skeleton agent for invoice metadata extraction."""
 
@@ -1255,6 +1289,39 @@ class MetadataExtractorAgent:
         )
         if context_error is not None:
             return context_error
+
+        # ── Adaptive fast-path: skip LLM if scratchpad already populated ───────
+        # When Azure DI prebuilt-invoice pre-populated this group, we return
+        # immediately without calling the LLM.  The handoff and output shapes are
+        # kept identical to the LLM path so downstream nodes remain unaware.
+        if is_scratchpad_group_populated(
+            state=state,
+            scratchpad_key=INVOICE_METADATA_GROUP_KEY,
+            handoff=handoff,
+        ):
+            existing_payload = state.scratchpad[INVOICE_METADATA_GROUP_KEY]
+            assert isinstance(existing_payload, dict)
+            group = InvoiceMetadataGroup.model_validate(existing_payload)
+            output: dict[str, object] = {
+                "group_name": "metadata",
+                "metadata": model_to_payload(group),
+                "fast_path": True,
+            }
+            return AgentRunResult(
+                status=AgentRunStatus.SUCCEEDED,
+                output=output,
+                handoffs=[
+                    build_data_handoff(
+                        state=state,
+                        source_agent=METADATA_EXTRACTOR_AGENT,
+                        target_agent=INVOICE_ASSEMBLY_NODE,
+                        stage=WorkflowStage.INVOICE_ASSEMBLY,
+                        payload=output,
+                        evidence_refs=group.evidence_refs,
+                    )
+                ],
+                confidence=group.confidence,
+            )
 
         provider_payload = await run_llm_group_extraction_if_available(
             state=state,
@@ -1373,6 +1440,37 @@ class TableExtractorAgent:
         if context_error is not None:
             return context_error
 
+        # ── Adaptive fast-path: skip LLM if scratchpad already populated ───────
+        if is_scratchpad_group_populated(
+            state=state,
+            scratchpad_key=INVOICE_TABLE_GROUP_KEY,
+            handoff=handoff,
+        ):
+            existing_payload = state.scratchpad[INVOICE_TABLE_GROUP_KEY]
+            assert isinstance(existing_payload, dict)
+            group = InvoiceTableGroup.model_validate(existing_payload)
+            table_output: dict[str, object] = {
+                "group_name": "table",
+                "table": model_to_payload(group),
+                "fast_path": True,
+            }
+            return AgentRunResult(
+                status=AgentRunStatus.SUCCEEDED,
+                output=table_output,
+                handoffs=[
+                    build_data_handoff(
+                        state=state,
+                        source_agent=TABLE_EXTRACTOR_AGENT,
+                        target_agent=INVOICE_ASSEMBLY_NODE,
+                        stage=WorkflowStage.INVOICE_ASSEMBLY,
+                        payload=table_output,
+                        evidence_refs=group.evidence_refs,
+                    )
+                ],
+                confidence=group.confidence,
+                metrics={"line_item_count": len(group.line_items)},
+            )
+
         provider_payload = await run_llm_group_extraction_if_available(
             state=state,
             context=context,
@@ -1490,6 +1588,36 @@ class TotalsExtractorAgent:
         )
         if context_error is not None:
             return context_error
+
+        # ── Adaptive fast-path: skip LLM if scratchpad already populated ───────
+        if is_scratchpad_group_populated(
+            state=state,
+            scratchpad_key=INVOICE_TOTALS_GROUP_KEY,
+            handoff=handoff,
+        ):
+            existing_payload = state.scratchpad[INVOICE_TOTALS_GROUP_KEY]
+            assert isinstance(existing_payload, dict)
+            group = InvoiceTotalsGroup.model_validate(existing_payload)
+            totals_output: dict[str, object] = {
+                "group_name": "totals",
+                "totals": model_to_payload(group),
+                "fast_path": True,
+            }
+            return AgentRunResult(
+                status=AgentRunStatus.SUCCEEDED,
+                output=totals_output,
+                handoffs=[
+                    build_data_handoff(
+                        state=state,
+                        source_agent=TOTALS_EXTRACTOR_AGENT,
+                        target_agent=INVOICE_ASSEMBLY_NODE,
+                        stage=WorkflowStage.INVOICE_ASSEMBLY,
+                        payload=totals_output,
+                        evidence_refs=group.evidence_refs,
+                    )
+                ],
+                confidence=group.confidence,
+            )
 
         provider_payload = await run_llm_group_extraction_if_available(
             state=state,

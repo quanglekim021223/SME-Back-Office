@@ -29,12 +29,14 @@ from app.workflows.document_preparation import (
     OCR_LAYOUT_DIAGNOSTICS_KEY,
     OCR_LAYOUT_REGIONS_KEY,
     OCR_RESULT_KEY,
+    PREBUILT_INVOICE_EXTRACTION_KEY,
     PRIVACY_POLICY_GATE_AGENT,
     TABLE_EXTRACTOR_AGENT,
     TOTALS_EXTRACTOR_AGENT,
     DocumentIntakeAgent,
     DocumentLayoutAnalyzerAgent,
     PrivacyPolicyGateAgent,
+    populate_scratchpad_from_prebuilt_extraction,
 )
 from app.workflows.downstream_agents import (
     BUSINESS_INSIGHT_AGENT,
@@ -77,6 +79,7 @@ from app.workflows.invoice_extraction import (
     build_targeted_correction_handoff,
     collect_invoice_groups,
     create_total_amount_correction_signal,
+    is_scratchpad_group_populated,
 )
 from app.workflows.langgraph_adapter import (
     LangGraphWorkflowAdapter,

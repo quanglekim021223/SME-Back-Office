@@ -93,6 +93,13 @@ class Settings(BaseSettings):
     chandraocr_language: str = "en"
     azure_di_endpoint: str = ""
     azure_di_key: str = ""
+    # Azure Document Intelligence model selection.
+    # Use "prebuilt-layout" for raw OCR (default, backward-compatible).
+    # Use "prebuilt-invoice" to enable the structured extraction fast-path,
+    # which pre-populates invoice extraction groups directly from Azure DI
+    # without calling the LLM for metadata/table/totals, reducing latency
+    # from ~45 s to ~5–8 s.
+    azure_di_model_id: str = "prebuilt-layout"
     # Image preprocessing pipeline (runs before OCR for all local engines)
     ocr_preprocessing_enabled: bool = False
     ocr_preprocessing_deskew: bool = True

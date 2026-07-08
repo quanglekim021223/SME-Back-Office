@@ -48,8 +48,12 @@ document_intake
 → qa_validator
 ```
 
+
+*Note: In the invoice extraction flow, the `metadata_extractor`, `table_extractor`, and `totals_extractor` nodes will automatically skip their LLM calls if their corresponding group data was pre-populated in `state.scratchpad` with high confidence (e.g. via Azure DI `prebuilt-invoice` fast-path).*
+
 The QA node has explicit graph outcome edges for `valid`, `retry`,
 `review_required`, and `failed`. A retry result now enters a small retry gate:
+
 
 ```text
 qa_validator
