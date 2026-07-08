@@ -27,6 +27,7 @@ from app.schemas.review import (
     ReviewTaskListResponse,
     ReviewTaskSummaryResponse,
 )
+from app.services.audit import AuditService
 from app.services.review_tasks import (
     InvalidReviewCorrectionError,
     ReviewResourceNotFoundError,
@@ -159,6 +160,15 @@ async def approve_review_task_proposal(
         )
     except ReviewTaskDecisionError as exc:
         raise map_review_decision_error(exc, review_task_id) from exc
+
+    AuditService().log_review_action(
+        event="review_task.approved",
+        tenant_id=tenant_id,
+        actor_id=principal.user_id,
+        review_task_id=review_task_id,
+        action="approve",
+        correlation_id=getattr(request.state, "correlation_id", None),
+    )
     return review_task_decision_response(result)
 
 
@@ -194,6 +204,15 @@ async def reject_review_task_proposal(
         )
     except ReviewTaskDecisionError as exc:
         raise map_review_decision_error(exc, review_task_id) from exc
+
+    AuditService().log_review_action(
+        event="review_task.rejected",
+        tenant_id=tenant_id,
+        actor_id=principal.user_id,
+        review_task_id=review_task_id,
+        action="reject",
+        correlation_id=getattr(request.state, "correlation_id", None),
+    )
     return review_task_decision_response(result)
 
 
@@ -230,6 +249,15 @@ async def correct_extracted_fields(
         )
     except ReviewTaskDecisionError as exc:
         raise map_review_decision_error(exc, review_task_id) from exc
+
+    AuditService().log_review_action(
+        event="review_task.corrected",
+        tenant_id=tenant_id,
+        actor_id=principal.user_id,
+        review_task_id=review_task_id,
+        action="correct-extraction",
+        correlation_id=getattr(request.state, "correlation_id", None),
+    )
     return review_task_correction_response(result)
 
 
@@ -269,6 +297,15 @@ async def correct_classification(
         )
     except ReviewTaskDecisionError as exc:
         raise map_review_decision_error(exc, review_task_id) from exc
+
+    AuditService().log_review_action(
+        event="review_task.corrected",
+        tenant_id=tenant_id,
+        actor_id=principal.user_id,
+        review_task_id=review_task_id,
+        action="correct-classification",
+        correlation_id=getattr(request.state, "correlation_id", None),
+    )
     return review_task_correction_response(result)
 
 
@@ -308,6 +345,15 @@ async def correct_reconciliation(
         )
     except ReviewTaskDecisionError as exc:
         raise map_review_decision_error(exc, review_task_id) from exc
+
+    AuditService().log_review_action(
+        event="review_task.corrected",
+        tenant_id=tenant_id,
+        actor_id=principal.user_id,
+        review_task_id=review_task_id,
+        action="correct-reconciliation",
+        correlation_id=getattr(request.state, "correlation_id", None),
+    )
     return review_task_correction_response(result)
 
 

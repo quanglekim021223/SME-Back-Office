@@ -273,7 +273,6 @@ class WorkflowReplayRunner:
                     qa_status = AgentRunStatus.RETRY_REQUESTED
 
             # Map database handoff models back to AgentHandoffEnvelope pydantic models
-            from app.workflows.contracts import AgentHandoffEnvelope, HandoffType, WorkflowStage
             
             stage_map = {
                 "document_intake": WorkflowStage.DOCUMENT_INTAKE,

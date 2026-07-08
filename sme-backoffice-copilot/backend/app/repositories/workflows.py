@@ -8,10 +8,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.workflow import AgentHandoff, AgentStepExecution, WorkflowRun
-from app.repositories.base import BaseRepository
+from app.repositories.base import TenantScopedRepository
 
 
-class WorkflowRuntimeRepository(BaseRepository[WorkflowRun]):
+class WorkflowRuntimeRepository(TenantScopedRepository[WorkflowRun]):
+
     """Repository for durable workflow runtime records."""
 
     def __init__(self, session: AsyncSession) -> None:
@@ -21,16 +22,17 @@ class WorkflowRuntimeRepository(BaseRepository[WorkflowRun]):
         self,
         *,
         tenant_id: UUID,
-        workflow_run_id: UUID,
+        object_id: UUID,  # workflow_run_id
     ) -> WorkflowRun | None:
         """Return a workflow run scoped to one tenant."""
 
         statement = select(WorkflowRun).where(
-            WorkflowRun.id == workflow_run_id,
+            WorkflowRun.id == object_id,
             WorkflowRun.tenant_id == tenant_id,
         )
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
+
 
     def add_workflow_run(self, workflow_run: WorkflowRun) -> WorkflowRun:
         """Stage a workflow run for insertion."""

@@ -30,6 +30,7 @@ from app.schemas.document import (
     DocumentWorkflowTriggerResponse,
     MalwareScanResponse,
 )
+from app.services.audit import AuditService
 from app.services.document_events import DocumentEventPublisher
 from app.services.document_ingestion import (
     DocumentIngestionService,
@@ -173,6 +174,17 @@ async def upload_document(
     document = result.document
     malware_scan_result = result.malware_scan_result
     document_ingested_event = result.document_ingested_event
+
+    AuditService().log_document_uploaded(
+        tenant_id=tenant_id,
+        actor_id=getattr(tenant_context.principal, "user_id", None)
+        if tenant_context.principal
+        else None,
+        document_id=document.id,
+        filename=document.original_filename,
+        correlation_id=getattr(request.state, "correlation_id", None),
+    )
+
     return DocumentUploadResponse(
         id=document.id,
         tenant_id=document.tenant_id,
