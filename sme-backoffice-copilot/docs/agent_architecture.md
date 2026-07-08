@@ -210,6 +210,16 @@ Invoice extraction is split into independently measurable groups:
 This grouping reduces prompt size, improves signal quality, allows parallel
 extraction when layout is known, and enables targeted self-correction.
 
+### Adaptive Field-Level Fallback Strategy
+
+To optimize processing latency and cost, the workflow supports an adaptive fast-path:
+1. **Configurable Model Routing**: The default model is `prebuilt-layout` (raw OCR text + 3 LLM calls). Specifying `AZURE_DI_MODEL_ID=prebuilt-invoice` enables structured pre-extraction.
+2. **Fast-Path Bypass**: During the document preparation phase, fields are mapped from the structured provider directly into `state.scratchpad` groups. If a group is populated and marked with high/medium confidence, the respective extractor agent skips the LLM call entirely.
+3. **Selective Fallback**: If a group is missing, or fails validation checks, only the affected agent falls back to LLM execution. Unaffected groups remain fast-pathed.
+4. **Financial Plausibility Check**: To guard against OCR corruption (e.g. smudges or stamps making `419` read as `0.419`), the parser validates `total_amount >= subtotal_amount`. Any violation downgrades confidence to `"low"`, causing `is_scratchpad_group_populated` to return `False` and triggering LLM extraction fallback for that specific group.
+5. **QA Error Override**: Any QA validation retry signals (`handoff.qa_error_signal`) force the corresponding agent to run LLM extraction to correct the error, bypassing the fast-path.
+
+
 ## 8. Human Review Gates
 
 Human review is mandatory when:

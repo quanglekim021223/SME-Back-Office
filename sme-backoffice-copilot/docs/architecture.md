@@ -250,10 +250,15 @@ Targeted retry / Review / DLQ   Classification Agent
      discounts, and line amounts.
    - Totals Extractor Agent for subtotal, tax, fees, discounts, total, and
      amount in words.
-4. The Invoice Assembly Node merges the grouped outputs into one invoice
+4. **Fast-Path & Adaptive Field-Level Fallback (Optimized)**:
+   - When configured with a structured extraction provider (e.g., Azure Document Intelligence `prebuilt-invoice` model), the system pre-populates `state.scratchpad` with structured data.
+   - If the pre-populated group data exists with high confidence, the respective extraction agent skips the LLM call entirely, reducing latency to milliseconds.
+   - **Financial Plausibility Check**: Before saving, the structured parser runs a deterministic sanity check (e.g., asserting `total_amount >= subtotal_amount`). If violated (e.g., due to a stamp obscuring the total), the group's confidence is downgraded to `"low"`, forcing that specific agent to fallback to LLM processing while others remain on the fast-path.
+5. The Invoice Assembly Node merges the grouped outputs into one invoice
    proposal without inventing fields.
-5. Each group stores source evidence, confidence, model/prompt/configuration
+6. Each group stores source evidence, confidence, model/prompt/configuration
    versions, and region references. Output is treated as a proposal, not truth.
+
 
 ### Step 4 — QA & Validation Agent
 

@@ -8,6 +8,7 @@ from app.providers.image_preprocessing import (
     ImagePreprocessingConfig,
     PreprocessingOCRProvider,
 )
+from app.providers.azure_di import AzureDIOCRProvider
 from app.providers.llm import LLMProvider
 from app.providers.local_ocr import (
     ChandraOCRProvider,
@@ -86,6 +87,15 @@ def build_ocr_provider_from_settings(settings: Settings) -> OCRProvider:
                 language=settings.chandraocr_language,
                 timeout_seconds=settings.provider_timeout_seconds,
             )
+        case OCRProviderType.AZURE_DI:
+            # Azure DI is a cloud service — it handles image preprocessing internally,
+            # so we return it directly without wrapping in PreprocessingOCRProvider.
+            return AzureDIOCRProvider(
+                endpoint=settings.azure_di_endpoint,
+                key=settings.azure_di_key,
+                model_id=settings.azure_di_model_id,
+                timeout_seconds=settings.provider_timeout_seconds,
+            )
 
     if preprocessing_config.enabled:
         return PreprocessingOCRProvider(inner=inner, config=preprocessing_config)
@@ -154,6 +164,8 @@ def ocr_provider_name_from_settings(settings: Settings) -> str:
             return "paddleocr"
         case OCRProviderType.CHANDRAOCR:
             return "chandraocr"
+        case OCRProviderType.AZURE_DI:
+            return "azure_di"
 
 
 def llm_model_name_from_settings(settings: Settings) -> str:
@@ -192,3 +204,5 @@ def ocr_deployment_mode_from_settings(settings: Settings) -> ProviderDeploymentM
             | OCRProviderType.CHANDRAOCR
         ):
             return ProviderDeploymentMode.LOCAL
+        case OCRProviderType.AZURE_DI:
+            return ProviderDeploymentMode.CLOUD

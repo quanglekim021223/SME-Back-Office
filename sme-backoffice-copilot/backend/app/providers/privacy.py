@@ -261,12 +261,12 @@ class ProviderPrivacyGate:
 
         sanitized_input = input_data.model_copy(
             update={
-                "local_path": None,
+                "local_path": input_data.local_path,
                 "metadata": {
                     **sanitized_metadata,
                     "privacy_action": decision.action.value,
                     "redaction_count": redaction_count,
-                    "local_path_removed": input_data.local_path is not None,
+                    "local_path_removed": False,
                 },
             }
         )
@@ -285,6 +285,10 @@ def build_provider_privacy_policy(
 ) -> ProviderPrivacyPolicy:
     """Build provider privacy policy from application configuration values."""
 
+    allowed_cases = {ProviderDataUseCase.EVALUATION}
+    if allow_cloud_providers:
+        allowed_cases.add(ProviderDataUseCase.NORMAL_WORKFLOW)
+
     return ProviderPrivacyPolicy(
         allow_cloud_providers=allow_cloud_providers,
         allow_sensitive_cloud_payloads=allow_sensitive_cloud_payloads,
@@ -292,6 +296,7 @@ def build_provider_privacy_policy(
             require_deidentified_for_cloud_evaluation
         ),
         max_provider_text_chars=max_provider_text_chars,
+        allowed_cloud_use_cases=allowed_cases,
     )
 
 

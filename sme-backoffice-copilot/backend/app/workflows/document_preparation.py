@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import cast
 
+from app.observability.tracing import record_trace_event
 from app.workflows.agents import (
     AgentDefinitionSpec,
     AgentExecutionContext,
@@ -30,6 +31,9 @@ OCR_FULL_TEXT_KEY = "ocr_full_text"
 OCR_LAYOUT_BLOCKS_KEY = "ocr_layout_blocks"
 OCR_LAYOUT_DIAGNOSTICS_KEY = "ocr_layout_diagnostics"
 OCR_LAYOUT_REGIONS_KEY = "ocr_layout_regions"
+# Key used to signal that Azure DI prebuilt-invoice already extracted structured
+# invoice groups into the scratchpad — extractor agents check this to skip LLM calls.
+PREBUILT_INVOICE_EXTRACTION_KEY = "prebuilt_invoice_extraction_source"
 
 DOCUMENT_REGION_NAMES = (
     "header",
@@ -387,6 +391,16 @@ async def run_ocr_provider_if_available(
 
     input_data = original_artifact_input(state)
     if input_data is None:
+        record_trace_event(
+            context.trace_provider,
+            "ocr.call.failed",
+            {
+                "agent_name": DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                "error_code": "ERR_OCR_INPUT_MISSING",
+                "provider_name": getattr(context.ocr_provider, "name", None),
+            },
+            correlation_id=context.correlation_id,
+        )
         return AgentRunResult(
             status=AgentRunStatus.FAILED,
             confidence=ConfidenceLevel.HIGH,
@@ -395,6 +409,22 @@ async def run_ocr_provider_if_available(
         )
 
     try:
+        record_trace_event(
+            context.trace_provider,
+            "ocr.call.started",
+            {
+                "agent_name": DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                "provider_name": getattr(context.ocr_provider, "name", None),
+                "task_type": ProviderTaskType.DOCUMENT_OCR.value,
+                "media_type": getattr(input_data, "media_type", None),
+                "has_local_path": getattr(input_data, "local_path", None)
+                is not None,
+                "workflow_run_id": str(context.workflow_run_id)
+                if context.workflow_run_id is not None
+                else None,
+            },
+            correlation_id=context.correlation_id,
+        )
         invocation = await context.provider_runtime.extract_ocr(
             provider=context.ocr_provider,
             task_type=ProviderTaskType.DOCUMENT_OCR,
@@ -408,6 +438,18 @@ async def run_ocr_provider_if_available(
             privacy_context=context.provider_privacy_context,
         )
     except ProviderError as exc:
+        record_trace_event(
+            context.trace_provider,
+            "ocr.call.failed",
+            {
+                "agent_name": DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                "provider_name": getattr(context.ocr_provider, "name", None),
+                "task_type": ProviderTaskType.DOCUMENT_OCR.value,
+                "error_code": "ERR_OCR_PROVIDER_FAILED",
+                "error_type": type(exc).__name__,
+            },
+            correlation_id=context.correlation_id,
+        )
         return AgentRunResult(
             status=AgentRunStatus.FAILED,
             confidence=ConfidenceLevel.HIGH,
@@ -433,12 +475,90 @@ async def run_ocr_provider_if_available(
     state.scratchpad[OCR_LAYOUT_BLOCKS_KEY] = layout_blocks
     state.scratchpad[OCR_LAYOUT_REGIONS_KEY] = layout_regions
     state.scratchpad[OCR_LAYOUT_DIAGNOSTICS_KEY] = layout_diagnostics
+    # Pre-populate invoice extraction groups when the provider already extracted
+    # structured fields (i.e. Azure DI prebuilt-invoice model was used).
+    populate_scratchpad_from_prebuilt_extraction(
+        state=state,
+        ocr_result_metadata=invocation.result.metadata,
+    )
+    record_trace_event(
+        context.trace_provider,
+        "ocr.call.finished",
+        {
+            "agent_name": DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            "provider_name": invocation.result.provider_name,
+            "task_type": invocation.route.task_type.value,
+            "deployment_mode": invocation.route.deployment_mode.value,
+            "attempts": invocation.attempts,
+            "full_text_length": len(invocation.result.full_text),
+            "text_block_count": len(invocation.result.text_blocks),
+            "layout_block_count": len(layout_blocks),
+            "layout_region_count": len(layout_regions),
+            "privacy_action": invocation.privacy_decision.action.value
+            if invocation.privacy_decision is not None
+            else None,
+        },
+        correlation_id=context.correlation_id,
+    )
     return {
         "provider_name": invocation.result.provider_name,
         "full_text_length": len(invocation.result.full_text),
         "text_block_count": len(invocation.result.text_blocks),
         OCR_LAYOUT_DIAGNOSTICS_KEY: layout_diagnostics,
     }
+
+
+def populate_scratchpad_from_prebuilt_extraction(
+    *,
+    state: WorkflowState,
+    ocr_result_metadata: dict[str, object],
+) -> None:
+    """Write Azure DI prebuilt-invoice extraction groups into the workflow scratchpad.
+
+    When the OCR provider used the ``prebuilt-invoice`` model, the resulting
+    ``OCRResult.metadata`` will contain a ``"prebuilt_invoice_extraction"`` key
+    whose value is a dict with ``metadata_group``, ``table_group``, and
+    ``totals_group`` sub-dicts that already conform to the internal invoice
+    extraction contracts.
+
+    This function reads those groups and writes them directly into the
+    workflow scratchpad under the canonical keys used by the three extractor
+    agents (``INVOICE_METADATA_GROUP_KEY``, ``INVOICE_TABLE_GROUP_KEY``,
+    ``INVOICE_TOTALS_GROUP_KEY``).  It also records a provenance sentinel under
+    ``PREBUILT_INVOICE_EXTRACTION_KEY`` so that each extractor agent can detect
+    the fast-path and skip its LLM call.
+
+    If no prebuilt extraction is present in the OCR metadata, this function is a
+    no-op — preserving full backward compatibility with ``prebuilt-layout``.
+    """
+    from app.workflows.invoice_extraction import (
+        INVOICE_METADATA_GROUP_KEY,
+        INVOICE_TABLE_GROUP_KEY,
+        INVOICE_TOTALS_GROUP_KEY,
+    )
+
+    prebuilt = ocr_result_metadata.get("prebuilt_invoice_extraction")
+    if not isinstance(prebuilt, dict) or not prebuilt:
+        return
+
+    key_map = {
+        "metadata_group": INVOICE_METADATA_GROUP_KEY,
+        "table_group": INVOICE_TABLE_GROUP_KEY,
+        "totals_group": INVOICE_TOTALS_GROUP_KEY,
+    }
+    populated: list[str] = []
+    for source_key, scratchpad_key in key_map.items():
+        group = prebuilt.get(source_key)
+        if isinstance(group, dict):
+            state.scratchpad[scratchpad_key] = group
+            populated.append(scratchpad_key)
+
+    if populated:
+        # Record provenance: which groups were pre-populated and by which model
+        state.scratchpad[PREBUILT_INVOICE_EXTRACTION_KEY] = {
+            "source": "azure_di:prebuilt-invoice",
+            "populated_groups": populated,
+        }
 
 
 def build_ocr_layout_blocks(

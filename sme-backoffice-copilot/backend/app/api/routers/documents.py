@@ -16,6 +16,7 @@ from app.core.config import Settings
 from app.core.db import get_db_session
 from app.core.tenant import TenantContext
 from app.models.document import DocumentType
+from app.observability.tracing import build_trace_provider_from_settings
 from app.providers.factory import (
     build_llm_provider_from_settings,
     build_ocr_provider_from_settings,
@@ -67,16 +68,23 @@ def get_document_workflow_publisher(
         routing_config,
         privacy_gate=privacy_gate,
     )
+    trace_provider = build_trace_provider_from_settings(settings)
+    from app.providers import ProviderPrivacyContext
     runner = WorkflowReplayRunner(
         persistence=workflow_repository,
         provider_runtime=provider_runtime,
         llm_provider=build_llm_provider_from_settings(settings),
         ocr_provider=build_ocr_provider_from_settings(settings),
+        provider_privacy_context=ProviderPrivacyContext(
+            tenant_allows_cloud=True,
+        ),
+        trace_provider=trace_provider,
     )
     return DocumentIngestedWorkflowPublisher(
         runner=runner,
         output_persistence_service=WorkflowOutputPersistenceService(
             SqlAlchemyWorkflowOutputPersistence(session),
+            trace_provider=trace_provider,
         ),
         commit=workflow_repository.commit,
     )

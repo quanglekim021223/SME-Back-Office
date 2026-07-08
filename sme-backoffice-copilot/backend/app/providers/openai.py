@@ -90,13 +90,35 @@ class OpenAIResponsesLLMProvider:
         request: LLMGenerationRequest,
         context: LLMProviderRunContext,
     ) -> LLMGenerationResult:
-        """Generate text or structured JSON through OpenAI Responses API."""
+        """Generate text or structured JSON through OpenAI Responses or Chat Completions API."""
 
-        endpoint = f"{self.base_url}/responses"
-        payload = build_openai_responses_payload(
-            request=request,
-            model_name=self.model_name,
+        is_official_openai = (
+            "api.openai.com" in self.base_url
+            or "api.openai.test" in self.base_url
+            or "responses" in self.base_url
         )
+
+        if is_official_openai:
+            endpoint = f"{self.base_url}/responses"
+            payload = build_openai_responses_payload(
+                request=request,
+                model_name=self.model_name,
+            )
+        else:
+            endpoint = f"{self.base_url}/chat/completions"
+            payload: dict[str, object] = {
+                "model": self.model_name,
+                "messages": [
+                    {"role": message.role.value, "content": message.content}
+                    for message in request.messages
+                ],
+                "temperature": request.temperature,
+            }
+            if request.response_format == LLMResponseFormat.JSON:
+                payload["response_format"] = {"type": "json_object"}
+            if request.max_output_tokens is not None:
+                payload["max_tokens"] = request.max_output_tokens
+
         try:
             response_payload = await asyncio.to_thread(
                 self.transport,
@@ -106,21 +128,60 @@ class OpenAIResponsesLLMProvider:
                 self.timeout_seconds,
             )
         except OSError as exc:
+            api_name = "Responses" if is_official_openai else "Chat Completions"
             raise ProviderExecutionError(
-                "Could not call OpenAI Responses API. Check network access, "
+                f"Could not call OpenAI {api_name} API. Check network access, "
                 "API key, and provider routing configuration."
             ) from exc
 
-        raise_for_openai_response_error(response_payload)
-        output_text = extract_openai_output_text(response_payload)
+        if is_official_openai:
+            raise_for_openai_response_error(response_payload)
+            output_text = extract_openai_output_text(response_payload)
+            usage = response_payload.get("usage")
+            input_tokens = usage_token_count(usage, "input_tokens")
+            output_tokens = usage_token_count(usage, "output_tokens")
+            model_response_name = str(response_payload.get("model") or self.model_name)
+            response_id = response_payload.get("id")
+            response_status = response_payload.get("status")
+        else:
+            # Handle standard Chat Completions API
+            error_details = response_payload.get("error")
+            if error_details is not None:
+                raise ProviderExecutionError(f"OpenAI Chat Completions returned an error: {error_details}")
+            choices_list = response_payload.get("choices")
+            if not isinstance(choices_list, list) or not choices_list:
+                raise ProviderExecutionError("OpenAI Chat Completions did not return choices.")
+            first_choice = choices_list[0]
+            if not isinstance(first_choice, dict):
+                raise ProviderExecutionError("OpenAI Chat Completions choice is not a dict.")
+            message_dict = first_choice.get("message")
+            if not isinstance(message_dict, dict):
+                raise ProviderExecutionError("OpenAI Chat Completions message is not a dict.")
+            extracted_output = message_dict.get("content")
+            if not isinstance(extracted_output, str):
+                raise ProviderExecutionError("OpenAI Chat Completions content is not a string.")
+            output_text = extracted_output
+
+            usage_dict = response_payload.get("usage")
+            if isinstance(usage_dict, dict):
+                input_tokens = usage_token_count(usage_dict, "prompt_tokens")
+                output_tokens = usage_token_count(usage_dict, "completion_tokens")
+            else:
+                input_tokens = None
+                output_tokens = None
+
+            model_response_name = str(response_payload.get("model") or self.model_name)
+            response_id = response_payload.get("id")
+            response_status = "completed"
+
         structured_output = parse_structured_output(
             output_text=output_text,
             response_format=request.response_format,
         )
         metadata: dict[str, object] = {
             "base_url": self.base_url,
-            "response_id": response_payload.get("id"),
-            "response_status": response_payload.get("status"),
+            "response_id": response_id,
+            "response_status": response_status,
             "response_schema_name": request.response_schema_name,
             "response_format": request.response_format.value,
             "prompt_id": request.prompt_id,
@@ -141,14 +202,13 @@ class OpenAIResponsesLLMProvider:
                 payload=structured_output,
             ).model_dump(mode="json")
 
-        usage = response_payload.get("usage")
         return LLMGenerationResult(
             provider_name=self.name,
-            model_name=str(response_payload.get("model") or self.model_name),
+            model_name=model_response_name,
             output_text=output_text,
             structured_output=structured_output,
-            input_tokens=usage_token_count(usage, "input_tokens"),
-            output_tokens=usage_token_count(usage, "output_tokens"),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             latency_ms=None,
             metadata=metadata,
         )

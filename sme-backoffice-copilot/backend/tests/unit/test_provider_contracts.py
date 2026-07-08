@@ -3,7 +3,13 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import LLMProviderType, OCRProviderType, Settings
+from app.core.config import (
+    LLMProviderType,
+    OCRProviderType,
+    Settings,
+    TracingBackendType,
+    WorkflowOrchestrationMode,
+)
 from app.providers import (
     AIProvider,
     AIProviderMetadata,
@@ -128,6 +134,19 @@ def test_settings_include_ai_provider_selection_defaults() -> None:
 
     assert settings.ocr_provider == OCRProviderType.MOCK
     assert settings.llm_provider == LLMProviderType.MOCK
+    assert settings.workflow_orchestration_mode == WorkflowOrchestrationMode.CUSTOM
+    assert settings.langgraph_checkpointing_enabled is False
+    assert settings.langgraph_recursion_limit == 25
+    assert settings.tracing_backend == TracingBackendType.DISABLED
+    assert settings.tracing_project_name == "sme-backoffice-copilot-local"
+    assert settings.tracing_redaction_enabled is True
+    assert settings.tracing_max_payload_chars == 4000
+    assert settings.langfuse_host == "http://localhost:3001"
+    assert settings.langfuse_public_key == ""
+    assert settings.langfuse_secret_key == ""
+    assert settings.langsmith_endpoint == "https://api.smith.langchain.com"
+    assert settings.langsmith_api_key == ""
+    assert settings.langsmith_project == "sme-backoffice-copilot-local"
     assert settings.provider_timeout_seconds == 30.0
     assert settings.provider_max_retries == 1
     assert settings.provider_retry_backoff_seconds == 0.0
@@ -192,6 +211,30 @@ def test_settings_can_select_openai_provider(
     assert settings.llm_provider == LLMProviderType.OPENAI
     assert settings.openai_api_key == "test-key"
     assert settings.openai_model == "gpt-5.2"
+
+
+def test_settings_can_select_langgraph_and_langfuse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WORKFLOW_ORCHESTRATION_MODE", "langgraph")
+    monkeypatch.setenv("LANGGRAPH_CHECKPOINTING_ENABLED", "true")
+    monkeypatch.setenv("LANGGRAPH_RECURSION_LIMIT", "50")
+    monkeypatch.setenv("TRACING_BACKEND", "langfuse")
+    monkeypatch.setenv("TRACING_PROJECT_NAME", "sme-eval")
+    monkeypatch.setenv("LANGFUSE_HOST", "http://localhost:3001")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-local")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-local")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.workflow_orchestration_mode == WorkflowOrchestrationMode.LANGGRAPH
+    assert settings.langgraph_checkpointing_enabled is True
+    assert settings.langgraph_recursion_limit == 50
+    assert settings.tracing_backend == TracingBackendType.LANGFUSE
+    assert settings.tracing_project_name == "sme-eval"
+    assert settings.langfuse_host == "http://localhost:3001"
+    assert settings.langfuse_public_key == "pk-local"
+    assert settings.langfuse_secret_key == "sk-local"
 
 
 def test_settings_can_select_chandraocr_provider(

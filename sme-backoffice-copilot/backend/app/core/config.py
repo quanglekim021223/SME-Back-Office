@@ -18,6 +18,7 @@ class OCRProviderType(StrEnum):
     TESSERACT = "tesseract"
     PADDLEOCR = "paddleocr"
     CHANDRAOCR = "chandraocr"
+    AZURE_DI = "azure_di"
 
 
 class LLMProviderType(StrEnum):
@@ -26,6 +27,21 @@ class LLMProviderType(StrEnum):
     MOCK = "mock"
     OLLAMA = "ollama"
     OPENAI = "openai"
+
+
+class WorkflowOrchestrationMode(StrEnum):
+    """Supported workflow orchestration engines."""
+
+    CUSTOM = "custom"
+    LANGGRAPH = "langgraph"
+
+
+class TracingBackendType(StrEnum):
+    """Supported trace export backends."""
+
+    DISABLED = "disabled"
+    LANGFUSE = "langfuse"
+    LANGSMITH = "langsmith"
 
 
 class Settings(BaseSettings):
@@ -47,6 +63,21 @@ class Settings(BaseSettings):
     ]
     ocr_provider: OCRProviderType = OCRProviderType.MOCK
     llm_provider: LLMProviderType = LLMProviderType.MOCK
+    workflow_orchestration_mode: WorkflowOrchestrationMode = (
+        WorkflowOrchestrationMode.CUSTOM
+    )
+    langgraph_checkpointing_enabled: bool = False
+    langgraph_recursion_limit: int = 25
+    tracing_backend: TracingBackendType = TracingBackendType.DISABLED
+    tracing_project_name: str = "sme-backoffice-copilot-local"
+    tracing_redaction_enabled: bool = True
+    tracing_max_payload_chars: int = 4000
+    langfuse_host: str = "http://localhost:3001"
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+    langsmith_api_key: str = ""
+    langsmith_project: str = "sme-backoffice-copilot-local"
     provider_timeout_seconds: float = 30.0
     provider_max_retries: int = 1
     provider_retry_backoff_seconds: float = 0.0
@@ -60,6 +91,15 @@ class Settings(BaseSettings):
     tesseract_language: str = "eng"
     paddleocr_language: str = "en"
     chandraocr_language: str = "en"
+    azure_di_endpoint: str = ""
+    azure_di_key: str = ""
+    # Azure Document Intelligence model selection.
+    # Use "prebuilt-layout" for raw OCR (default, backward-compatible).
+    # Use "prebuilt-invoice" to enable the structured extraction fast-path,
+    # which pre-populates invoice extraction groups directly from Azure DI
+    # without calling the LLM for metadata/table/totals, reducing latency
+    # from ~45 s to ~5–8 s.
+    azure_di_model_id: str = "prebuilt-layout"
     # Image preprocessing pipeline (runs before OCR for all local engines)
     ocr_preprocessing_enabled: bool = False
     ocr_preprocessing_deskew: bool = True

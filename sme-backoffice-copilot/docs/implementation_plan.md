@@ -340,33 +340,33 @@ orchestration layer, while making every OCR, LLM, validator, retry, handoff, and
 human-review routing decision traceable without leaking sensitive financial
 data.
 
-- [ ] Decide LangGraph adoption scope.
-- [ ] Add LangGraph dependency and local configuration.
-- [ ] Create LangGraph workflow adapter behind existing workflow contracts.
-- [ ] Convert current document preparation steps into LangGraph nodes.
-- [ ] Convert invoice metadata/table/totals extractors into LangGraph nodes.
-- [ ] Convert invoice assembly and QA validation into LangGraph nodes.
-- [ ] Add conditional QA routing edge for valid, retry, review-required, and failed paths.
-- [ ] Add targeted self-correction loop in LangGraph.
-- [ ] Add retry exhaustion path in LangGraph.
-- [ ] Preserve existing workflow persistence for agent step executions.
-- [ ] Preserve existing handoff persistence from graph node transitions.
-- [ ] Add checkpoint/replay support for local graph runs.
-- [ ] Add tracing provider interface for Langfuse or LangSmith.
-- [ ] Choose first tracing backend: Langfuse local/self-host or LangSmith cloud.
-- [ ] Add tracing provider configuration.
-- [ ] Add redaction/minimization before sending trace payloads externally.
-- [ ] Trace OCR provider calls.
-- [ ] Trace LLM provider calls.
-- [ ] Trace deterministic validators.
-- [ ] Trace QA error signals and correction routing.
-- [ ] Trace review-task creation.
-- [ ] Add local trace/debug command for one uploaded document.
-- [ ] Add tests for LangGraph happy path.
-- [ ] Add tests for LangGraph validation retry path.
-- [ ] Add tests for LangGraph retry exhaustion path.
-- [ ] Add tests proving sensitive fields are redacted from trace payloads.
-- [ ] Document LangGraph and tracing workflow in README.
+- [x] Decide LangGraph adoption scope.
+- [x] Add LangGraph dependency and local configuration.
+- [x] Create LangGraph workflow adapter behind existing workflow contracts.
+- [x] Convert current document preparation steps into LangGraph nodes.
+- [x] Convert invoice metadata/table/totals extractors into LangGraph nodes.
+- [x] Convert invoice assembly and QA validation into LangGraph nodes.
+- [x] Add conditional QA routing edge for valid, retry, review-required, and failed paths.
+- [x] Add targeted self-correction loop in LangGraph.
+- [x] Add retry exhaustion path in LangGraph.
+- [x] Preserve existing workflow persistence for agent step executions.
+- [x] Preserve existing handoff persistence from graph node transitions.
+- [x] Add checkpoint/replay support for local graph runs.
+- [x] Add tracing provider interface for Langfuse or LangSmith.
+- [x] Choose first tracing backend: Langfuse local/self-host or LangSmith cloud.
+- [x] Add tracing provider configuration.
+- [x] Add redaction/minimization before sending trace payloads externally.
+- [x] Trace OCR provider calls.
+- [x] Trace LLM provider calls.
+- [x] Trace deterministic validators.
+- [x] Trace QA error signals and correction routing.
+- [x] Trace review-task creation.
+- [x] Add local trace/debug command for one uploaded document.
+- [x] Add tests for LangGraph happy path.
+- [x] Add tests for LangGraph validation retry path.
+- [x] Add tests for LangGraph retry exhaustion path.
+- [x] Add tests proving sensitive fields are redacted from trace payloads.
+- [x] Document LangGraph and tracing workflow in README.
 
 ## Phase 10 — Security and privacy hardening
 

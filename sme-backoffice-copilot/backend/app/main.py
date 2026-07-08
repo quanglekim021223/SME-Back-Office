@@ -1,4 +1,4 @@
-"""FastAPI application entry point and composition root."""
+"""FastAPI application entry point and composition root. Triggered reload for settings."""
 
 from fastapi import FastAPI
 
