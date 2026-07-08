@@ -133,6 +133,7 @@ def test_authentication_placeholder_reads_user_headers(app: FastAPI) -> None:
         "roles": ["finance", "member"],
         "permissions": [
             "read:health",
+            "read:invoices",
             "read:review_tasks",
             "read:tenant",
             "write:documents",

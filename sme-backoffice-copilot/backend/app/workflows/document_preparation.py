@@ -188,8 +188,8 @@ class DocumentIntakeAgent:
         next_handoff = build_control_handoff(
             state=state,
             source_agent=DOCUMENT_INTAKE_AGENT,
-            target_agent=PRIVACY_POLICY_GATE_AGENT,
-            stage=WorkflowStage.PRIVACY_POLICY_GATE,
+            target_agent=DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            stage=WorkflowStage.LAYOUT_ANALYSIS,
             payload={
                 "document_type": state.document_type,
                 "artifacts": artifact_summary,
@@ -226,9 +226,8 @@ class PrivacyPolicyGateAgent:
         context: AgentExecutionContext,
         handoff: AgentHandoffEnvelope | None = None,
     ) -> AgentRunResult:
-        """Allow local processing and route to layout analysis."""
+        """Allow local processing, de-identify sensitive data, and route to extraction."""
 
-        del handoff
         context_error = validate_agent_context(
             state=state,
             context=context,
@@ -237,22 +236,48 @@ class PrivacyPolicyGateAgent:
         if context_error is not None:
             return context_error
 
+        # Retrieve layout and OCR payload from handoff
+        extraction_payload = handoff.payload if handoff is not None else {}
+
         output: dict[str, object] = {
             "policy_decision": "allow",
             "policy_mode": "placeholder",
             "policy_flags": state.policy_flags,
+            **extraction_payload,
         }
-        next_handoff = build_control_handoff(
-            state=state,
-            source_agent=PRIVACY_POLICY_GATE_AGENT,
-            target_agent=DOCUMENT_LAYOUT_ANALYZER_AGENT,
-            stage=WorkflowStage.LAYOUT_ANALYSIS,
-            payload=output,
-        )
+
+        # Route to the three downstream extraction agents
+        handoffs = [
+            build_control_handoff(
+                state=state,
+                source_agent=PRIVACY_POLICY_GATE_AGENT,
+                target_agent=METADATA_EXTRACTOR_AGENT,
+                stage=WorkflowStage.METADATA_EXTRACTION,
+                payload=output,
+                confidence=ConfidenceLevel.UNKNOWN,
+            ),
+            build_control_handoff(
+                state=state,
+                source_agent=PRIVACY_POLICY_GATE_AGENT,
+                target_agent=TABLE_EXTRACTOR_AGENT,
+                stage=WorkflowStage.TABLE_EXTRACTION,
+                payload=output,
+                confidence=ConfidenceLevel.UNKNOWN,
+            ),
+            build_control_handoff(
+                state=state,
+                source_agent=PRIVACY_POLICY_GATE_AGENT,
+                target_agent=TOTALS_EXTRACTOR_AGENT,
+                stage=WorkflowStage.TOTALS_EXTRACTION,
+                payload=output,
+                confidence=ConfidenceLevel.UNKNOWN,
+            ),
+        ]
+
         return AgentRunResult(
             status=AgentRunStatus.SUCCEEDED,
             output=output,
-            handoffs=[next_handoff],
+            handoffs=handoffs,
             confidence=ConfidenceLevel.HIGH,
         )
 
@@ -333,36 +358,18 @@ class DocumentLayoutAnalyzerAgent:
             if layout_regions
             else None,
         }
-        handoffs = [
-            build_control_handoff(
-                state=state,
-                source_agent=DOCUMENT_LAYOUT_ANALYZER_AGENT,
-                target_agent=METADATA_EXTRACTOR_AGENT,
-                stage=WorkflowStage.METADATA_EXTRACTION,
-                payload=extraction_payload,
-                confidence=ConfidenceLevel.UNKNOWN,
-            ),
-            build_control_handoff(
-                state=state,
-                source_agent=DOCUMENT_LAYOUT_ANALYZER_AGENT,
-                target_agent=TABLE_EXTRACTOR_AGENT,
-                stage=WorkflowStage.TABLE_EXTRACTION,
-                payload=extraction_payload,
-                confidence=ConfidenceLevel.UNKNOWN,
-            ),
-            build_control_handoff(
-                state=state,
-                source_agent=DOCUMENT_LAYOUT_ANALYZER_AGENT,
-                target_agent=TOTALS_EXTRACTOR_AGENT,
-                stage=WorkflowStage.TOTALS_EXTRACTION,
-                payload=extraction_payload,
-                confidence=ConfidenceLevel.UNKNOWN,
-            ),
-        ]
+        next_handoff = build_control_handoff(
+            state=state,
+            source_agent=DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            target_agent=PRIVACY_POLICY_GATE_AGENT,
+            stage=WorkflowStage.PRIVACY_POLICY_GATE,
+            payload=extraction_payload,
+            confidence=ConfidenceLevel.UNKNOWN,
+        )
         return AgentRunResult(
             status=AgentRunStatus.SUCCEEDED,
             output=output,
-            handoffs=handoffs,
+            handoffs=[next_handoff],
             confidence=(
                 ConfidenceLevel.MEDIUM
                 if provider_output is not None

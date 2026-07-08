@@ -9,6 +9,7 @@ from app.api.routers.invoices import router as invoices_router
 from app.api.routers.review_tasks import router as review_tasks_router
 from app.core.config import Settings, get_settings
 from app.core.middleware import register_middleware
+from app.observability.logging_filter import setup_logging_redaction
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -19,6 +20,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """
 
     resolved_settings = settings or get_settings()
+    setup_logging_redaction()
 
     app = FastAPI(
         title=resolved_settings.app_name,

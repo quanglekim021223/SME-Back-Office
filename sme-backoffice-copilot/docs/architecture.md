@@ -176,11 +176,11 @@ Upload Invoice / Statement
 Document Intake Agent
       │ accepted metadata + content hash + document type
       v
-Privacy & Policy Gate
-      │ allowed processing scope + redaction/minimization rules
-      v
 Document Layout Analyzer
       │ region plan + OCR/layout artifacts
+      v
+Privacy & Policy Gate
+      │ allowed processing scope + redacted/de-identified text payloads
       v
 ┌──────────────────────┬──────────────────────┬──────────────────────┐
 │ Metadata Extractor   │ Table Extractor       │ Totals Extractor      │

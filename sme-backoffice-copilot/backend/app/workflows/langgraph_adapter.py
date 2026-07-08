@@ -160,40 +160,40 @@ class LangGraphWorkflowAdapter:
             ),
         )
         builder.add_node(
-            PRIVACY_POLICY_GATE_AGENT,
-            self._node(
-                PrivacyPolicyGateAgent(),
-                handoff_target=PRIVACY_POLICY_GATE_AGENT,
-                handoff_source_agent=DOCUMENT_INTAKE_AGENT,
-            ),
-        )
-        builder.add_node(
             DOCUMENT_LAYOUT_ANALYZER_AGENT,
             self._node(
                 DocumentLayoutAnalyzerAgent(),
                 handoff_target=DOCUMENT_LAYOUT_ANALYZER_AGENT,
-                handoff_source_agent=PRIVACY_POLICY_GATE_AGENT,
+                handoff_source_agent=DOCUMENT_INTAKE_AGENT,
+            ),
+        )
+        builder.add_node(
+            PRIVACY_POLICY_GATE_AGENT,
+            self._node(
+                PrivacyPolicyGateAgent(),
+                handoff_target=PRIVACY_POLICY_GATE_AGENT,
+                handoff_source_agent=DOCUMENT_LAYOUT_ANALYZER_AGENT,
             ),
         )
 
         builder.set_entry_point(DOCUMENT_INTAKE_AGENT)
         builder.add_conditional_edges(
             DOCUMENT_INTAKE_AGENT,
-            _route_after(PRIVACY_POLICY_GATE_AGENT),
-            {
-                PRIVACY_POLICY_GATE_AGENT: PRIVACY_POLICY_GATE_AGENT,
-                "end": END,
-            },
-        )
-        builder.add_conditional_edges(
-            PRIVACY_POLICY_GATE_AGENT,
             _route_after(DOCUMENT_LAYOUT_ANALYZER_AGENT),
             {
                 DOCUMENT_LAYOUT_ANALYZER_AGENT: DOCUMENT_LAYOUT_ANALYZER_AGENT,
                 "end": END,
             },
         )
-        builder.add_edge(DOCUMENT_LAYOUT_ANALYZER_AGENT, END)
+        builder.add_conditional_edges(
+            DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            _route_after(PRIVACY_POLICY_GATE_AGENT),
+            {
+                PRIVACY_POLICY_GATE_AGENT: PRIVACY_POLICY_GATE_AGENT,
+                "end": END,
+            },
+        )
+        builder.add_edge(PRIVACY_POLICY_GATE_AGENT, END)
 
         compiled = builder.compile()
         result = await compiled.ainvoke(graph_state)
@@ -291,8 +291,8 @@ class LangGraphWorkflowAdapter:
 
         for agent, handoff_target in (
             (DocumentIntakeAgent(), None),
-            (PrivacyPolicyGateAgent(), PRIVACY_POLICY_GATE_AGENT),
             (DocumentLayoutAnalyzerAgent(), DOCUMENT_LAYOUT_ANALYZER_AGENT),
+            (PrivacyPolicyGateAgent(), PRIVACY_POLICY_GATE_AGENT),
         ):
             graph_state = await self._run_agent_node(
                 graph_state,
@@ -338,29 +338,29 @@ class LangGraphWorkflowAdapter:
             "full": (
                 (DocumentIntakeAgent(), None, None),
                 (
-                    PrivacyPolicyGateAgent(),
-                    PRIVACY_POLICY_GATE_AGENT,
+                    DocumentLayoutAnalyzerAgent(),
+                    DOCUMENT_LAYOUT_ANALYZER_AGENT,
                     DOCUMENT_INTAKE_AGENT,
                 ),
                 (
-                    DocumentLayoutAnalyzerAgent(),
-                    DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                    PrivacyPolicyGateAgent(),
                     PRIVACY_POLICY_GATE_AGENT,
+                    DOCUMENT_LAYOUT_ANALYZER_AGENT,
                 ),
                 (
                     MetadataExtractorAgent(),
                     METADATA_EXTRACTOR_AGENT,
-                    DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                    PRIVACY_POLICY_GATE_AGENT,
                 ),
                 (
                     TableExtractorAgent(),
                     TABLE_EXTRACTOR_AGENT,
-                    DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                    PRIVACY_POLICY_GATE_AGENT,
                 ),
                 (
                     TotalsExtractorAgent(),
                     TOTALS_EXTRACTOR_AGENT,
-                    DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                    PRIVACY_POLICY_GATE_AGENT,
                 ),
                 (InvoiceAssemblyNode(), None, None),
                 (QAValidationAgent(), QA_VALIDATION_AGENT, INVOICE_ASSEMBLY_NODE),

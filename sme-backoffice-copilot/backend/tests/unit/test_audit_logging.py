@@ -210,3 +210,46 @@ class TestAuditLogPIIGuard:
         }
         for key in forbidden_keys:
             assert key not in d, f"Sensitive key '{key}' found in audit dict"
+
+
+class TestRedactingLoggingFilter:
+    """Verify RedactingLoggingFilter successfully redacts PII and financial fields."""
+
+    def test_redacts_sensitive_keys_in_dict_args(self):
+        from app.observability.logging_filter import RedactingLoggingFilter
+
+        log_filter = RedactingLoggingFilter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=10,
+            msg="Raw event info",
+            args=({"customer_name": "John Doe", "amount": 100.0, "safe_key": "safe"},),
+            exc_info=None,
+        )
+
+        assert log_filter.filter(record)
+        arg_dict = record.args
+        assert isinstance(arg_dict, dict)
+        assert arg_dict.get("customer_name") == "[REDACTED]"
+        assert arg_dict.get("amount") == "[REDACTED]"
+        assert arg_dict.get("safe_key") == "safe"
+
+    def test_redacts_emails_in_messages(self):
+        from app.observability.logging_filter import RedactingLoggingFilter
+
+        log_filter = RedactingLoggingFilter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=10,
+            msg="User email was test@example.com",
+            args=(),
+            exc_info=None,
+        )
+
+        assert log_filter.filter(record)
+        assert record.msg == "User email was [EMAIL_REDACTED]"
+

@@ -376,8 +376,8 @@ Goal: make tenant and financial data handling safe by design.
 - [x] Add authorization checks to every tenant resource.
 - [x] Add audit logging for document access.
 - [x] Add audit logging for approval/correction actions.
-- [ ] Add audit logging for export/download actions.
-- [ ] Redact sensitive payloads from logs.
+- [x] Add audit logging for export/download actions.
+- [x] Redact sensitive payloads from logs.
 - [ ] Add secret management convention.
 - [ ] Add file processing sandbox strategy.
 - [ ] Add prompt-injection test cases.

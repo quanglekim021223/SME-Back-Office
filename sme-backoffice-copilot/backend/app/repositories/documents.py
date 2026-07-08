@@ -66,3 +66,22 @@ class DocumentRepository(TenantScopedRepository[Document]):
 
         self.session.add(artifact)
         return artifact
+
+    async def get_with_artifacts(
+        self,
+        *,
+        tenant_id: UUID,
+        document_id: UUID,
+    ) -> Document | None:
+        """Return one document with its artifacts eagerly loaded."""
+
+        from sqlalchemy.orm import selectinload
+
+        statement = (
+            select(Document)
+            .where(Document.tenant_id == tenant_id, Document.id == document_id)
+            .options(selectinload(Document.artifacts))
+        )
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
+
