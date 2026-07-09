@@ -20,6 +20,7 @@ from app.models.operations import (
     ReviewTaskStatus,
     ReviewTaskType,
 )
+from app.observability.metrics import metrics_registry
 from app.review import ReviewAction
 from app.services.post_extraction import invoice_review_label
 from app.services.review_tasks import (
@@ -179,6 +180,7 @@ def build_review_task(
 
 @pytest.mark.asyncio
 async def test_approve_classification_proposal_resolves_task_and_writes_audit() -> None:
+    metrics_registry.reset()
     tenant_id = uuid4()
     actor_id = uuid4()
     proposal = ClassificationProposal(
@@ -231,6 +233,15 @@ async def test_approve_classification_proposal_resolves_task_and_writes_audit() 
     )
     assert audit_event.metadata_["comment"] == "Looks correct."
     assert audit_event.metadata_["reason_code"] == "APPROVED_BY_ACCOUNTANT"
+    snapshot = metrics_registry.snapshot()
+    assert snapshot["review_actions"] == {
+        "classification:approve_proposal": 1,
+    }
+    assert snapshot["correction_rate"] == {
+        "correction_count": 0,
+        "review_action_count": 1,
+        "rate": 0.0,
+    }
 
 
 @pytest.mark.asyncio
@@ -402,6 +413,7 @@ def test_invoice_review_label_uses_short_id_when_invoice_number_missing() -> Non
 
 @pytest.mark.asyncio
 async def test_correct_classification_supersedes_old_proposal() -> None:
+    metrics_registry.reset()
     tenant_id = uuid4()
     new_category_id = uuid4()
     proposal = ClassificationProposal(
@@ -444,6 +456,15 @@ async def test_correct_classification_supersedes_old_proposal() -> None:
     assert replacement.evidence_refs == ["review:classification:manual"]
     assert task.classification_proposal_id == replacement.id
     assert persistence.audit_events[0].action == "review_task.classification_corrected"
+    snapshot = metrics_registry.snapshot()
+    assert snapshot["review_actions"] == {
+        "classification:correct_classification": 1,
+    }
+    assert snapshot["correction_rate"] == {
+        "correction_count": 1,
+        "review_action_count": 1,
+        "rate": 1.0,
+    }
 
 
 @pytest.mark.asyncio

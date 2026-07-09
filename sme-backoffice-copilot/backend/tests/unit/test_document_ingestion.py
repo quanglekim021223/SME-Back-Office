@@ -175,6 +175,7 @@ async def test_document_ingestion_stores_file_and_creates_accepted_document(
         content=content,
         media_type="application/pdf",
         document_type=DocumentType.INVOICE,
+        correlation_id="corr-upload-123",
     )
 
     assert result.stored_file.path.read_bytes() == content
@@ -199,6 +200,7 @@ async def test_document_ingestion_stores_file_and_creates_accepted_document(
     assert result.document_ingested_event.document_id == result.document.id
     assert result.document_ingested_event.storage_uri == result.artifact.storage_uri
     assert result.document_ingested_event.local_path == str(result.stored_file.path)
+    assert result.document_ingested_event.correlation_id == "corr-upload-123"
 
 
 @pytest.mark.asyncio

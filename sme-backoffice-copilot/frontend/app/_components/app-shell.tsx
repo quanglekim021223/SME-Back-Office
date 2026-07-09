@@ -38,8 +38,13 @@ const navigationItems: NavigationItem[] = [
     description: "Human review queue",
     icon: "RV",
   },
+  {
+    href: "/ops",
+    label: "Ops",
+    description: "Local metrics and health",
+    icon: "OP",
+  },
 ];
-
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();

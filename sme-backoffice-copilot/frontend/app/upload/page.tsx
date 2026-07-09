@@ -97,6 +97,7 @@ export default function UploadPage() {
   const fileValidationError = selectedFile
     ? validateSelectedFile(selectedFile)
     : null;
+  const isUploading = uploadStatus === "uploading";
   const activityItems =
     uploadActivities.length > 0 ? uploadActivities : sampleUploads;
 
@@ -106,6 +107,10 @@ export default function UploadPage() {
   );
 
   function handleFileSelection(file: File | null) {
+    if (isUploading) {
+      return;
+    }
+
     setSelectedFile(file);
     setUploadResult(null);
 
@@ -199,6 +204,9 @@ export default function UploadPage() {
   function handleDrop(event: DragEvent<HTMLElement>) {
     event.preventDefault();
     setIsDragging(false);
+    if (isUploading) {
+      return;
+    }
     handleFileSelection(event.dataTransfer.files.item(0));
   }
 
@@ -218,11 +226,13 @@ export default function UploadPage() {
 
       <section className="upload-layout">
         <form
-          className={
-            isDragging
-              ? "upload-dropzone upload-dropzone-is-dragging"
-              : "upload-dropzone"
-          }
+          className={[
+            "upload-dropzone",
+            isDragging ? "upload-dropzone-is-dragging" : null,
+            isUploading ? "upload-dropzone-is-processing" : null,
+          ]
+            .filter(Boolean)
+            .join(" ")}
           onDragLeave={() => setIsDragging(false)}
           onDragOver={(event) => {
             event.preventDefault();
@@ -243,6 +253,7 @@ export default function UploadPage() {
                     ? "toolbar-chip toolbar-chip-active"
                     : "toolbar-chip"
                 }
+                disabled={isUploading}
                 key={mode.value}
                 onClick={() => {
                   setDocumentType(mode.value);
@@ -273,6 +284,7 @@ export default function UploadPage() {
           <input
             accept={acceptedFileExtensions}
             className="visually-hidden"
+            disabled={isUploading}
             id="document-upload-input"
             onChange={(event) =>
               handleFileSelection(event.currentTarget.files?.item(0) ?? null)
@@ -282,23 +294,30 @@ export default function UploadPage() {
 
           <div className="upload-action-row">
             <label
-              className="button button-secondary"
-              htmlFor="document-upload-input"
+              aria-disabled={isUploading}
+              className={
+                isUploading
+                  ? "button button-secondary button-disabled"
+                  : "button button-secondary"
+              }
+              htmlFor={isUploading ? undefined : "document-upload-input"}
             >
               Choose file
             </label>
             <button
               className="button button-primary"
               disabled={
-                !selectedFile ||
-                Boolean(fileValidationError) ||
-                uploadStatus === "uploading"
+                !selectedFile || Boolean(fileValidationError) || isUploading
               }
               type="submit"
             >
-              {uploadStatus === "uploading" ? "Uploading..." : "Upload file"}
+              {isUploading ? "Processing..." : "Upload file"}
             </button>
           </div>
+
+          {isUploading ? (
+            <UploadProcessingCard documentType={documentType} />
+          ) : null}
 
           <div className="file-type-row" aria-label="Accepted file types">
             {acceptedTypes.map((type) => {
@@ -306,7 +325,11 @@ export default function UploadPage() {
               return (
                 <span
                   key={type}
-                  className={active ? "file-type-badge-active" : "file-type-badge-inactive"}
+                  className={
+                    active
+                      ? "file-type-badge-active"
+                      : "file-type-badge-inactive"
+                  }
                 >
                   {type}
                 </span>
@@ -385,6 +408,38 @@ export default function UploadPage() {
           ))}
         </div>
       </section>
+    </div>
+  );
+}
+
+function UploadProcessingCard({
+  documentType,
+}: {
+  documentType: DocumentType;
+}) {
+  const processingLabel =
+    documentType === "bank_statement"
+      ? "Parsing statement transactions"
+      : "Running OCR and extraction workflow";
+
+  return (
+    <div className="upload-processing-card" role="status" aria-live="polite">
+      <div className="upload-processing-header">
+        <span className="upload-processing-dot" aria-hidden="true" />
+        <div>
+          <strong>Processing document</strong>
+          <p>
+            Keep this page open while the upload is accepted and the workflow is
+            prepared.
+          </p>
+        </div>
+      </div>
+      <div className="upload-processing-track" aria-hidden="true" />
+      <ol className="upload-processing-steps">
+        <li>Sending file to backend</li>
+        <li>Validating file and checking duplicates</li>
+        <li>{processingLabel}</li>
+      </ol>
     </div>
   );
 }
@@ -479,22 +534,26 @@ function buildLifecycleSteps(
       {
         label: "Upload request",
         state: isUploading ? "current" : isBlocked ? "error" : "pending",
-        value: isUploading ? "Sending file bytes" : "Waiting for a valid file",
+        value: isUploading
+          ? "Sending file bytes and awaiting backend acknowledgement"
+          : "Waiting for a valid file",
       },
       {
-        label: "Malware scan",
-        state: "pending",
-        value: "Runs after backend accepts the file",
+        label: "Preflight validation",
+        state: isUploading ? "current" : "pending",
+        value: isUploading
+          ? "Checking MIME, size, and duplicate hash"
+          : "Runs before workflow starts",
       },
       {
         label: "Workflow trigger",
         state: "pending",
-        value: "Publishes DocumentIngested event",
+        value: "Publishes DocumentIngested event after acceptance",
       },
       {
         label: "Processing",
         state: "pending",
-        value: "Waiting for workflow skeleton",
+        value: "OCR and extraction continue through the workflow runtime",
       },
     ] as const;
   }

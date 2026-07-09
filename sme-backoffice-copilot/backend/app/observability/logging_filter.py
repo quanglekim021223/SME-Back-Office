@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any
@@ -15,7 +16,7 @@ SENSITIVE_PATTERNS = [
 
 
 class RedactingLoggingFilter(logging.Filter):
-    """Logging filter that redacts sensitive PII and financial fields from all log records.
+    """Logging filter that redacts sensitive values from log records.
 
     It scans log record arguments, dictionary attributes, and log messages.
     """
@@ -102,13 +103,89 @@ class RedactingLoggingFilter(logging.Filter):
         return s
 
 
+class StructuredLogFormatter(logging.Formatter):
+    """Format log records as compact JSON with safe operational fields."""
+
+    RESERVED_ATTRS = set(logging.LogRecord("", 0, "", 0, "", (), None).__dict__)
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict[str, object] = {
+            "timestamp": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        for key, value in record.__dict__.items():
+            if key in self.RESERVED_ATTRS or key.startswith("_"):
+                continue
+            payload[key] = value
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        return json.dumps(payload, default=str, sort_keys=True)
+
+
+class HumanReadableLogFormatter(logging.Formatter):
+    """Format structured log records for local terminal readability."""
+
+    RESERVED_ATTRS = StructuredLogFormatter.RESERVED_ATTRS
+
+    def format(self, record: logging.LogRecord) -> str:
+        parts = [
+            self.formatTime(record, "%H:%M:%S"),
+            record.levelname,
+            record.name,
+            record.getMessage(),
+        ]
+        for key, value in record.__dict__.items():
+            if key in self.RESERVED_ATTRS or key.startswith("_"):
+                continue
+            if key in {"event"}:
+                continue
+            parts.append(f"{key}={value}")
+        if record.exc_info:
+            parts.append(self.formatException(record.exc_info))
+        return " ".join(str(part) for part in parts)
+
+
 def setup_logging_redaction() -> None:
     """Register the RedactingLoggingFilter on all active log handlers."""
 
     redact_filter = RedactingLoggingFilter()
     root_logger = logging.getLogger()
     root_logger.addFilter(redact_filter)
+    for handler in root_logger.handlers:
+        handler.addFilter(redact_filter)
 
     # Also explicitly add to other loggers to ensure they are filtered
-    for logger_name in ["uvicorn", "uvicorn.access", "uvicorn.error", "app", "audit"]:
-        logging.getLogger(logger_name).addFilter(redact_filter)
+    for logger_name in [
+        "uvicorn",
+        "uvicorn.access",
+        "uvicorn.error",
+        "app",
+        "app.http",
+        "app.workflow",
+        "audit",
+    ]:
+        logger = logging.getLogger(logger_name)
+        logger.addFilter(redact_filter)
+        for handler in logger.handlers:
+            handler.addFilter(redact_filter)
+
+
+def setup_structured_logging(*, log_format: str = "pretty") -> None:
+    """Apply an application formatter to currently configured log handlers."""
+
+    formatter: logging.Formatter
+    if log_format == "json":
+        formatter = StructuredLogFormatter()
+    else:
+        formatter = HumanReadableLogFormatter()
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    handlers = root_logger.handlers or [logging.StreamHandler()]
+    if not root_logger.handlers:
+        root_logger.addHandler(handlers[0])
+    for handler in handlers:
+        handler.setFormatter(formatter)
+    for logger_name in ["app", "app.http", "app.workflow", "audit"]:
+        logging.getLogger(logger_name).setLevel(logging.INFO)

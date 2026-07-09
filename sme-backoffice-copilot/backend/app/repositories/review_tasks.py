@@ -63,6 +63,24 @@ class ReviewTaskRepository(BaseRepository[ReviewTask]):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    async def count_for_tenant(
+        self,
+        *,
+        tenant_id: UUID,
+        status_filter: ReviewTaskStatus | None = None,
+        task_type: ReviewTaskType | None = None,
+    ) -> int:
+        """Return the number of review tasks for one tenant/filter."""
+
+        base_statement = self._base_tenant_statement(
+            tenant_id=tenant_id,
+            status_filter=status_filter,
+            task_type=task_type,
+        )
+        count_statement = select(func.count()).select_from(base_statement.subquery())
+        total_result = await self.session.execute(count_statement)
+        return total_result.scalar_one()
+
     def _base_tenant_statement(
         self,
         *,

@@ -397,21 +397,20 @@ Goal: replace skeleton placeholders with the actual rule-based category classifi
 
 ## Phase 11 — Observability and operations
 
-
 Goal: make the system debuggable and operable.
 
-- [ ] Add structured logging.
-- [ ] Add request correlation IDs.
-- [ ] Add workflow correlation IDs.
-- [ ] Add agent step metrics.
-- [ ] Track latency per endpoint.
-- [ ] Track latency per agent.
-- [ ] Track cost per model call.
-- [ ] Track retry and failure counts.
-- [ ] Track review queue size.
-- [ ] Track correction rate.
-- [ ] Add basic dashboard for local metrics or logs.
-- [ ] Define alerting candidates for production.
+- [x] Add structured logging.
+- [x] Add request correlation IDs.
+- [x] Add workflow correlation IDs.
+- [x] Add agent step metrics.
+- [x] Track latency per endpoint.
+- [x] Track latency per agent.
+- [x] Track cost per model call.
+- [x] Track retry and failure counts.
+- [x] Track review queue size.
+- [x] Track correction rate.
+- [x] Add basic dashboard for local metrics or logs.
+- [x] Define alerting candidates for production.
 
 ## Phase 12 — Production readiness
 

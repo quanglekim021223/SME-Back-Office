@@ -158,6 +158,32 @@ export type ReviewTaskCorrectionResponse = {
   audit_event_id: string;
 };
 
+export type AggregateMetricResponse = {
+  count: number;
+  failure_count: number;
+  retry_count: number;
+  avg_duration_ms: number;
+  max_duration_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_cost: string;
+};
+
+export type LocalMetricsResponse = {
+  endpoint_latency: Record<string, AggregateMetricResponse>;
+  agent_steps: Record<string, AggregateMetricResponse>;
+  provider_calls: Record<string, AggregateMetricResponse>;
+  retry_counts: Record<string, number>;
+  failure_counts: Record<string, number>;
+  review_queue_size: Record<string, number>;
+  review_actions: Record<string, number>;
+  correction_rate: {
+    correction_count: number;
+    review_action_count: number;
+    rate: number;
+  };
+};
+
 export class ApiClientError extends Error {
   readonly status: number;
   readonly code: string;
@@ -331,6 +357,10 @@ export function correctReconciliation(
     `/review-tasks/${reviewTaskId}/correct-reconciliation`,
     correction,
   );
+}
+
+export function getLocalMetrics() {
+  return apiGet<LocalMetricsResponse>("/ops/metrics");
 }
 
 // ── Invoice types ────────────────────────────────────────────────────────────

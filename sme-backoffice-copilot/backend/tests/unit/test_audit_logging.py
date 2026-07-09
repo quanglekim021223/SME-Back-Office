@@ -8,14 +8,12 @@ These tests verify that:
 
 from __future__ import annotations
 
+import json
 import logging
 from unittest.mock import patch
 from uuid import uuid4
 
-import pytest
-
 from app.services.audit import AuditEvent, AuditService
-
 
 # ---------------------------------------------------------------------------
 # AuditEvent.as_dict()
@@ -195,7 +193,6 @@ class TestAuditLogPIIGuard:
 
     def test_audit_dict_does_not_contain_raw_financial_data(self):
         """Extra fields should never carry extracted invoice amounts or raw OCR."""
-        service = AuditService()
         event = AuditEvent(
             event="document.uploaded",
             tenant_id=str(uuid4()),
@@ -253,3 +250,60 @@ class TestRedactingLoggingFilter:
         assert log_filter.filter(record)
         assert record.msg == "User email was [EMAIL_REDACTED]"
 
+    def test_structured_formatter_outputs_json_fields(self):
+        from app.observability.logging_filter import StructuredLogFormatter
+
+        record = logging.LogRecord(
+            name="app.http",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=10,
+            msg="http.request.completed",
+            args=(),
+            exc_info=None,
+        )
+        record.request_id = "req-123"
+        record.correlation_id = "corr-123"
+        record.duration_ms = 12.5
+
+        payload = json.loads(StructuredLogFormatter().format(record))
+
+        assert payload["logger"] == "app.http"
+        assert payload["message"] == "http.request.completed"
+        assert payload["request_id"] == "req-123"
+        assert payload["correlation_id"] == "corr-123"
+        assert payload["duration_ms"] == 12.5
+
+    def test_human_readable_formatter_outputs_compact_fields(self):
+        from app.observability.logging_filter import HumanReadableLogFormatter
+
+        record = logging.LogRecord(
+            name="app.http",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=10,
+            msg="http.request.completed",
+            args=(),
+            exc_info=None,
+        )
+        record.request_id = "req-123"
+        record.correlation_id = "corr-123"
+        record.duration_ms = 12.5
+
+        output = HumanReadableLogFormatter().format(record)
+
+        assert "app.http http.request.completed" in output
+        assert "request_id=req-123" in output
+        assert "correlation_id=corr-123" in output
+        assert "duration_ms=12.5" in output
+
+    def test_structured_logging_enables_app_info_logs(self):
+        from app.observability.logging_filter import setup_structured_logging
+
+        previous_level = logging.getLogger("app.http").level
+        setup_structured_logging()
+
+        try:
+            assert logging.getLogger("app.http").isEnabledFor(logging.INFO)
+        finally:
+            logging.getLogger("app.http").setLevel(previous_level)

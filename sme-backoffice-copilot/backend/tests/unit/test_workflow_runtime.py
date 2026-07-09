@@ -7,6 +7,7 @@ from app.models.workflow import (
     WorkflowRun,
     WorkflowRunStatus,
 )
+from app.observability.metrics import metrics_registry
 from app.workflows import (
     AgentHandoffEnvelope,
     AgentRunResult,
@@ -73,6 +74,7 @@ def test_start_workflow_persists_running_workflow_state() -> None:
 
 
 def test_record_agent_step_persists_step_execution_and_updates_state() -> None:
+    metrics_registry.reset()
     persistence = FakeWorkflowRuntimePersistence()
     runtime = WorkflowRuntimeService(persistence)
     state = create_state()
@@ -107,6 +109,10 @@ def test_record_agent_step_persists_step_execution_and_updates_state() -> None:
     assert workflow_run.current_agent == "document_intake"
     assert workflow_run.state is not None
     assert workflow_run.state["completed_agents"] == ["document_intake"]
+    snapshot = metrics_registry.snapshot()
+    metric = snapshot["agent_steps"]["document_intake:succeeded"]
+    assert metric["count"] == 1
+    assert metric["avg_duration_ms"] == 12.0
 
 
 def test_record_handoff_persists_envelope_and_updates_routing_state() -> None:
@@ -158,6 +164,7 @@ def test_record_handoff_persists_envelope_and_updates_routing_state() -> None:
 
 
 def test_request_retry_tracks_counts_and_keeps_workflow_running() -> None:
+    metrics_registry.reset()
     persistence = FakeWorkflowRuntimePersistence()
     runtime = WorkflowRuntimeService(persistence)
     state = create_state(max_retries=2)
@@ -185,9 +192,12 @@ def test_request_retry_tracks_counts_and_keeps_workflow_running() -> None:
     assert workflow_run.status == WorkflowRunStatus.RUNNING.value
     assert state.status == WorkflowStateStatus.RUNNING
     assert workflow_run.current_agent == "totals_extractor"
+    snapshot = metrics_registry.snapshot()
+    assert snapshot["retry_counts"]["agent:totals_extractor"] == 2
 
 
 def test_request_retry_dead_letters_after_retry_budget_is_exhausted() -> None:
+    metrics_registry.reset()
     persistence = FakeWorkflowRuntimePersistence()
     runtime = WorkflowRuntimeService(persistence)
     state = create_state(max_retries=1)
@@ -217,6 +227,9 @@ def test_request_retry_dead_letters_after_retry_budget_is_exhausted() -> None:
     assert state.stage == WorkflowStage.FAILED
     assert workflow_run.state is not None
     assert workflow_run.state["status"] == WorkflowStateStatus.DEAD_LETTERED.value
+    snapshot = metrics_registry.snapshot()
+    assert snapshot["retry_counts"]["agent:qa_validator"] == 2
+    assert snapshot["failure_counts"]["retry_exhausted:qa_validator"] == 1
 
 
 def test_update_workflow_status_and_mark_failed_sync_durable_state() -> None:

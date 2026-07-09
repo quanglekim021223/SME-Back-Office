@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 
+from app.observability.metrics import metrics_registry
 from app.providers import (
     LLMGenerationRequest,
     LLMMessage,
@@ -43,6 +44,7 @@ class SlowMockLLMProvider(MockLLMProvider):
 
 @pytest.mark.asyncio
 async def test_provider_runtime_routes_mock_llm_with_cost_tracking() -> None:
+    metrics_registry.reset()
     routing_config = build_default_provider_routing_config(
         llm_input_cost_per_1k_tokens=Decimal("0.0100"),
         llm_output_cost_per_1k_tokens=Decimal("0.0200"),
@@ -80,6 +82,14 @@ async def test_provider_runtime_routes_mock_llm_with_cost_tracking() -> None:
     assert invocation.cost.output_tokens == invocation.result.output_tokens
     assert invocation.cost.total_cost > Decimal("0")
     assert invocation.cost.currency == "USD"
+    snapshot = metrics_registry.snapshot()
+    metric = snapshot["provider_calls"][
+        "invoice_metadata_extraction:mock_llm:mock-llm"
+    ]
+    assert metric["count"] == 1
+    assert metric["input_tokens"] == invocation.cost.input_tokens
+    assert metric["output_tokens"] == invocation.cost.output_tokens
+    assert metric["total_cost"] == str(invocation.cost.total_cost)
 
 
 @pytest.mark.asyncio
@@ -137,6 +147,7 @@ async def test_provider_runtime_retries_transient_provider_failure() -> None:
 
 @pytest.mark.asyncio
 async def test_provider_runtime_raises_after_retry_exhaustion() -> None:
+    metrics_registry.reset()
     routing_config = build_default_provider_routing_config(max_retries=1)
     runtime = ProviderRuntime(routing_config)
     provider = FlakyMockLLMProvider(failures_before_success=3)
@@ -158,6 +169,13 @@ async def test_provider_runtime_raises_after_retry_exhaustion() -> None:
         )
 
     assert provider.calls == 2
+    snapshot = metrics_registry.snapshot()
+    metric = snapshot["provider_calls"]["invoice_table_extraction:mock_llm:mock-llm"]
+    assert metric["count"] == 1
+    assert metric["failure_count"] == 1
+    assert metric["retry_count"] == 1
+    assert snapshot["retry_counts"]["provider:mock_llm"] == 1
+    assert snapshot["failure_counts"]["provider:mock_llm"] == 1
 
 
 @pytest.mark.asyncio

@@ -164,6 +164,7 @@ async def upload_document(
             content=content,
             media_type=media_type,
             document_type=document_type,
+            correlation_id=getattr(request.state, "correlation_id", None),
         )
     except DuplicateDocumentError as exc:
         raise APIError(

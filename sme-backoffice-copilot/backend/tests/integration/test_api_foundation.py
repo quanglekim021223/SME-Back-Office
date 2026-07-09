@@ -14,8 +14,9 @@ from app.api.dependencies import (
 )
 from app.api.responses import APIError
 from app.core.auth import Permission, Principal
-from app.core.middleware import CORRELATION_ID_HEADER
+from app.core.middleware import CORRELATION_ID_HEADER, REQUEST_ID_HEADER
 from app.core.tenant import TenantContext
+from app.observability.metrics import metrics_registry
 
 pytestmark = pytest.mark.integration
 
@@ -35,6 +36,49 @@ def test_correlation_id_reuses_incoming_header(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.headers[CORRELATION_ID_HEADER] == "test-correlation-id"
+
+
+def test_request_id_is_generated_for_responses(client: TestClient) -> None:
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.headers[REQUEST_ID_HEADER]
+
+
+def test_request_id_reuses_incoming_header(client: TestClient) -> None:
+    response = client.get(
+        "/health",
+        headers={REQUEST_ID_HEADER: "test-request-id"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers[REQUEST_ID_HEADER] == "test-request-id"
+
+
+def test_endpoint_latency_metrics_are_recorded(client: TestClient) -> None:
+    metrics_registry.reset()
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    snapshot = metrics_registry.snapshot()
+    assert snapshot["endpoint_latency"]["GET /health 200"]["count"] == 1
+
+
+def test_endpoint_failure_metrics_are_recorded(app: FastAPI) -> None:
+    metrics_registry.reset()
+
+    @app.get("/test-unhandled-error")
+    async def test_unhandled_error() -> None:
+        raise RuntimeError("boom")
+
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.get("/test-unhandled-error")
+
+    assert response.status_code == 500
+    snapshot = metrics_registry.snapshot()
+    assert snapshot["endpoint_latency"]["GET /test-unhandled-error 500"]["count"] == 1
+    assert snapshot["failure_counts"]["endpoint:GET /test-unhandled-error"] == 1
 
 
 def test_cors_preflight_allows_frontend_upload_request(
@@ -214,4 +258,37 @@ def test_authorization_policy_placeholder_rejects_missing_permission(
         "code": "permission_denied",
         "message": "Permission denied.",
         "details": {"permission": "read:tenant"},
+    }
+
+
+def test_ops_metrics_endpoint_returns_local_metrics(client: TestClient) -> None:
+    metrics_registry.reset()
+    metrics_registry.record_review_queue_size(
+        tenant_id="tenant-1",
+        status="open",
+        task_type=None,
+        size=4,
+    )
+    metrics_registry.record_review_action(
+        task_type="classification",
+        action="correct_classification",
+    )
+
+    response = client.get(
+        "/api/v1/ops/metrics",
+        headers={
+            USER_ID_HEADER: "user_123",
+            USER_ROLE_HEADER: "member",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["review_queue_size"][
+        "tenant:tenant-1:status:open:type:all"
+    ] == 4
+    assert payload["correction_rate"] == {
+        "correction_count": 1,
+        "review_action_count": 1,
+        "rate": 1.0,
     }

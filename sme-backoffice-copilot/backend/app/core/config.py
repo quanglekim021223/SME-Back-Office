@@ -44,6 +44,13 @@ class TracingBackendType(StrEnum):
     LANGSMITH = "langsmith"
 
 
+class LogFormat(StrEnum):
+    """Supported application log formats."""
+
+    PRETTY = "pretty"
+    JSON = "json"
+
+
 class Settings(BaseSettings):
     """Environment-backed settings shared by backend infrastructure."""
 
@@ -51,6 +58,7 @@ class Settings(BaseSettings):
     app_env: str = "local"
     app_debug: bool = False
     app_api_prefix: str = "/api/v1"
+    log_format: LogFormat = LogFormat.PRETTY
     database_url: str = "postgresql+asyncpg://sme:sme@localhost:5433/sme_backoffice"
     database_echo: bool = False
     upload_storage_root: str = "../data/uploads"

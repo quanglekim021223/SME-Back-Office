@@ -51,10 +51,10 @@ and applies the initial local release gate before real AI providers are enabled.
 The invoice extraction pipeline can run in two orchestration modes controlled
 by `WORKFLOW_ORCHESTRATION_MODE` in `.env`:
 
-| Mode | Value | Description |
-|---|---|---|
-| Custom (default) | `custom` | Sequential Python-native orchestration. No extra dependencies. |
-| LangGraph | `langgraph` | Graph-based orchestration using LangGraph `StateGraph`. Requires `langgraph` installed. |
+| Mode             | Value       | Description                                                                             |
+| ---------------- | ----------- | --------------------------------------------------------------------------------------- |
+| Custom (default) | `custom`    | Sequential Python-native orchestration. No extra dependencies.                          |
+| LangGraph        | `langgraph` | Graph-based orchestration using LangGraph `StateGraph`. Requires `langgraph` installed. |
 
 To switch to LangGraph mode:
 
@@ -113,11 +113,11 @@ creation) without ever exposing raw financial or customer data.
 
 Configure the backend via `TRACING_BACKEND` in `.env`:
 
-| Value | Backend |
-|---|---|
-| `disabled` (default) | No events emitted. Zero overhead. |
-| `langfuse` | Exports to a Langfuse instance (self-hosted or cloud). |
-| `langsmith` | Exports to LangSmith cloud. |
+| Value                | Backend                                                |
+| -------------------- | ------------------------------------------------------ |
+| `disabled` (default) | No events emitted. Zero overhead.                      |
+| `langfuse`           | Exports to a Langfuse instance (self-hosted or cloud). |
+| `langsmith`          | Exports to LangSmith cloud.                            |
 
 #### Langfuse (local self-host)
 
@@ -165,20 +165,20 @@ forwarded as-is.
 
 ### Traced events
 
-| Event name | Emitted by | Key safe fields |
-|---|---|---|
-| `ocr.call.started` | `DocumentLayoutAnalyzerAgent` | `provider_name`, `document_id` |
-| `ocr.call.finished` | `DocumentLayoutAnalyzerAgent` | `provider_name`, `text_block_count`, `duration_ms` |
-| `ocr.call.failed` | `DocumentLayoutAnalyzerAgent` | `error_code`, `provider_name` |
-| `llm.call.started` | `MetadataExtractorAgent` / `TableExtractorAgent` / `TotalsExtractorAgent` | `agent_name`, `schema_name`, `ocr_text_chars` |
-| `llm.call.finished` | same | `agent_name`, `model_name`, `attempts`, `input_tokens`, `output_tokens` |
-| `llm.call.failed` | same | `agent_name`, `error_code`, `error_type` |
-| `deterministic_validators.finished` | `QAValidationAgent` | `signal_codes`, `total_signal_count` |
-| `qa.error_signals.built` | `QAValidationAgent` | `signal_codes`, `correction_signal_count`, `blocking_signal_count` |
-| `qa.correction_routing` | `QAValidationAgent` | `target_agents`, `signal_codes`, `handoff_count` |
-| `qa.review_required` | `QAValidationAgent` | `signal_codes`, `signal_count` |
-| `qa.validation_passed` | `QAValidationAgent` | `status` |
-| `review_task.created` | `WorkflowOutputPersistenceService` | `task_type`, `reason_code`, `priority`, `source_agent`, `has_invoice_id` |
+| Event name                          | Emitted by                                                                | Key safe fields                                                          |
+| ----------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `ocr.call.started`                  | `DocumentLayoutAnalyzerAgent`                                             | `provider_name`, `document_id`                                           |
+| `ocr.call.finished`                 | `DocumentLayoutAnalyzerAgent`                                             | `provider_name`, `text_block_count`, `duration_ms`                       |
+| `ocr.call.failed`                   | `DocumentLayoutAnalyzerAgent`                                             | `error_code`, `provider_name`                                            |
+| `llm.call.started`                  | `MetadataExtractorAgent` / `TableExtractorAgent` / `TotalsExtractorAgent` | `agent_name`, `schema_name`, `ocr_text_chars`                            |
+| `llm.call.finished`                 | same                                                                      | `agent_name`, `model_name`, `attempts`, `input_tokens`, `output_tokens`  |
+| `llm.call.failed`                   | same                                                                      | `agent_name`, `error_code`, `error_type`                                 |
+| `deterministic_validators.finished` | `QAValidationAgent`                                                       | `signal_codes`, `total_signal_count`                                     |
+| `qa.error_signals.built`            | `QAValidationAgent`                                                       | `signal_codes`, `correction_signal_count`, `blocking_signal_count`       |
+| `qa.correction_routing`             | `QAValidationAgent`                                                       | `target_agents`, `signal_codes`, `handoff_count`                         |
+| `qa.review_required`                | `QAValidationAgent`                                                       | `signal_codes`, `signal_count`                                           |
+| `qa.validation_passed`              | `QAValidationAgent`                                                       | `status`                                                                 |
+| `review_task.created`               | `WorkflowOutputPersistenceService`                                        | `task_type`, `reason_code`, `priority`, `source_agent`, `has_invoice_id` |
 
 ## Documentation
 
@@ -187,6 +187,7 @@ forwarded as-is.
 - [Architecture](docs/architecture.md)
 - [Agent architecture](docs/agent_architecture.md)
 - [Security and privacy conventions](docs/security_privacy.md)
+- [Operations alerting draft](docs/operations_alerting.md)
 - [Implementation plan](docs/implementation_plan.md)
 - [Data model](docs/data_model.md)
 - [Evaluation strategy](docs/evaluation.md)
