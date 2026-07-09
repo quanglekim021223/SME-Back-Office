@@ -408,9 +408,9 @@ Goal: make the system debuggable and operable.
 - [x] Track latency per agent.
 - [x] Track cost per model call.
 - [x] Track retry and failure counts.
-- [ ] Track review queue size.
-- [ ] Track correction rate.
-- [ ] Add basic dashboard for local metrics or logs.
+- [x] Track review queue size.
+- [x] Track correction rate.
+- [x] Add basic dashboard for local metrics or logs.
 - [ ] Define alerting candidates for production.
 
 ## Phase 12 — Production readiness

@@ -33,6 +33,7 @@ from app.models.operations import (
     ReviewTaskStatus,
     ReviewTaskType,
 )
+from app.observability.metrics import metrics_registry
 from app.repositories.review_tasks import ReviewTaskRepository
 from app.review import (
     ReviewAction,
@@ -167,6 +168,9 @@ class ReviewTaskDecisionPersistence(Protocol):
 
     def add_reconciliation(self, reconciliation: Reconciliation) -> Reconciliation:
         """Stage a replacement reconciliation for insertion."""
+
+    def add_review_task(self, review_task: ReviewTask) -> ReviewTask:
+        """Stage a follow-up review task for insertion."""
 
     async def flush(self) -> None:
         """Flush staged persistence changes."""
@@ -332,6 +336,22 @@ class ReviewTaskQueryService:
             task_type=task_type,
             limit=limit,
             offset=offset,
+        )
+        open_total = await self.repository.count_for_tenant(
+            tenant_id=tenant_id,
+            status_filter=ReviewTaskStatus.OPEN,
+        )
+        metrics_registry.record_review_queue_size(
+            tenant_id=str(tenant_id),
+            status=ReviewTaskStatus.OPEN.value,
+            task_type=None,
+            size=open_total,
+        )
+        metrics_registry.record_review_queue_size(
+            tenant_id=str(tenant_id),
+            status=status_filter.value if status_filter else "all",
+            task_type=task_type.value if task_type else None,
+            size=total,
         )
         return ReviewTaskListResult(
             tasks=tasks,
@@ -573,6 +593,10 @@ class ReviewTaskDecisionService:
         self.persistence.add_audit_event(audit_event)
         await self.persistence.flush()
         await self.persistence.commit()
+        metrics_registry.record_review_action(
+            task_type=task.task_type,
+            action=action.value,
+        )
 
         return ReviewTaskDecisionResult(
             action=action,
@@ -687,6 +711,10 @@ class ReviewTaskDecisionService:
         self.persistence.add_audit_event(audit_event)
         await self.persistence.flush()
         await self.persistence.commit()
+        metrics_registry.record_review_action(
+            task_type=task.task_type,
+            action=action.value,
+        )
 
         return ReviewTaskCorrectionResult(
             action=action,

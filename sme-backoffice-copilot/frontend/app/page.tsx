@@ -5,7 +5,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   formatApiError,
+  getLocalMetrics,
   listReviewTasks,
+  type LocalMetricsResponse,
   type ReviewTaskSummaryResponse,
 } from "./_lib/api-client";
 
@@ -95,12 +97,19 @@ export default function HomePage() {
     [],
   );
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const [opsMetrics, setOpsMetrics] = useState<LocalMetricsResponse | null>(
+    null,
+  );
+  const [opsError, setOpsError] = useState<string | null>(null);
   const [isLoadingReviews, setIsLoadingReviews] = useState(true);
+  const [isLoadingOps, setIsLoadingOps] = useState(true);
 
   useEffect(() => {
     async function loadReviewSummary() {
       setIsLoadingReviews(true);
+      setIsLoadingOps(true);
       setReviewError(null);
+      setOpsError(null);
 
       try {
         const response = await listReviewTasks({ limit: 100 });
@@ -109,6 +118,15 @@ export default function HomePage() {
         setReviewError(formatApiError(error));
       } finally {
         setIsLoadingReviews(false);
+      }
+
+      try {
+        const response = await getLocalMetrics();
+        setOpsMetrics(response);
+      } catch (error) {
+        setOpsError(formatApiError(error));
+      } finally {
+        setIsLoadingOps(false);
       }
     }
 
@@ -125,24 +143,54 @@ export default function HomePage() {
     return reviewTasks.filter((task) => task.priority === "urgent").length;
   }, [reviewTasks]);
 
+  const observedQueueSize = useMemo(() => {
+    return findOpenReviewQueueSize(opsMetrics) ?? unresolvedCount;
+  }, [opsMetrics, unresolvedCount]);
+
+  const correctionRate = opsMetrics?.correction_rate ?? null;
+  const correctionActionCount = correctionRate?.review_action_count ?? 0;
+  const correctionTone =
+    correctionRate && correctionRate.rate >= 0.25 ? "warning" : "positive";
+
   const metrics: DashboardMetric[] = [
     cashPosition,
     ...inflowOutflow,
     {
-      label: "Unresolved items",
-      value: isLoadingReviews ? "…" : String(unresolvedCount),
+      label: "Review queue",
+      value: isLoadingReviews || isLoadingOps ? "…" : String(observedQueueSize),
       trend:
-        reviewError !== null
-          ? "Review API issue"
+        reviewError !== null || opsError !== null
+          ? "Metrics issue"
           : urgentCount > 0
             ? `${urgentCount} urgent`
-            : "Live count",
-      tone: urgentCount > 0 || reviewError !== null ? "warning" : "neutral",
+            : "Live ops metric",
+      tone:
+        urgentCount > 0 || reviewError !== null || opsError !== null
+          ? "warning"
+          : "neutral",
       caption:
-        reviewError !== null
-          ? "Could not load review task count from the backend."
+        reviewError !== null || opsError !== null
+          ? "Could not load the complete human review queue metric."
           : "Open or in-progress review tasks waiting for human decision.",
-      source: reviewError ?? "Live review API",
+      source: reviewError ?? opsError ?? "Live ops metrics",
+    },
+    {
+      label: "Correction rate",
+      value: isLoadingOps
+        ? "…"
+        : correctionActionCount > 0 && correctionRate
+          ? formatPercent(correctionRate.rate)
+          : "0%",
+      trend:
+        opsError !== null
+          ? "Metrics issue"
+          : correctionActionCount > 0
+            ? `${correctionRate?.correction_count ?? 0}/${correctionActionCount} corrected`
+            : "No decisions yet",
+      tone: opsError !== null ? "warning" : correctionTone,
+      caption:
+        "Share of human review actions that required corrected data instead of approve/reject.",
+      source: opsError ?? "Live ops metrics",
     },
   ];
 
@@ -153,7 +201,10 @@ export default function HomePage() {
       label: "Review API",
       value: reviewError ? "Needs attention" : "Connected",
     },
-    { label: "Workflow", value: "Skeleton ready" },
+    {
+      label: "Ops metrics",
+      value: opsError ? "Needs attention" : "Connected",
+    },
   ];
 
   return (
@@ -284,4 +335,19 @@ function DashboardReadinessItem({
       <strong>{value}</strong>
     </div>
   );
+}
+
+function findOpenReviewQueueSize(metrics: LocalMetricsResponse | null) {
+  if (!metrics) {
+    return null;
+  }
+
+  const entry = Object.entries(metrics.review_queue_size).find(([key]) =>
+    key.includes(":status:open:type:all"),
+  );
+  return entry?.[1] ?? null;
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
 }

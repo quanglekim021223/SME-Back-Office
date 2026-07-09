@@ -53,3 +53,36 @@ def test_metrics_registry_records_provider_cost_retries_and_failures() -> None:
     assert metric["total_cost"] == "0.0015"
     assert snapshot["retry_counts"]["provider:openai"] == 1
     assert snapshot["failure_counts"]["provider:openai"] == 1
+
+
+def test_metrics_registry_records_review_queue_size_and_correction_rate() -> None:
+    registry = InMemoryMetricsRegistry()
+
+    registry.record_review_queue_size(
+        tenant_id="tenant-1",
+        status="open",
+        task_type=None,
+        size=7,
+    )
+    registry.record_review_action(
+        task_type="extraction",
+        action="approve_proposal",
+    )
+    registry.record_review_action(
+        task_type="classification",
+        action="correct_classification",
+    )
+
+    snapshot = registry.snapshot()
+    assert snapshot["review_queue_size"][
+        "tenant:tenant-1:status:open:type:all"
+    ] == 7
+    assert snapshot["review_actions"] == {
+        "classification:correct_classification": 1,
+        "extraction:approve_proposal": 1,
+    }
+    assert snapshot["correction_rate"] == {
+        "correction_count": 1,
+        "review_action_count": 2,
+        "rate": 0.5,
+    }

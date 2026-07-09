@@ -68,6 +68,8 @@ class InMemoryMetricsRegistry:
         self._provider_calls: dict[str, AggregateMetric] = {}
         self._retry_counts: dict[str, int] = {}
         self._failure_counts: dict[str, int] = {}
+        self._review_queue_size: dict[str, int] = {}
+        self._review_actions: dict[str, int] = {}
 
     def reset(self) -> None:
         """Clear all metrics, primarily for tests."""
@@ -78,6 +80,8 @@ class InMemoryMetricsRegistry:
             self._provider_calls.clear()
             self._retry_counts.clear()
             self._failure_counts.clear()
+            self._review_queue_size.clear()
+            self._review_actions.clear()
 
     def record_endpoint(
         self,
@@ -180,10 +184,46 @@ class InMemoryMetricsRegistry:
                     self._failure_counts.get(f"provider:{provider_name}", 0) + 1
                 )
 
+    def record_review_queue_size(
+        self,
+        *,
+        tenant_id: str,
+        status: str,
+        task_type: str | None,
+        size: int,
+    ) -> None:
+        """Record the latest observed human review queue size."""
+
+        task_type_label = task_type or "all"
+        key = f"tenant:{tenant_id}:status:{status}:type:{task_type_label}"
+        with self._lock:
+            self._review_queue_size[key] = size
+
+    def record_review_action(
+        self,
+        *,
+        task_type: str,
+        action: str,
+    ) -> None:
+        """Record one resolved human review action."""
+
+        key = f"{task_type}:{action}"
+        with self._lock:
+            self._review_actions[key] = self._review_actions.get(key, 0) + 1
+
     def snapshot(self) -> dict[str, object]:
         """Return a stable snapshot of local metrics."""
 
         with self._lock:
+            correction_count = sum(
+                count
+                for key, count in self._review_actions.items()
+                if ":correct_" in key
+            )
+            review_action_count = sum(self._review_actions.values())
+            correction_rate = (
+                correction_count / review_action_count if review_action_count else 0.0
+            )
             return {
                 "endpoint_latency": {
                     key: metric.as_dict()
@@ -199,6 +239,13 @@ class InMemoryMetricsRegistry:
                 },
                 "retry_counts": dict(sorted(self._retry_counts.items())),
                 "failure_counts": dict(sorted(self._failure_counts.items())),
+                "review_queue_size": dict(sorted(self._review_queue_size.items())),
+                "review_actions": dict(sorted(self._review_actions.items())),
+                "correction_rate": {
+                    "correction_count": correction_count,
+                    "review_action_count": review_action_count,
+                    "rate": round(correction_rate, 4),
+                },
             }
 
 
