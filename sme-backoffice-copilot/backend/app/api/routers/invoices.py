@@ -90,9 +90,6 @@ async def get_invoice_detail(
     ],
     repository: Annotated[InvoiceRepository, Depends(get_invoice_repository)],
 ) -> InvoiceDetailResponse:
-    """Get detailed information for a single invoice including its line items."""
-
-    del principal
     tenant_id = resolve_tenant_uuid(tenant_context)
 
     invoice = await repository.get_for_tenant_with_line_items(

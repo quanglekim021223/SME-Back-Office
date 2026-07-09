@@ -43,6 +43,11 @@ from app.review import (
     build_reconciliation_supersession_plan,
     mark_record_superseded,
 )
+from app.services.post_extraction import (
+    InProcessInvoiceApprovedPublisher,
+    InvoiceApproved,
+    InvoiceApprovedEventPublisher,
+)
 from app.validation import parse_decimal, parse_iso_date
 
 
@@ -281,6 +286,12 @@ class SqlAlchemyReviewTaskDecisionPersistence:
         self.session.add(reconciliation)
         return reconciliation
 
+    def add_review_task(self, review_task: ReviewTask) -> ReviewTask:
+        """Stage a follow-up review task for insertion."""
+
+        self.session.add(review_task)
+        return review_task
+
     async def flush(self) -> None:
         """Flush staged changes."""
 
@@ -346,15 +357,29 @@ class ReviewTaskQueryService:
 class ReviewTaskDecisionService:
     """Service for approving and rejecting review task proposals."""
 
-    def __init__(self, persistence: ReviewTaskDecisionPersistence) -> None:
+    def __init__(
+        self,
+        persistence: ReviewTaskDecisionPersistence,
+        *,
+        invoice_approved_publisher: InvoiceApprovedEventPublisher | None = None,
+    ) -> None:
         self.persistence = persistence
+        self.invoice_approved_publisher = (
+            invoice_approved_publisher
+            or InProcessInvoiceApprovedPublisher(persistence)
+        )
 
     @classmethod
     def from_session(cls, session: AsyncSession) -> ReviewTaskDecisionService:
         """Create the service from a SQLAlchemy session."""
 
+        persistence = SqlAlchemyReviewTaskDecisionPersistence(session)
         return cls(
-            persistence=SqlAlchemyReviewTaskDecisionPersistence(session),
+            persistence=persistence,
+            invoice_approved_publisher=InProcessInvoiceApprovedPublisher(
+                persistence,
+                enable_llm_fallback=True,
+            ),
         )
 
     async def approve_review_task(
@@ -509,6 +534,11 @@ class ReviewTaskDecisionService:
             "resource": review_resource_audit_state(resource),
         }
         resource_status = apply_resource_decision(resource=resource, action=action)
+        await self._publish_invoice_approved_if_needed(
+            resource=resource,
+            action=action,
+            source_task=task,
+        )
 
         now = utc_now()
         task.status = ReviewTaskStatus.RESOLVED.value
@@ -602,6 +632,15 @@ class ReviewTaskDecisionService:
         mark_record_superseded(cast(SupersedableRecord, resource.record), plan)
         add_replacement_resource(self.persistence, replacement_resource)
         update_review_task_target(task=task, replacement_resource=replacement_resource)
+        await self._publish_invoice_approved_if_needed(
+            resource=ReviewableResource(
+                resource_type=resource.resource_type,
+                resource_id=get_resource_id(replacement_resource),
+                record=replacement_resource,
+            ),
+            action=action,
+            source_task=task,
+        )
 
         now = utc_now()
         task.status = ReviewTaskStatus.RESOLVED.value
@@ -727,6 +766,31 @@ class ReviewTaskDecisionService:
             )
         raise UnsupportedReviewActionError(
             "Review task does not link to an approve/reject resource."
+        )
+
+    async def _publish_invoice_approved_if_needed(
+        self,
+        *,
+        resource: ReviewableResource,
+        action: ReviewAction,
+        source_task: ReviewTask,
+    ) -> None:
+        """Emit invoice-approved event after extraction review succeeds."""
+
+        if not isinstance(resource.record, Invoice):
+            return
+        if source_task.task_type != ReviewTaskType.EXTRACTION.value:
+            return
+        if action not in {
+            ReviewAction.APPROVE_PROPOSAL,
+            ReviewAction.CORRECT_EXTRACTION,
+        }:
+            return
+        await self.invoice_approved_publisher.publish_invoice_approved(
+            InvoiceApproved(
+                invoice=resource.record,
+                source_task=source_task,
+            )
         )
 
 

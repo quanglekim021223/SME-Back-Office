@@ -389,11 +389,11 @@ Goal: make tenant and financial data handling safe by design.
 
 Goal: replace skeleton placeholders with the actual rule-based category classifier and deterministic reconciliation match engines.
 
-- [ ] Connect the `rule_based_category_classifier` tool to the `ClassificationAgent` to perform actual classification.
-- [ ] Connect the `deterministic_match_scorer` and candidate generator to the `ReconciliationAgent`.
-- [ ] Wire database queries in the `ReconciliationAgent` to retrieve transaction candidates dynamically for the tenant.
-- [ ] Add end-to-end integration tests for the real classification and reconciliation execution in the LangGraph workflow.
-- [ ] Verify that live classification and reconciliation results display correctly in the human review queue UI.
+- [x] Connect the `rule_based_category_classifier` tool to the `ClassificationAgent` to perform actual classification.
+- [x] Connect the `deterministic_match_scorer` and candidate generator to the `ReconciliationAgent`.
+- [x] Wire database queries in the `ReconciliationAgent` to retrieve transaction candidates dynamically for the tenant.
+- [x] Add end-to-end integration tests for the real classification and reconciliation execution in the LangGraph workflow.
+- [x] Verify that live classification and reconciliation results display correctly in the human review queue UI.
 
 ## Phase 11 — Observability and operations
 

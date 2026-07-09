@@ -85,6 +85,10 @@ export function ReviewTaskDetailClient({
     () => buildWorkflowMetadataView(task?.metadata ?? {}),
     [task?.metadata],
   );
+  const proposalView = useMemo(
+    () => buildProposalView(task, workflowMetadata),
+    [task, workflowMetadata],
+  );
 
   async function runDecision(action: "approve" | "reject") {
     if (!task || actionState === "running") {
@@ -357,77 +361,46 @@ export function ReviewTaskDetailClient({
         <article className="panel-card panel-card-large">
           <div className="card-header">
             <div>
-              <p className="eyebrow">Extracted proposal</p>
-              <h3>Invoice fields ready for review</h3>
+              <p className="eyebrow">{proposalView.eyebrow}</p>
+              <h3>{proposalView.title}</h3>
             </div>
             <span className="status-pill status-pill-muted">
-              {workflowMetadata.assemblyStatus ?? "Draft"}
+              {proposalView.statusLabel}
             </span>
           </div>
 
           <div className="proposal-summary-grid">
-            <ProposalField
-              label="Invoice #"
-              value={workflowMetadata.invoiceNumber}
-            />
-            <ProposalField label="Supplier" value={workflowMetadata.supplier} />
-            <ProposalField label="Customer" value={workflowMetadata.customer} />
-            <ProposalField
-              label="Issue date"
-              value={workflowMetadata.issueDate}
-            />
-            <ProposalField label="Due date" value={workflowMetadata.dueDate} />
-            <ProposalField
-              label="Total"
-              value={formatMoneyDisplay(
-                workflowMetadata.totalAmount,
-                workflowMetadata.currency,
-              )}
-              emphasis
-            />
+            {proposalView.fields.map((field) => (
+              <ProposalField
+                emphasis={field.emphasis}
+                key={field.label}
+                label={field.label}
+                value={field.value}
+              />
+            ))}
           </div>
 
-          <div className="proposal-section">
-            <div className="card-header card-header-compact">
-              <div>
-                <p className="eyebrow">Line items</p>
-                <h4>Extracted table rows</h4>
-              </div>
-              <span className="status-pill status-pill-muted">
-                {workflowMetadata.lineItems.length} rows
-              </span>
+          {proposalView.summary ? (
+            <div className="proposal-section proposal-note">
+              <p className="eyebrow">{proposalView.summaryLabel}</p>
+              <p>{proposalView.summary}</p>
             </div>
-            {workflowMetadata.lineItems.length > 0 ? (
-              <div className="line-items-table-wrap">
-                <table className="compact-data-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Description</th>
-                      <th>Qty</th>
-                      <th>Unit</th>
-                      <th>Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {workflowMetadata.lineItems.map((item, index) => (
-                      <tr key={`${item.description}-${index}`}>
-                        <td>{item.lineNumber ?? index + 1}</td>
-                        <td>{item.description ?? "—"}</td>
-                        <td>{item.quantity ?? "—"}</td>
-                        <td>{item.unitPrice ?? "—"}</td>
-                        <td>{item.lineTotal ?? "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          ) : null}
+
+          {proposalView.chips.length > 0 ? (
+            <div className="proposal-section">
+              <p className="eyebrow">{proposalView.chipLabel}</p>
+              <div className="evidence-ref-list">
+                {proposalView.chips.map((chip, index) => (
+                  <code key={`${chip}-${index}`}>{chip}</code>
+                ))}
               </div>
-            ) : (
-              <p className="muted-copy">
-                No line items were attached to this proposal yet.
-              </p>
-            )}
-          </div>
+            </div>
+          ) : null}
+
+          {proposalView.kind === "extraction" ? (
+            <LineItemsPreview lineItems={workflowMetadata.lineItems} />
+          ) : null}
         </article>
 
         <article className="panel-card">
@@ -548,6 +521,56 @@ function ProposalField({
     >
       <span>{label}</span>
       <strong>{value || "—"}</strong>
+    </div>
+  );
+}
+
+function LineItemsPreview({
+  lineItems,
+}: {
+  lineItems: WorkflowMetadataView["lineItems"];
+}) {
+  return (
+    <div className="proposal-section">
+      <div className="card-header card-header-compact">
+        <div>
+          <p className="eyebrow">Line items</p>
+          <h4>Extracted table rows</h4>
+        </div>
+        <span className="status-pill status-pill-muted">
+          {lineItems.length} rows
+        </span>
+      </div>
+      {lineItems.length > 0 ? (
+        <div className="line-items-table-wrap">
+          <table className="compact-data-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Description</th>
+                <th>Qty</th>
+                <th>Unit</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lineItems.map((item, index) => (
+                <tr key={`${item.description}-${index}`}>
+                  <td>{item.lineNumber ?? index + 1}</td>
+                  <td>{item.description ?? "—"}</td>
+                  <td>{item.quantity ?? "—"}</td>
+                  <td>{item.unitPrice ?? "—"}</td>
+                  <td>{item.lineTotal ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="muted-copy">
+          No line items were attached to this proposal yet.
+        </p>
+      )}
     </div>
   );
 }
@@ -725,6 +748,158 @@ type WorkflowMetadataView = {
     errorMessage: string | null;
   }>;
 };
+
+type ProposalView = {
+  kind: ReviewTaskType;
+  eyebrow: string;
+  title: string;
+  statusLabel: string;
+  summaryLabel: string;
+  summary: string | null;
+  chipLabel: string;
+  chips: string[];
+  fields: Array<{
+    label: string;
+    value: string | null;
+    emphasis?: boolean;
+  }>;
+};
+
+function buildProposalView(
+  task: ReviewTaskDetailResponse | null,
+  workflowMetadata: WorkflowMetadataView,
+): ProposalView {
+  if (task?.task_type === "classification") {
+    return buildClassificationProposalView(task);
+  }
+
+  if (task?.task_type === "reconciliation") {
+    return buildReconciliationProposalView(task);
+  }
+
+  return {
+    kind: "extraction",
+    eyebrow: "Extracted proposal",
+    title: "Invoice fields ready for review",
+    statusLabel: workflowMetadata.assemblyStatus ?? "Draft",
+    summaryLabel: "Reviewer note",
+    summary: null,
+    chipLabel: "Evidence",
+    chips: [],
+    fields: [
+      { label: "Invoice #", value: workflowMetadata.invoiceNumber },
+      { label: "Supplier", value: workflowMetadata.supplier },
+      { label: "Customer", value: workflowMetadata.customer },
+      { label: "Issue date", value: workflowMetadata.issueDate },
+      { label: "Due date", value: workflowMetadata.dueDate },
+      {
+        label: "Total",
+        value: formatMoneyDisplay(
+          workflowMetadata.totalAmount,
+          workflowMetadata.currency,
+        ),
+        emphasis: true,
+      },
+    ],
+  };
+}
+
+function buildClassificationProposalView(
+  task: ReviewTaskDetailResponse,
+): ProposalView {
+  const metadata = task.metadata;
+  const confidence = getDisplayValue(metadata.confidence);
+  const score = getDisplayValue(metadata.score);
+  const matchedKeywords = getArray(metadata.matched_keywords)
+    .map(getDisplayValue)
+    .filter((value): value is string => Boolean(value));
+  const matchedRules = getArray(metadata.matched_rule_ids)
+    .map(getDisplayValue)
+    .filter((value): value is string => Boolean(value));
+
+  return {
+    kind: "classification",
+    eyebrow: "Classification proposal",
+    title: "Accounting category decision",
+    statusLabel: confidence ? `${titleCase(confidence)} confidence` : "Review",
+    summaryLabel: "Rationale",
+    summary: getDisplayValue(metadata.rationale),
+    chipLabel: "Matched signals",
+    chips: [...matchedKeywords, ...matchedRules],
+    fields: [
+      {
+        label: "Category",
+        value: titleCase(getDisplayValue(metadata.proposed_category_code)),
+        emphasis: true,
+      },
+      {
+        label: "Direction",
+        value: titleCase(getDisplayValue(metadata.proposed_direction)),
+      },
+      {
+        label: "Category type",
+        value: titleCase(getDisplayValue(metadata.proposed_category_type)),
+      },
+      { label: "Confidence", value: titleCase(confidence) },
+      { label: "Score", value: score },
+      {
+        label: "Linked invoice",
+        value: task.invoice_id ? shortId(task.invoice_id) : "—",
+      },
+    ],
+  };
+}
+
+function buildReconciliationProposalView(
+  task: ReviewTaskDetailResponse,
+): ProposalView {
+  const metadata = task.metadata;
+  const currency = getDisplayValue(metadata.currency);
+  const invoiceTotal = getDisplayValue(metadata.invoice_total_amount);
+  const transactionTotal = getDisplayValue(metadata.transaction_total_amount);
+  const difference = getDisplayValue(metadata.difference_amount);
+  const reviewReason = getDisplayValue(metadata.review_reason);
+  const candidateCount = getDisplayValue(metadata.candidate_count);
+
+  return {
+    kind: "reconciliation",
+    eyebrow: "Reconciliation proposal",
+    title: "Invoice-to-bank match decision",
+    statusLabel: reviewReason
+      ? (titleCase(reviewReason) ?? "Review")
+      : "Review",
+    summaryLabel: "Match rationale",
+    summary:
+      reviewReason === "awaiting_transaction_match"
+        ? "No bank transaction has been confirmed yet. Review the invoice amount and confirm a manual match or leave this item open for later reconciliation."
+        : getDisplayValue(metadata.rationale),
+    chipLabel: "Match context",
+    chips: task.reconciliation_id
+      ? [`reconciliation:${task.reconciliation_id}`]
+      : [],
+    fields: [
+      {
+        label: "Invoice total",
+        value: formatMoneyDisplay(invoiceTotal, currency),
+        emphasis: true,
+      },
+      {
+        label: "Transaction total",
+        value: formatMoneyDisplay(transactionTotal, currency),
+      },
+      {
+        label: "Difference",
+        value: formatMoneyDisplay(difference, currency),
+      },
+      { label: "Currency", value: currency },
+      {
+        label: "Confidence",
+        value: titleCase(getDisplayValue(metadata.confidence)),
+      },
+      { label: "Candidates", value: candidateCount },
+    ],
+  };
+}
 
 function buildWorkflowMetadataView(
   metadata: Record<string, unknown>,

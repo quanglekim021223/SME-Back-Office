@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models.accounting import ReconciliationAllocation
 from app.models.invoice import Invoice, InvoiceStatus
 from app.repositories.base import TenantScopedRepository
 
@@ -66,7 +67,16 @@ class InvoiceRepository(TenantScopedRepository[Invoice]):
         statement = (
             select(Invoice)
             .where(Invoice.tenant_id == tenant_id, Invoice.id == invoice_id)
-            .options(selectinload(Invoice.line_items))
+            .options(
+                selectinload(Invoice.classification_proposals),
+                selectinload(Invoice.line_items),
+                selectinload(Invoice.reconciliation_allocations).selectinload(
+                    ReconciliationAllocation.reconciliation
+                ),
+                selectinload(Invoice.reconciliation_allocations).selectinload(
+                    ReconciliationAllocation.transaction
+                ),
+            )
         )
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()

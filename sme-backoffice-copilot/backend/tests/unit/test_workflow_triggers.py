@@ -6,6 +6,7 @@ from app.providers import (
     ProviderRuntime,
     build_default_provider_routing_config,
 )
+from app.services.bank_statement_import import BankStatementImportResult
 from app.services.document_events import DocumentIngested
 from app.workflows import OCR_FULL_TEXT_KEY, OCR_RESULT_KEY, WorkflowStateStatus
 from app.workflows.replay import WorkflowReplayRunner
@@ -71,4 +72,88 @@ async def test_document_ingested_publisher_triggers_local_workflow() -> None:
     )
     assert OCR_RESULT_KEY in publisher.last_result.state.scratchpad
     assert OCR_FULL_TEXT_KEY in publisher.last_result.state.scratchpad
+    assert commit_calls == 1
+
+
+async def test_document_ingested_publisher_skips_non_invoice_documents() -> None:
+    event = DocumentIngested(
+        tenant_id=uuid4(),
+        document_id=uuid4(),
+        document_type="bank_statement",
+        content_hash="hash-123",
+        storage_uri="local://tenants/t/documents/d/original/statement.csv",
+        malware_scan_status="not_scanned",
+        local_path="/tmp/statement.csv",
+    )
+    commit_calls = 0
+
+    async def fake_commit() -> None:
+        nonlocal commit_calls
+        commit_calls += 1
+
+    publisher = DocumentIngestedWorkflowPublisher(
+        runner=WorkflowReplayRunner(
+            provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+            llm_provider=MockLLMProvider(),
+            ocr_provider=MockOCRProvider(),
+        ),
+        commit=fake_commit,
+    )
+
+    await publisher.publish_document_ingested(event)
+
+    assert publisher.last_result is None
+    assert publisher.last_materialized_invoice_review is None
+    assert commit_calls == 1
+
+
+async def test_document_ingested_publisher_imports_bank_statement_documents() -> None:
+    event = DocumentIngested(
+        tenant_id=uuid4(),
+        document_id=uuid4(),
+        document_type="bank_statement",
+        content_hash="hash-123",
+        storage_uri="local://tenants/t/documents/d/original/statement.csv",
+        malware_scan_status="not_scanned",
+        local_path="/tmp/statement.csv",
+    )
+    commit_calls = 0
+
+    class FakeBankStatementImporter:
+        calls = 0
+
+        async def import_document(
+            self,
+            event: DocumentIngested,
+        ) -> BankStatementImportResult:
+            self.calls += 1
+            return BankStatementImportResult(
+                statement_import_id=uuid4(),
+                transaction_count=4,
+                reconciliation_count=1,
+                review_task_count=0,
+            )
+
+    importer = FakeBankStatementImporter()
+
+    async def fake_commit() -> None:
+        nonlocal commit_calls
+        commit_calls += 1
+
+    publisher = DocumentIngestedWorkflowPublisher(
+        runner=WorkflowReplayRunner(
+            provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+            llm_provider=MockLLMProvider(),
+            ocr_provider=MockOCRProvider(),
+        ),
+        bank_statement_importer=importer,
+        commit=fake_commit,
+    )
+
+    await publisher.publish_document_ingested(event)
+
+    assert publisher.last_result is None
+    assert importer.calls == 1
+    assert publisher.last_bank_statement_import is not None
+    assert publisher.last_bank_statement_import.transaction_count == 4
     assert commit_calls == 1

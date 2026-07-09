@@ -218,18 +218,18 @@ class LangGraphWorkflowAdapter:
         self._add_conditional_next_edge(
             builder,
             source=DOCUMENT_INTAKE_AGENT,
-            next_node=PRIVACY_POLICY_GATE_AGENT,
-            end_node=END,
-        )
-        self._add_conditional_next_edge(
-            builder,
-            source=PRIVACY_POLICY_GATE_AGENT,
             next_node=DOCUMENT_LAYOUT_ANALYZER_AGENT,
             end_node=END,
         )
         self._add_conditional_next_edge(
             builder,
             source=DOCUMENT_LAYOUT_ANALYZER_AGENT,
+            next_node=PRIVACY_POLICY_GATE_AGENT,
+            end_node=END,
+        )
+        self._add_conditional_next_edge(
+            builder,
+            source=PRIVACY_POLICY_GATE_AGENT,
             next_node=METADATA_EXTRACTOR_AGENT,
             end_node=END,
         )
@@ -434,19 +434,19 @@ class LangGraphWorkflowAdapter:
             ),
         )
         builder.add_node(
-            PRIVACY_POLICY_GATE_AGENT,
-            self._node(
-                PrivacyPolicyGateAgent(),
-                handoff_target=PRIVACY_POLICY_GATE_AGENT,
-                handoff_source_agent=DOCUMENT_INTAKE_AGENT,
-            ),
-        )
-        builder.add_node(
             DOCUMENT_LAYOUT_ANALYZER_AGENT,
             self._node(
                 DocumentLayoutAnalyzerAgent(),
                 handoff_target=DOCUMENT_LAYOUT_ANALYZER_AGENT,
-                handoff_source_agent=PRIVACY_POLICY_GATE_AGENT,
+                handoff_source_agent=DOCUMENT_INTAKE_AGENT,
+            ),
+        )
+        builder.add_node(
+            PRIVACY_POLICY_GATE_AGENT,
+            self._node(
+                PrivacyPolicyGateAgent(),
+                handoff_target=PRIVACY_POLICY_GATE_AGENT,
+                handoff_source_agent=DOCUMENT_LAYOUT_ANALYZER_AGENT,
             ),
         )
 
@@ -458,7 +458,7 @@ class LangGraphWorkflowAdapter:
             self._node(
                 MetadataExtractorAgent(),
                 handoff_target=METADATA_EXTRACTOR_AGENT,
-                handoff_source_agent=DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                handoff_source_agent=PRIVACY_POLICY_GATE_AGENT,
             ),
         )
         builder.add_node(
@@ -466,7 +466,7 @@ class LangGraphWorkflowAdapter:
             self._node(
                 TableExtractorAgent(),
                 handoff_target=TABLE_EXTRACTOR_AGENT,
-                handoff_source_agent=DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                handoff_source_agent=PRIVACY_POLICY_GATE_AGENT,
             ),
         )
         builder.add_node(
@@ -474,7 +474,7 @@ class LangGraphWorkflowAdapter:
             self._node(
                 TotalsExtractorAgent(),
                 handoff_target=TOTALS_EXTRACTOR_AGENT,
-                handoff_source_agent=DOCUMENT_LAYOUT_ANALYZER_AGENT,
+                handoff_source_agent=PRIVACY_POLICY_GATE_AGENT,
             ),
         )
         builder.add_node(

@@ -4,6 +4,11 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.models.accounting import (
+    ClassificationProposal,
+    Reconciliation,
+    ReconciliationAllocation,
+)
 from app.models.document import (
     ArtifactType,
     Document,
@@ -79,6 +84,9 @@ class FakeWorkflowOutputPersistence:
         self.line_items: list[InvoiceLineItem] = []
         self.field_evidence: list[InvoiceFieldEvidence] = []
         self.review_tasks: list[ReviewTask] = []
+        self.classification_proposals: list[ClassificationProposal] = []
+        self.reconciliations: list[Reconciliation] = []
+        self.reconciliation_allocations: list[ReconciliationAllocation] = []
         self.document_status_updates: list[tuple[UUID, UUID, DocumentStatus]] = []
 
     def add_invoice(self, invoice: Invoice) -> Invoice:
@@ -99,6 +107,24 @@ class FakeWorkflowOutputPersistence:
     def add_review_task(self, review_task: ReviewTask) -> ReviewTask:
         self.review_tasks.append(review_task)
         return review_task
+
+    def add_classification_proposal(
+        self,
+        proposal: ClassificationProposal,
+    ) -> ClassificationProposal:
+        self.classification_proposals.append(proposal)
+        return proposal
+
+    def add_reconciliation(self, reconciliation: Reconciliation) -> Reconciliation:
+        self.reconciliations.append(reconciliation)
+        return reconciliation
+
+    def add_reconciliation_allocation(
+        self,
+        allocation: ReconciliationAllocation,
+    ) -> ReconciliationAllocation:
+        self.reconciliation_allocations.append(allocation)
+        return allocation
 
     async def mark_document_status(
         self,

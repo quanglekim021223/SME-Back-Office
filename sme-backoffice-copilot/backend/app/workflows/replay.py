@@ -525,6 +525,9 @@ class WorkflowReplayRunner:
             agent=ClassificationAgent(),
             handoff=self._handoff_to(qa_result, CLASSIFICATION_AGENT),
         )
+        if is_terminal_agent_result(classification_result) or not classification_result.handoffs:
+            return
+
         reconciliation_result = await self._run_agent(
             workflow_run=workflow_run,
             state=state,
@@ -532,6 +535,9 @@ class WorkflowReplayRunner:
             agent=ReconciliationAgent(),
             handoff=classification_result.handoffs[0],
         )
+        if is_terminal_agent_result(reconciliation_result) or not reconciliation_result.handoffs:
+            return
+
         review_result = await self._run_agent(
             workflow_run=workflow_run,
             state=state,
@@ -539,6 +545,9 @@ class WorkflowReplayRunner:
             agent=ReviewCoordinatorAgent(),
             handoff=reconciliation_result.handoffs[0],
         )
+        if is_terminal_agent_result(review_result) or not review_result.handoffs:
+            return
+
         await self._run_agent(
             workflow_run=workflow_run,
             state=state,

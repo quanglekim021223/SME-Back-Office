@@ -33,6 +33,7 @@ from app.schemas.document import (
     MalwareScanResponse,
 )
 from app.services.audit import AuditService
+from app.services.bank_statement_import import BankStatementCsvImportService
 from app.services.document_events import DocumentEventPublisher
 from app.services.document_ingestion import (
     DocumentIngestionService,
@@ -85,6 +86,7 @@ def get_document_workflow_publisher(
     )
     return DocumentIngestedWorkflowPublisher(
         runner=runner,
+        bank_statement_importer=BankStatementCsvImportService(session),
         output_persistence_service=WorkflowOutputPersistenceService(
             SqlAlchemyWorkflowOutputPersistence(session),
             trace_provider=trace_provider,
@@ -284,7 +286,11 @@ async def download_document(
         AuditEvent(
             event="document.downloaded",
             tenant_id=str(tenant_id),
-            actor_id=tenant_context.principal.user_id if tenant_context.principal else None,
+            actor_id=(
+                tenant_context.principal.user_id
+                if tenant_context.principal
+                else None
+            ),
             resource_type="document",
             resource_id=str(document_id),
             extra={"filename": document.original_filename},
@@ -296,4 +302,3 @@ async def download_document(
         media_type=document.mime_type,
         filename=document.original_filename,
     )
-

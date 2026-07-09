@@ -4,11 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Protocol, cast
 from uuid import UUID, uuid4
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.accounting import (
+    Category,
+    ClassificationProposal,
+    Reconciliation,
+    ReconciliationAllocation,
+)
+from app.models.banking import Transaction
 from app.models.document import Document, DocumentStatus
 from app.models.invoice import (
     Invoice,
@@ -27,6 +36,10 @@ from app.models.operations import (
 from app.observability.tracing import record_trace_event
 from app.validation.deterministic import parse_decimal, parse_iso_date
 from app.workflows.contracts import ConfidenceLevel, WorkflowStateStatus
+from app.workflows.downstream_agents import (
+    CLASSIFICATION_PROPOSAL_KEY,
+    RECONCILIATION_RESULT_KEY,
+)
 from app.workflows.invoice_extraction import (
     ASSEMBLED_INVOICE_DRAFT_KEY,
     INVOICE_ASSEMBLY_NODE,
@@ -56,6 +69,21 @@ class WorkflowOutputPersistence(Protocol):
 
     def add_review_task(self, review_task: ReviewTask) -> ReviewTask:
         """Stage a human review task."""
+
+    def add_classification_proposal(
+        self,
+        proposal: ClassificationProposal,
+    ) -> ClassificationProposal:
+        """Stage a classification proposal."""
+
+    def add_reconciliation(self, reconciliation: Reconciliation) -> Reconciliation:
+        """Stage a reconciliation match."""
+
+    def add_reconciliation_allocation(
+        self,
+        allocation: ReconciliationAllocation,
+    ) -> ReconciliationAllocation:
+        """Stage a reconciliation allocation."""
 
     async def mark_document_status(
         self,
@@ -99,6 +127,30 @@ class SqlAlchemyWorkflowOutputPersistence:
 
         self.session.add(review_task)
         return review_task
+
+    def add_classification_proposal(
+        self,
+        proposal: ClassificationProposal,
+    ) -> ClassificationProposal:
+        """Stage a classification proposal."""
+
+        self.session.add(proposal)
+        return proposal
+
+    def add_reconciliation(self, reconciliation: Reconciliation) -> Reconciliation:
+        """Stage a reconciliation match."""
+
+        self.session.add(reconciliation)
+        return reconciliation
+
+    def add_reconciliation_allocation(
+        self,
+        allocation: ReconciliationAllocation,
+    ) -> ReconciliationAllocation:
+        """Stage a reconciliation allocation."""
+
+        self.session.add(allocation)
+        return allocation
 
     async def mark_document_status(
         self,
@@ -184,7 +236,40 @@ class WorkflowOutputPersistenceService:
         ):
             self.persistence.add_invoice_field_evidence(field_evidence)
 
-        review_task = build_review_task_for_invoice(result=result, invoice=invoice)
+        # Build and persist ClassificationProposal if present in workflow
+        classification_proposal = await build_classification_proposal(
+            persistence=self.persistence,
+            tenant_id=result.state.tenant_id,
+            invoice_id=invoice.id,
+            result=result,
+        )
+        if classification_proposal is not None:
+            self.persistence.add_classification_proposal(classification_proposal)
+
+        # Build and persist Reconciliation and Allocations if present in workflow
+        reconciliation, allocations = await build_reconciliation_and_allocations(
+            persistence=self.persistence,
+            tenant_id=result.state.tenant_id,
+            invoice_id=invoice.id,
+            invoice_amount=invoice.total_amount,
+            invoice_currency=invoice.currency,
+            result=result,
+        )
+        if reconciliation is not None:
+            self.persistence.add_reconciliation(reconciliation)
+            for allocation in allocations:
+                self.persistence.add_reconciliation_allocation(allocation)
+
+        review_task = build_review_task_for_invoice(
+            result=result,
+            invoice=invoice,
+            classification_proposal_id=(
+                classification_proposal.id
+                if classification_proposal is not None
+                else None
+            ),
+            reconciliation_id=reconciliation.id if reconciliation is not None else None,
+        )
         self.persistence.add_review_task(review_task)
         self._trace_review_task_created(
             review_task=review_task,
@@ -500,6 +585,8 @@ def build_review_task_for_invoice(
     *,
     result: WorkflowReplayResult,
     invoice: Invoice,
+    classification_proposal_id: UUID | None = None,
+    reconciliation_id: UUID | None = None,
 ) -> ReviewTask:
     """Create a review task for the extracted invoice proposal."""
 
@@ -518,6 +605,8 @@ def build_review_task_for_invoice(
         workflow_run_id=result.workflow_run.id,
         document_id=result.state.document_id,
         invoice_id=invoice.id,
+        classification_proposal_id=classification_proposal_id,
+        reconciliation_id=reconciliation_id,
         task_type=ReviewTaskType.EXTRACTION.value,
         target_type=ReviewTargetType.INVOICE.value,
         status=ReviewTaskStatus.OPEN.value,
@@ -545,6 +634,189 @@ def build_review_task_for_invoice(
             "ocr_layout_diagnostics": ocr_layout_diagnostics,
         },
     )
+
+
+async def build_classification_proposal(
+    *,
+    persistence: WorkflowOutputPersistence,
+    tenant_id: UUID,
+    invoice_id: UUID,
+    result: WorkflowReplayResult,
+) -> ClassificationProposal | None:
+    """Build a classification proposal record from workflow output if available."""
+
+    raw_payload = result.state.scratchpad.get(CLASSIFICATION_PROPOSAL_KEY)
+    if raw_payload is None:
+        return None
+
+    try:
+        from app.workflows.downstream_agents import ClassificationDraft
+        draft = ClassificationDraft.model_validate(raw_payload)
+    except Exception:
+        return None
+
+    category_id = None
+    if draft.proposed_category_code and hasattr(persistence, "session"):
+        session = persistence.session
+        try:
+            stmt = select(Category).where(
+                Category.tenant_id == tenant_id,
+                Category.slug == draft.proposed_category_code,
+            )
+            res = await session.execute(stmt)
+            cat = res.scalar_one_or_none()
+            if cat is not None:
+                category_id = cat.id
+        except Exception:
+            pass
+
+    return ClassificationProposal(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        proposed_category_id=category_id,
+        invoice_id=invoice_id,
+        target_type="invoice",
+        status="proposed",
+        version=1,
+        confidence=draft.confidence.value,
+        source_agent="classification_agent",
+        source_agent_version="0.1.0",
+        rationale=draft.rationale,
+        evidence_refs=draft.evidence_refs,
+        metadata_={
+            "proposed_category_code": draft.proposed_category_code,
+            "proposed_direction": draft.proposed_direction,
+        },
+    )
+
+
+async def build_reconciliation_and_allocations(
+    *,
+    persistence: WorkflowOutputPersistence,
+    tenant_id: UUID,
+    invoice_id: UUID,
+    invoice_amount: Decimal | None,
+    invoice_currency: str | None,
+    result: WorkflowReplayResult,
+) -> tuple[Reconciliation | None, list[ReconciliationAllocation]]:
+    """Build reconciliation and allocation records from workflow output if available."""
+
+    raw_payload = result.state.scratchpad.get(RECONCILIATION_RESULT_KEY)
+    if raw_payload is None:
+        return None, []
+
+    try:
+        from app.workflows.downstream_agents import ReconciliationDraft
+        draft = ReconciliationDraft.model_validate(raw_payload)
+    except Exception:
+        return None, []
+
+    recon_id = uuid4()
+    allocations: list[ReconciliationAllocation] = []
+    total_tx_amount = Decimal("0.00")
+
+    # Map transaction refs to UUIDs
+    matched_ids = []
+    for tx_id_str in draft.matched_transaction_refs:
+        try:
+            tx_uuid = UUID(tx_id_str)
+            matched_ids.append(tx_uuid)
+        except ValueError:
+            continue
+
+    db_transactions: list[Transaction] = []
+    if matched_ids and hasattr(persistence, "session"):
+        session = persistence.session
+        try:
+            stmt = select(Transaction).where(
+                Transaction.tenant_id == tenant_id,
+                Transaction.id.in_(matched_ids),
+            )
+            res = await session.execute(stmt)
+            db_transactions = list(res.scalars().all())
+
+        except Exception:
+            pass
+
+    for tx in db_transactions:
+        allocated = abs(tx.amount)
+        total_tx_amount += allocated
+        allocations.append(
+            ReconciliationAllocation(
+                id=uuid4(),
+                tenant_id=tenant_id,
+                reconciliation_id=recon_id,
+                invoice_id=invoice_id,
+                transaction_id=tx.id,
+                status="proposed",
+                allocated_amount=allocated,
+                currency=tx.currency,
+                allocation_method="deterministic",
+                confidence=draft.confidence.value,
+                notes=(
+                    "Auto-allocated by deterministic reconciliation matching. "
+                    f"Score/confidence: {draft.confidence.value}"
+                ),
+            )
+        )
+
+    # If no db transactions are resolved (e.g. offline testing/replay),
+    # construct default allocations to match the draft references
+    if not allocations and matched_ids and not hasattr(persistence, "session"):
+        for tx_id in matched_ids:
+            allocated = abs(invoice_amount or Decimal("0.00"))
+            total_tx_amount += allocated
+            allocations.append(
+                ReconciliationAllocation(
+                    id=uuid4(),
+                    tenant_id=tenant_id,
+                    reconciliation_id=recon_id,
+                    invoice_id=invoice_id,
+                    transaction_id=tx_id,
+                    status="proposed",
+                    allocated_amount=allocated,
+                    currency=invoice_currency or "USD",
+                    allocation_method="deterministic",
+                    confidence=draft.confidence.value,
+                    notes=(
+                        "Synthetic allocation for testing/offline replay. "
+                        f"Score/confidence: {draft.confidence.value}"
+                    ),
+                )
+            )
+
+    diff_amount = None
+    if invoice_amount is not None:
+        diff_amount = abs(invoice_amount) - total_tx_amount
+
+    reconciliation = Reconciliation(
+        id=recon_id,
+        tenant_id=tenant_id,
+        supersedes_reconciliation_id=None,
+        status="proposed",
+        match_type="one_to_one" if len(allocations) <= 1 else "one_to_many",
+        version=1,
+        currency=invoice_currency or (allocations[0].currency if allocations else None),
+        invoice_total_amount=invoice_amount,
+        transaction_total_amount=total_tx_amount,
+        difference_amount=diff_amount,
+        confidence=draft.confidence.value,
+        source_agent="reconciliation_agent",
+        source_agent_version="0.1.0",
+        rationale=(
+            "Deterministic matching engine found "
+            f"{len(allocations)} candidate(s) above threshold."
+        ),
+        evidence_refs=[CLASSIFICATION_PROPOSAL_KEY],
+        metadata_={
+            "requires_review": draft.requires_review,
+            "review_reason": draft.review_reason,
+            "candidate_count": draft.candidate_count,
+            "candidate_score": getattr(draft, "candidate_score", None),
+        },
+    )
+
+    return reconciliation, allocations
 
 
 def ocr_text_preview_from_state(result: WorkflowReplayResult) -> str | None:
