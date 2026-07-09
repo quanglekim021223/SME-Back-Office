@@ -397,7 +397,6 @@ Goal: replace skeleton placeholders with the actual rule-based category classifi
 
 ## Phase 11 — Observability and operations
 
-
 Goal: make the system debuggable and operable.
 
 - [x] Add structured logging.
@@ -411,7 +410,7 @@ Goal: make the system debuggable and operable.
 - [x] Track review queue size.
 - [x] Track correction rate.
 - [x] Add basic dashboard for local metrics or logs.
-- [ ] Define alerting candidates for production.
+- [x] Define alerting candidates for production.
 
 ## Phase 12 — Production readiness
 
