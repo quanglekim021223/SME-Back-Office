@@ -6,9 +6,11 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from decimal import Decimal
 from enum import StrEnum
+from time import perf_counter
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.observability.metrics import metrics_registry
 from app.providers.base import ProviderDeploymentMode
 from app.providers.errors import ProviderExecutionError
 from app.providers.llm import (
@@ -198,19 +200,43 @@ class ProviderRuntime:
             request=enriched_request,
             decision=privacy_decision,
         )
-        result, attempts = await call_with_policy(
-            lambda: provider.generate(
-                request=sanitized_request,
-                context=context,
-            ),
-            policy=policy,
+        started_at = perf_counter()
+        try:
+            result, attempts = await call_with_policy(
+                lambda: provider.generate(
+                    request=sanitized_request,
+                    context=context,
+                ),
+                policy=policy,
+                provider_name=provider.name,
+            )
+        except Exception:
+            metrics_registry.record_provider_call(
+                task_type=task_type.value,
+                provider_name=provider.name,
+                model_name=route.model_name,
+                attempts=policy.max_attempts,
+                duration_ms=elapsed_ms(started_at),
+                success=False,
+            )
+            raise
+        cost = estimate_llm_cost(route=route, result=result)
+        metrics_registry.record_provider_call(
+            task_type=task_type.value,
             provider_name=provider.name,
+            model_name=result.model_name or route.model_name,
+            attempts=attempts,
+            duration_ms=elapsed_ms(started_at),
+            success=True,
+            input_tokens=cost.input_tokens,
+            output_tokens=cost.output_tokens,
+            total_cost=cost.total_cost,
         )
         return LLMProviderInvocationResult(
             route=route,
             attempts=attempts,
             result=result,
-            cost=estimate_llm_cost(route=route, result=result),
+            cost=cost,
             privacy_decision=privacy_decision,
         )
 
@@ -244,13 +270,33 @@ class ProviderRuntime:
             input_data=input_data,
             decision=privacy_decision,
         )
-        result, attempts = await call_with_policy(
-            lambda: provider.extract_text(
-                input_data=sanitized_input,
-                context=context,
-            ),
-            policy=policy,
+        started_at = perf_counter()
+        try:
+            result, attempts = await call_with_policy(
+                lambda: provider.extract_text(
+                    input_data=sanitized_input,
+                    context=context,
+                ),
+                policy=policy,
+                provider_name=provider.name,
+            )
+        except Exception:
+            metrics_registry.record_provider_call(
+                task_type=task_type.value,
+                provider_name=provider.name,
+                model_name=route.model_name,
+                attempts=policy.max_attempts,
+                duration_ms=elapsed_ms(started_at),
+                success=False,
+            )
+            raise
+        metrics_registry.record_provider_call(
+            task_type=task_type.value,
             provider_name=provider.name,
+            model_name=route.model_name,
+            attempts=attempts,
+            duration_ms=elapsed_ms(started_at),
+            success=True,
         )
         return OCRProviderInvocationResult(
             route=route,
@@ -289,6 +335,12 @@ async def call_with_policy[ProviderOperationResult](
     raise ProviderExecutionError(
         f"Provider {provider_name} failed after {policy.max_attempts} attempt(s)."
     ) from last_error
+
+
+def elapsed_ms(started_at: float) -> float:
+    """Return elapsed milliseconds from a monotonic start time."""
+
+    return round((perf_counter() - started_at) * 1000, 2)
 
 
 def enrich_llm_request_from_route(

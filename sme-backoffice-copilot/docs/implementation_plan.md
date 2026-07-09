@@ -403,11 +403,11 @@ Goal: make the system debuggable and operable.
 - [x] Add structured logging.
 - [x] Add request correlation IDs.
 - [x] Add workflow correlation IDs.
-- [ ] Add agent step metrics.
-- [ ] Track latency per endpoint.
-- [ ] Track latency per agent.
-- [ ] Track cost per model call.
-- [ ] Track retry and failure counts.
+- [x] Add agent step metrics.
+- [x] Track latency per endpoint.
+- [x] Track latency per agent.
+- [x] Track cost per model call.
+- [x] Track retry and failure counts.
 - [ ] Track review queue size.
 - [ ] Track correction rate.
 - [ ] Add basic dashboard for local metrics or logs.

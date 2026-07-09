@@ -16,6 +16,7 @@ from app.api.responses import APIError
 from app.core.auth import Permission, Principal
 from app.core.middleware import CORRELATION_ID_HEADER, REQUEST_ID_HEADER
 from app.core.tenant import TenantContext
+from app.observability.metrics import metrics_registry
 
 pytestmark = pytest.mark.integration
 
@@ -52,6 +53,32 @@ def test_request_id_reuses_incoming_header(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.headers[REQUEST_ID_HEADER] == "test-request-id"
+
+
+def test_endpoint_latency_metrics_are_recorded(client: TestClient) -> None:
+    metrics_registry.reset()
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    snapshot = metrics_registry.snapshot()
+    assert snapshot["endpoint_latency"]["GET /health 200"]["count"] == 1
+
+
+def test_endpoint_failure_metrics_are_recorded(app: FastAPI) -> None:
+    metrics_registry.reset()
+
+    @app.get("/test-unhandled-error")
+    async def test_unhandled_error() -> None:
+        raise RuntimeError("boom")
+
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.get("/test-unhandled-error")
+
+    assert response.status_code == 500
+    snapshot = metrics_registry.snapshot()
+    assert snapshot["endpoint_latency"]["GET /test-unhandled-error 500"]["count"] == 1
+    assert snapshot["failure_counts"]["endpoint:GET /test-unhandled-error"] == 1
 
 
 def test_cors_preflight_allows_frontend_upload_request(

@@ -15,6 +15,7 @@ from app.models.workflow import (
     WorkflowRun,
     WorkflowRunStatus,
 )
+from app.observability.metrics import metrics_registry
 from app.workflows.agents import AgentRunResult, AgentRunStatus
 from app.workflows.contracts import (
     AgentHandoffEnvelope,
@@ -89,6 +90,14 @@ def agent_result_status_to_step_status(status: AgentRunStatus) -> AgentStepStatu
     return status_map[status]
 
 
+def metric_float(value: object) -> float | None:
+    """Return a numeric metric value as float."""
+
+    if isinstance(value, int | float):
+        return float(value)
+    return None
+
+
 class WorkflowRuntimeService:
     """Small runtime service for durable workflow bookkeeping."""
 
@@ -151,6 +160,8 @@ class WorkflowRuntimeService:
         """Persist one agent step execution and sync workflow state."""
 
         step_status = agent_result_status_to_step_status(result.status)
+        result_metrics = dict(result.metrics)
+        duration_ms = metric_float(result_metrics.get("duration_ms"))
         step_execution = AgentStepExecution(
             id=uuid4(),
             tenant_id=state.tenant_id,
@@ -164,7 +175,7 @@ class WorkflowRuntimeService:
             confidence=result.confidence.value,
             error_code=result.error_code,
             error_message=result.error_message,
-            metrics=result.metrics or None,
+            metrics=result_metrics or None,
         )
 
         state.current_agent = agent_name
@@ -184,6 +195,12 @@ class WorkflowRuntimeService:
             workflow_run.error_message = result.error_message
 
         workflow_run.state = serialize_workflow_state(state)
+        metrics_registry.record_agent_step(
+            agent_name=agent_name,
+            status=step_status.value,
+            duration_ms=duration_ms,
+            attempt=attempt,
+        )
         logger.info(
             "workflow.agent_step.recorded",
             extra={
@@ -317,7 +334,7 @@ class WorkflowRuntimeService:
                 error_message=resolved_message,
                 dead_letter=True,
             )
-            return RetryDecision(
+            decision = RetryDecision(
                 agent_name=agent_name,
                 retry_count=retry_count,
                 max_retries=state.max_retries,
@@ -326,6 +343,11 @@ class WorkflowRuntimeService:
                 error_code=error_code,
                 error_message=resolved_message,
             )
+            metrics_registry.record_workflow_retry(
+                agent_name=agent_name,
+                retry_allowed=decision.retry_allowed,
+            )
+            return decision
 
         self.update_workflow_status(
             workflow_run=workflow_run,
@@ -333,13 +355,18 @@ class WorkflowRuntimeService:
             status=WorkflowStateStatus.RUNNING,
             current_agent=agent_name,
         )
-        return RetryDecision(
+        decision = RetryDecision(
             agent_name=agent_name,
             retry_count=retry_count,
             max_retries=state.max_retries,
             retry_allowed=True,
             workflow_status=WorkflowStateStatus.RUNNING,
         )
+        metrics_registry.record_workflow_retry(
+            agent_name=agent_name,
+            retry_allowed=decision.retry_allowed,
+        )
+        return decision
 
     def mark_failed(
         self,

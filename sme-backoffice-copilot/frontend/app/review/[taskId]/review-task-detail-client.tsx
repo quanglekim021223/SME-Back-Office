@@ -30,6 +30,7 @@ type ReviewTaskDetailClientProps = {
 
 type LoadState = "idle" | "loading" | "loaded" | "error";
 type ActionState = "idle" | "running" | "succeeded" | "failed";
+type PendingAction = "approve" | "reject" | "correction" | null;
 
 export function ReviewTaskDetailClient({
   taskId,
@@ -37,6 +38,7 @@ export function ReviewTaskDetailClient({
   const [task, setTask] = useState<ReviewTaskDetailResponse | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [actionState, setActionState] = useState<ActionState>("idle");
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [comment, setComment] = useState("");
@@ -96,6 +98,7 @@ export function ReviewTaskDetailClient({
     }
 
     setActionState("running");
+    setPendingAction(action);
     setActionMessage(null);
     setErrorMessage(null);
 
@@ -119,6 +122,8 @@ export function ReviewTaskDetailClient({
     } catch (error) {
       setActionState("failed");
       setErrorMessage(formatApiError(error));
+    } finally {
+      setPendingAction(null);
     }
   }
 
@@ -128,6 +133,7 @@ export function ReviewTaskDetailClient({
     }
 
     setActionState("running");
+    setPendingAction("correction");
     setActionMessage(null);
     setErrorMessage(null);
 
@@ -149,6 +155,8 @@ export function ReviewTaskDetailClient({
     } catch (error) {
       setActionState("failed");
       setErrorMessage(formatApiError(error));
+    } finally {
+      setPendingAction(null);
     }
   }
 
@@ -200,6 +208,7 @@ export function ReviewTaskDetailClient({
 
   const isActionable = task.status === "open" || task.status === "in_progress";
   const supportsCorrection = taskSupportsCorrection(task.task_type);
+  const actionProgress = getActionProgress(pendingAction);
 
   return (
     <div className="page-stack">
@@ -279,6 +288,7 @@ export function ReviewTaskDetailClient({
           <label className="form-field">
             <span>Reviewer comment</span>
             <textarea
+              disabled={actionState === "running" || !isActionable}
               onChange={(event) => setComment(event.target.value)}
               placeholder="Add rationale for audit trail..."
               rows={4}
@@ -293,7 +303,7 @@ export function ReviewTaskDetailClient({
               onClick={() => void runDecision("approve")}
               type="button"
             >
-              Approve
+              {pendingAction === "approve" ? "Approving..." : "Approve"}
             </button>
             <button
               className="button button-ghost"
@@ -301,9 +311,20 @@ export function ReviewTaskDetailClient({
               onClick={() => void runDecision("reject")}
               type="button"
             >
-              Reject
+              {pendingAction === "reject" ? "Rejecting..." : "Reject"}
             </button>
           </div>
+
+          {actionProgress ? (
+            <div className="action-progress" role="status" aria-live="polite">
+              <div className="action-progress-header">
+                <span className="action-progress-dot" aria-hidden="true" />
+                <strong>{actionProgress.title}</strong>
+              </div>
+              <p>{actionProgress.message}</p>
+              <div className="action-progress-bar" aria-hidden="true" />
+            </div>
+          ) : null}
 
           <div className="correction-card">
             <div>
@@ -316,7 +337,7 @@ export function ReviewTaskDetailClient({
             </div>
             <textarea
               className="textarea-code"
-              disabled={!supportsCorrection}
+              disabled={!supportsCorrection || actionState === "running"}
               onChange={(event) => setCorrectionJson(event.target.value)}
               rows={8}
               value={correctionJson}
@@ -331,7 +352,9 @@ export function ReviewTaskDetailClient({
               onClick={() => void runCorrection()}
               type="button"
             >
-              Submit correction
+              {pendingAction === "correction"
+                ? "Submitting correction..."
+                : "Submit correction"}
             </button>
           </div>
 
@@ -701,6 +724,34 @@ function formatStatus(status: ReviewTaskStatus) {
 
 function formatPriority(priority: ReviewTaskDetailResponse["priority"]) {
   return priority.charAt(0).toUpperCase() + priority.slice(1);
+}
+
+function getActionProgress(action: PendingAction) {
+  if (action === "approve") {
+    return {
+      title: "Recording approval",
+      message:
+        "Approve proposal is being persisted, the audit event is being written, and downstream workflow steps may continue.",
+    };
+  }
+
+  if (action === "reject") {
+    return {
+      title: "Recording rejection",
+      message:
+        "Reject decision is being persisted and the audit event is being written.",
+    };
+  }
+
+  if (action === "correction") {
+    return {
+      title: "Saving correction",
+      message:
+        "The corrected proposal is being saved, superseded records are being linked, and the audit event is being written.",
+    };
+  }
+
+  return null;
 }
 
 function formatDecisionAction(action: string) {

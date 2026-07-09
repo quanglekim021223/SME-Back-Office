@@ -8,6 +8,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID, uuid4
 
@@ -236,8 +237,11 @@ class WorkflowReplayRunner:
             provider_privacy_context=self.provider_privacy_context,
             trace_provider=self.trace_provider,
         )
-        from app.core.config import get_settings, WorkflowOrchestrationMode
-        from app.workflows.langgraph_adapter import LangGraphWorkflowAdapter, is_langgraph_available
+        from app.core.config import WorkflowOrchestrationMode, get_settings
+        from app.workflows.langgraph_adapter import (
+            LangGraphWorkflowAdapter,
+            is_langgraph_available,
+        )
 
         settings = get_settings()
         if (
@@ -260,8 +264,12 @@ class WorkflowReplayRunner:
 
             # Locate QA validation step to determine qa_result
             qa_step = next(
-                (step for step in reversed(graph_result.step_executions) if step.agent_name == QA_VALIDATION_AGENT),
-                None
+                (
+                    step
+                    for step in reversed(graph_result.step_executions)
+                    if step.agent_name == QA_VALIDATION_AGENT
+                ),
+                None,
             )
             qa_status = AgentRunStatus.SUCCEEDED
             if qa_step is not None:
@@ -273,7 +281,7 @@ class WorkflowReplayRunner:
                     qa_status = AgentRunStatus.RETRY_REQUESTED
 
             # Map database handoff models back to AgentHandoffEnvelope pydantic models
-            
+
             stage_map = {
                 "document_intake": WorkflowStage.DOCUMENT_INTAKE,
                 "privacy_policy_gate": WorkflowStage.PRIVACY_POLICY_GATE,
@@ -313,7 +321,11 @@ class WorkflowReplayRunner:
                 error_code=qa_step.error_code if qa_step else None,
             )
 
-            if state.status in {WorkflowStateStatus.FAILED, WorkflowStateStatus.REVIEW_REQUIRED, WorkflowStateStatus.DEAD_LETTERED} or is_terminal_agent_result(qa_result):
+            if state.status in {
+                WorkflowStateStatus.FAILED,
+                WorkflowStateStatus.REVIEW_REQUIRED,
+                WorkflowStateStatus.DEAD_LETTERED,
+            } or is_terminal_agent_result(qa_result):
                 return self._build_result(
                     scenario=scenario,
                     state=state,
@@ -525,7 +537,10 @@ class WorkflowReplayRunner:
             agent=ClassificationAgent(),
             handoff=self._handoff_to(qa_result, CLASSIFICATION_AGENT),
         )
-        if is_terminal_agent_result(classification_result) or not classification_result.handoffs:
+        if (
+            is_terminal_agent_result(classification_result)
+            or not classification_result.handoffs
+        ):
             return
 
         reconciliation_result = await self._run_agent(
@@ -535,7 +550,10 @@ class WorkflowReplayRunner:
             agent=ReconciliationAgent(),
             handoff=classification_result.handoffs[0],
         )
-        if is_terminal_agent_result(reconciliation_result) or not reconciliation_result.handoffs:
+        if (
+            is_terminal_agent_result(reconciliation_result)
+            or not reconciliation_result.handoffs
+        ):
             return
 
         review_result = await self._run_agent(
@@ -567,7 +585,12 @@ class WorkflowReplayRunner:
     ) -> AgentRunResult:
         """Run one agent and persist the step plus all outgoing handoffs."""
 
+        started_at = perf_counter()
         result = await agent.run(state=state, context=context, handoff=handoff)
+        result.metrics.setdefault(
+            "duration_ms",
+            round((perf_counter() - started_at) * 1000, 2),
+        )
         step = self.runtime.record_agent_step(
             workflow_run=workflow_run,
             state=state,
