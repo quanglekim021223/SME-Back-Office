@@ -14,7 +14,7 @@ from app.api.dependencies import (
 )
 from app.api.responses import APIError
 from app.core.auth import Permission, Principal
-from app.core.middleware import CORRELATION_ID_HEADER
+from app.core.middleware import CORRELATION_ID_HEADER, REQUEST_ID_HEADER
 from app.core.tenant import TenantContext
 
 pytestmark = pytest.mark.integration
@@ -35,6 +35,23 @@ def test_correlation_id_reuses_incoming_header(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.headers[CORRELATION_ID_HEADER] == "test-correlation-id"
+
+
+def test_request_id_is_generated_for_responses(client: TestClient) -> None:
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.headers[REQUEST_ID_HEADER]
+
+
+def test_request_id_reuses_incoming_header(client: TestClient) -> None:
+    response = client.get(
+        "/health",
+        headers={REQUEST_ID_HEADER: "test-request-id"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers[REQUEST_ID_HEADER] == "test-request-id"
 
 
 def test_cors_preflight_allows_frontend_upload_request(

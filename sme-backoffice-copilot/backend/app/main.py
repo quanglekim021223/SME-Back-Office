@@ -1,4 +1,4 @@
-"""FastAPI application entry point and composition root. Triggered reload for settings."""
+"""FastAPI application entry point and composition root."""
 
 from fastapi import FastAPI
 
@@ -9,7 +9,10 @@ from app.api.routers.invoices import router as invoices_router
 from app.api.routers.review_tasks import router as review_tasks_router
 from app.core.config import Settings, get_settings
 from app.core.middleware import register_middleware
-from app.observability.logging_filter import setup_logging_redaction
+from app.observability.logging_filter import (
+    setup_logging_redaction,
+    setup_structured_logging,
+)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -20,6 +23,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """
 
     resolved_settings = settings or get_settings()
+    setup_structured_logging(log_format=resolved_settings.log_format.value)
     setup_logging_redaction()
 
     app = FastAPI(

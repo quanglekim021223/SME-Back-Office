@@ -40,6 +40,7 @@ def test_workflow_state_from_document_ingested_event_preserves_artifact_context(
     assert state.document_type == "invoice"
     assert state.policy_flags["malware_scan_status"] == "not_scanned"
     assert state.policy_flags["source_event_id"] == str(event.event_id)
+    assert state.policy_flags["correlation_id"] is None
     assert state.artifacts["original"].uri == event.storage_uri
     assert state.artifacts["original"].content_hash == event.content_hash
     assert state.artifacts["original"].metadata["local_path"] == "/tmp/invoice.pdf"
@@ -73,6 +74,31 @@ async def test_document_ingested_publisher_triggers_local_workflow() -> None:
     assert OCR_RESULT_KEY in publisher.last_result.state.scratchpad
     assert OCR_FULL_TEXT_KEY in publisher.last_result.state.scratchpad
     assert commit_calls == 1
+
+
+async def test_document_ingested_publisher_uses_event_correlation_id() -> None:
+    event = DocumentIngested(
+        tenant_id=uuid4(),
+        document_id=uuid4(),
+        document_type="invoice",
+        content_hash="hash-123",
+        storage_uri="local://tenants/t/documents/d/original/invoice.pdf",
+        malware_scan_status="not_scanned",
+        local_path="/tmp/invoice.pdf",
+        correlation_id="request-corr-123",
+    )
+    publisher = DocumentIngestedWorkflowPublisher(
+        runner=WorkflowReplayRunner(
+            provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+            llm_provider=MockLLMProvider(),
+            ocr_provider=MockOCRProvider(),
+        ),
+    )
+
+    await publisher.publish_document_ingested(event)
+
+    assert publisher.last_result is not None
+    assert publisher.last_result.workflow_run.correlation_id == "request-corr-123"
 
 
 async def test_document_ingested_publisher_skips_non_invoice_documents() -> None:

@@ -60,6 +60,7 @@ def workflow_state_from_document_ingested(event: DocumentIngested) -> WorkflowSt
             "malware_scan_status": event.malware_scan_status,
             "source_event_id": str(event.event_id),
             "source_event_name": event.event_name,
+            "correlation_id": event.correlation_id,
         },
     )
 
@@ -112,10 +113,11 @@ class DocumentIngestedWorkflowPublisher:
             return
 
         state = workflow_state_from_document_ingested(event)
+        correlation_id = event.correlation_id or f"document-ingested:{event.event_id}"
         self.last_result = await self.runner.run(
             state=state,
             scenario=ReplayScenario.HAPPY_PATH,
-            correlation_id=f"document-ingested:{event.event_id}",
+            correlation_id=correlation_id,
         )
         if self.output_persistence_service is not None:
             service = self.output_persistence_service

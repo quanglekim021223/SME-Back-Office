@@ -135,6 +135,7 @@ class DocumentIngestionService:
         content: bytes,
         media_type: str,
         document_type: DocumentType,
+        correlation_id: str | None = None,
     ) -> DocumentUploadResult:
         """Validate, de-duplicate, store, and persist uploaded document metadata."""
 
@@ -206,6 +207,7 @@ class DocumentIngestionService:
             storage_uri=artifact.storage_uri,
             malware_scan_status=malware_scan_result.status.value,
             local_path=str(stored_file.path),
+            correlation_id=correlation_id,
         )
         await self.event_publisher.publish_document_ingested(document_ingested_event)
 

@@ -400,9 +400,9 @@ Goal: replace skeleton placeholders with the actual rule-based category classifi
 
 Goal: make the system debuggable and operable.
 
-- [ ] Add structured logging.
-- [ ] Add request correlation IDs.
-- [ ] Add workflow correlation IDs.
+- [x] Add structured logging.
+- [x] Add request correlation IDs.
+- [x] Add workflow correlation IDs.
 - [ ] Add agent step metrics.
 - [ ] Track latency per endpoint.
 - [ ] Track latency per agent.

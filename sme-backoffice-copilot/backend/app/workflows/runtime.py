@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Protocol, cast
 from uuid import UUID, uuid4
@@ -21,6 +22,8 @@ from app.workflows.contracts import (
     WorkflowState,
     WorkflowStateStatus,
 )
+
+logger = logging.getLogger("app.workflow")
 
 
 class WorkflowRuntimePersistence(Protocol):
@@ -119,6 +122,18 @@ class WorkflowRuntimeService:
             correlation_id=correlation_id,
             state=serialize_workflow_state(state),
         )
+        logger.info(
+            "workflow.started",
+            extra={
+                "event": "workflow.started",
+                "workflow_run_id": str(workflow_run.id),
+                "tenant_id": str(state.tenant_id),
+                "document_id": str(state.document_id),
+                "workflow_name": workflow_name,
+                "workflow_version": workflow_version,
+                "correlation_id": correlation_id,
+            },
+        )
         return self.persistence.add_workflow_run(workflow_run)
 
     def record_agent_step(
@@ -169,6 +184,19 @@ class WorkflowRuntimeService:
             workflow_run.error_message = result.error_message
 
         workflow_run.state = serialize_workflow_state(state)
+        logger.info(
+            "workflow.agent_step.recorded",
+            extra={
+                "event": "workflow.agent_step.recorded",
+                "workflow_run_id": str(workflow_run.id),
+                "tenant_id": str(state.tenant_id),
+                "document_id": str(state.document_id),
+                "agent_name": agent_name,
+                "status": step_status.value,
+                "attempt": attempt,
+                "correlation_id": workflow_run.correlation_id,
+            },
+        )
         return self.persistence.add_step_execution(step_execution)
 
     def record_handoff(
@@ -247,6 +275,20 @@ class WorkflowRuntimeService:
         workflow_run.error_code = error_code
         workflow_run.error_message = error_message
         workflow_run.state = serialize_workflow_state(state)
+        logger.info(
+            "workflow.status.updated",
+            extra={
+                "event": "workflow.status.updated",
+                "workflow_run_id": str(workflow_run.id),
+                "tenant_id": str(state.tenant_id),
+                "document_id": str(state.document_id),
+                "status": workflow_run.status,
+                "stage": state.stage.value,
+                "current_agent": workflow_run.current_agent,
+                "error_code": error_code,
+                "correlation_id": workflow_run.correlation_id,
+            },
+        )
         return workflow_run
 
     def request_retry(
