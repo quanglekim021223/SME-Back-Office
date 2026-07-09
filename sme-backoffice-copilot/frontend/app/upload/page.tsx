@@ -18,6 +18,15 @@ const uploadChecks = [
 ];
 
 const acceptedTypes = ["PDF", "PNG", "JPEG", "CSV"];
+const isFileTypeActive = (type: string, docType: DocumentType) => {
+  if (docType === "invoice") {
+    return ["PDF", "PNG", "JPEG"].includes(type);
+  }
+  if (docType === "bank_statement") {
+    return type === "CSV";
+  }
+  return true;
+};
 const acceptedFileExtensions = ".pdf,.png,.jpg,.jpeg,.csv";
 const maxUploadSizeBytes = 20 * 1024 * 1024;
 
@@ -292,9 +301,17 @@ export default function UploadPage() {
           </div>
 
           <div className="file-type-row" aria-label="Accepted file types">
-            {acceptedTypes.map((type) => (
-              <span key={type}>{type}</span>
-            ))}
+            {acceptedTypes.map((type) => {
+              const active = isFileTypeActive(type, documentType);
+              return (
+                <span
+                  key={type}
+                  className={active ? "file-type-badge-active" : "file-type-badge-inactive"}
+                >
+                  {type}
+                </span>
+              );
+            })}
           </div>
 
           <UploadStatusCard

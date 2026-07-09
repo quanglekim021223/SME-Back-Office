@@ -372,20 +372,31 @@ data.
 
 Goal: make tenant and financial data handling safe by design.
 
-- [ ] Add tenant-scoped repository helpers.
-- [ ] Add authorization checks to every tenant resource.
-- [ ] Add audit logging for document access.
-- [ ] Add audit logging for approval/correction actions.
-- [ ] Add audit logging for export/download actions.
-- [ ] Redact sensitive payloads from logs.
+- [x] Add tenant-scoped repository helpers.
+- [x] Add authorization checks to every tenant resource.
+- [x] Add audit logging for document access.
+- [x] Add audit logging for approval/correction actions.
+- [x] Add audit logging for export/download actions.
+- [x] Redact sensitive payloads from logs.
 - [ ] Add secret management convention.
 - [ ] Add file processing sandbox strategy.
 - [ ] Add prompt-injection test cases.
-- [ ] Add cross-tenant access tests.
+- [x] Add cross-tenant access tests.
 - [ ] Add retention/deletion policy draft.
 - [ ] Add provider data-handling policy documentation.
 
+## Phase 10.5 — Post-extraction integration (Classification & Reconciliation)
+
+Goal: replace skeleton placeholders with the actual rule-based category classifier and deterministic reconciliation match engines.
+
+- [x] Connect the `rule_based_category_classifier` tool to the `ClassificationAgent` to perform actual classification.
+- [x] Connect the `deterministic_match_scorer` and candidate generator to the `ReconciliationAgent`.
+- [x] Wire database queries in the `ReconciliationAgent` to retrieve transaction candidates dynamically for the tenant.
+- [x] Add end-to-end integration tests for the real classification and reconciliation execution in the LangGraph workflow.
+- [x] Verify that live classification and reconciliation results display correctly in the human review queue UI.
+
 ## Phase 11 — Observability and operations
+
 
 Goal: make the system debuggable and operable.
 

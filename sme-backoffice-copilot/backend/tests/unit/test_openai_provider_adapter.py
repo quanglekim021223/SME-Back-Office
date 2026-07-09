@@ -178,3 +178,55 @@ async def test_openai_provider_reports_response_errors() -> None:
             ),
             context=LLMProviderRunContext(tenant_id=uuid4()),
         )
+
+
+@pytest.mark.asyncio
+async def test_openai_chat_completions_uses_max_completion_tokens() -> None:
+    captured_payload: dict[str, object] = {}
+
+    def fake_transport(
+        endpoint: str,
+        payload: dict[str, object],
+        api_key: str,
+        timeout_seconds: float,
+    ) -> dict[str, object]:
+        del api_key, timeout_seconds
+        nonlocal captured_payload
+        assert endpoint == "https://models.github.ai/inference/chat/completions"
+        captured_payload = payload
+        return {
+            "id": "chatcmpl_test_123",
+            "model": "openai/gpt-5",
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"category_code":"sales_revenue"}',
+                    },
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 4},
+        }
+
+    provider = OpenAIResponsesLLMProvider(
+        api_key="test-key",
+        base_url="https://models.github.ai/inference",
+        model_name="openai/gpt-5",
+        transport=fake_transport,
+    )
+
+    await provider.generate(
+        request=LLMGenerationRequest(
+            messages=[
+                LLMMessage(
+                    role=LLMMessageRole.USER,
+                    content="Classify this invoice.",
+                )
+            ],
+            response_format=LLMResponseFormat.JSON,
+            max_output_tokens=500,
+        ),
+        context=LLMProviderRunContext(tenant_id=uuid4()),
+    )
+
+    assert captured_payload["max_completion_tokens"] == 500
+    assert "max_tokens" not in captured_payload

@@ -21,6 +21,7 @@ from app.models.operations import (
     ReviewTaskType,
 )
 from app.review import ReviewAction
+from app.services.post_extraction import invoice_review_label
 from app.services.review_tasks import (
     InvalidReviewCorrectionError,
     ReviewResourceNotFoundError,
@@ -127,6 +128,10 @@ class FakeDecisionPersistence:
     def add_reconciliation(self, reconciliation: Reconciliation) -> Reconciliation:
         self.reconciliations.append(reconciliation)
         return reconciliation
+
+    def add_review_task(self, review_task: ReviewTask) -> ReviewTask:
+        self.tasks.append(review_task)
+        return review_task
 
     def add_audit_event(self, audit_event: AuditEvent) -> AuditEvent:
         self.audit_events.append(audit_event)
@@ -266,6 +271,61 @@ async def test_reject_reconciliation_resolves_task_and_writes_audit() -> None:
 
 
 @pytest.mark.asyncio
+async def test_approve_extraction_creates_actionable_downstream_reviews() -> None:
+    tenant_id = uuid4()
+    invoice = Invoice(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        status=InvoiceStatus.PENDING_REVIEW.value,
+        version=1,
+        invoice_number="INV-001",
+        supplier_name="Mock Supplier Ltd",
+        total_amount=Decimal("110.00"),
+        currency="USD",
+        confidence="medium",
+    )
+    task = build_review_task(
+        tenant_id=tenant_id,
+        target_type=ReviewTargetType.INVOICE,
+        task_type=ReviewTaskType.EXTRACTION,
+        invoice_id=invoice.id,
+    )
+    persistence = FakeDecisionPersistence(tasks=[task], invoices=[invoice])
+
+    result = await ReviewTaskDecisionService(persistence).approve_review_task(
+        tenant_id=tenant_id,
+        review_task_id=task.id,
+        actor=principal(),
+        reason_code="human_approved",
+    )
+
+    assert result.resource_status == InvoiceStatus.APPROVED.value
+    assert invoice.status == InvoiceStatus.APPROVED.value
+    assert task.status == ReviewTaskStatus.RESOLVED.value
+    assert len(persistence.proposals) == 1
+    assert len(persistence.reconciliations) == 1
+
+    proposal = persistence.proposals[0]
+    assert proposal.invoice_id == invoice.id
+    assert proposal.status == ClassificationProposalStatus.PENDING_REVIEW.value
+    assert proposal.target_type == ClassificationTargetType.INVOICE.value
+    assert proposal.metadata_["source"] == "human_approved_extraction"
+
+    reconciliation = persistence.reconciliations[0]
+    assert reconciliation.status == ReconciliationStatus.PROPOSED.value
+    assert reconciliation.invoice_total_amount == Decimal("110.00")
+    assert reconciliation.metadata_["requires_review"] is False
+    assert reconciliation.metadata_["review_reason"] == "awaiting_transaction_match"
+
+    follow_up_tasks = [item for item in persistence.tasks if item.id != task.id]
+    assert [item.task_type for item in follow_up_tasks] == [
+        ReviewTaskType.CLASSIFICATION.value,
+    ]
+    assert follow_up_tasks[0].classification_proposal_id == proposal.id
+    assert follow_up_tasks[0].title == "Review classification for invoice INV-001"
+
+
+@pytest.mark.asyncio
 async def test_correct_extracted_fields_supersedes_invoice_and_writes_audit() -> None:
     tenant_id = uuid4()
     invoice = Invoice(
@@ -309,6 +369,16 @@ async def test_correct_extracted_fields_supersedes_invoice_and_writes_audit() ->
     assert replacement.invoice_number == "INV-001-CORRECTED"
     assert task.invoice_id == replacement.id
     assert task.status == ReviewTaskStatus.RESOLVED.value
+    assert len(persistence.proposals) == 1
+    assert persistence.proposals[0].invoice_id == replacement.id
+    assert len(persistence.reconciliations) == 1
+    follow_up_tasks = [item for item in persistence.tasks if item.id != task.id]
+    assert [item.task_type for item in follow_up_tasks] == [
+        ReviewTaskType.CLASSIFICATION.value,
+    ]
+    assert follow_up_tasks[0].title == (
+        "Review classification for invoice INV-001-CORRECTED"
+    )
     assert persistence.audit_events[0].action == "review_task.extraction_corrected"
     assert persistence.audit_events[0].metadata_["superseded_resource_id"] == str(
         invoice.id
@@ -316,6 +386,18 @@ async def test_correct_extracted_fields_supersedes_invoice_and_writes_audit() ->
     assert persistence.audit_events[0].metadata_["replacement_resource_id"] == str(
         replacement.id
     )
+
+
+def test_invoice_review_label_uses_short_id_when_invoice_number_missing() -> None:
+    invoice_id = uuid4()
+    invoice = Invoice(
+        id=invoice_id,
+        tenant_id=uuid4(),
+        status=InvoiceStatus.PENDING_REVIEW.value,
+        version=1,
+    )
+
+    assert invoice_review_label(invoice) == str(invoice_id)[:8]
 
 
 @pytest.mark.asyncio

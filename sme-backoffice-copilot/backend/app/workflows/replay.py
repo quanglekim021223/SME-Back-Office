@@ -273,7 +273,6 @@ class WorkflowReplayRunner:
                     qa_status = AgentRunStatus.RETRY_REQUESTED
 
             # Map database handoff models back to AgentHandoffEnvelope pydantic models
-            from app.workflows.contracts import AgentHandoffEnvelope, HandoffType, WorkflowStage
             
             stage_map = {
                 "document_intake": WorkflowStage.DOCUMENT_INTAKE,
@@ -438,31 +437,31 @@ class WorkflowReplayRunner:
         )
         if is_terminal_agent_result(intake_result):
             return intake_result
-        privacy_result = await self._run_agent(
-            workflow_run=workflow_run,
-            state=state,
-            context=context,
-            agent=PrivacyPolicyGateAgent(),
-            handoff=self._handoff_to(intake_result, PRIVACY_POLICY_GATE_AGENT),
-        )
-        if is_terminal_agent_result(privacy_result):
-            return privacy_result
         layout_result = await self._run_agent(
             workflow_run=workflow_run,
             state=state,
             context=context,
             agent=DocumentLayoutAnalyzerAgent(),
-            handoff=self._handoff_to(privacy_result, DOCUMENT_LAYOUT_ANALYZER_AGENT),
+            handoff=self._handoff_to(intake_result, DOCUMENT_LAYOUT_ANALYZER_AGENT),
         )
         if is_terminal_agent_result(layout_result):
             return layout_result
+        privacy_result = await self._run_agent(
+            workflow_run=workflow_run,
+            state=state,
+            context=context,
+            agent=PrivacyPolicyGateAgent(),
+            handoff=self._handoff_to(layout_result, PRIVACY_POLICY_GATE_AGENT),
+        )
+        if is_terminal_agent_result(privacy_result):
+            return privacy_result
 
         metadata_result = await self._run_agent(
             workflow_run=workflow_run,
             state=state,
             context=context,
             agent=MetadataExtractorAgent(),
-            handoff=self._handoff_to(layout_result, METADATA_EXTRACTOR_AGENT),
+            handoff=self._handoff_to(privacy_result, METADATA_EXTRACTOR_AGENT),
         )
         if is_terminal_agent_result(metadata_result):
             return metadata_result
@@ -472,7 +471,7 @@ class WorkflowReplayRunner:
             state=state,
             context=context,
             agent=TableExtractorAgent(),
-            handoff=self._handoff_to(layout_result, TABLE_EXTRACTOR_AGENT),
+            handoff=self._handoff_to(privacy_result, TABLE_EXTRACTOR_AGENT),
         )
         if is_terminal_agent_result(table_result):
             return table_result
@@ -482,7 +481,7 @@ class WorkflowReplayRunner:
             state=state,
             context=context,
             agent=TotalsExtractorAgent(),
-            handoff=self._handoff_to(layout_result, TOTALS_EXTRACTOR_AGENT),
+            handoff=self._handoff_to(privacy_result, TOTALS_EXTRACTOR_AGENT),
         )
         if is_terminal_agent_result(totals_result):
             return totals_result
@@ -526,6 +525,9 @@ class WorkflowReplayRunner:
             agent=ClassificationAgent(),
             handoff=self._handoff_to(qa_result, CLASSIFICATION_AGENT),
         )
+        if is_terminal_agent_result(classification_result) or not classification_result.handoffs:
+            return
+
         reconciliation_result = await self._run_agent(
             workflow_run=workflow_run,
             state=state,
@@ -533,6 +535,9 @@ class WorkflowReplayRunner:
             agent=ReconciliationAgent(),
             handoff=classification_result.handoffs[0],
         )
+        if is_terminal_agent_result(reconciliation_result) or not reconciliation_result.handoffs:
+            return
+
         review_result = await self._run_agent(
             workflow_run=workflow_run,
             state=state,
@@ -540,6 +545,9 @@ class WorkflowReplayRunner:
             agent=ReviewCoordinatorAgent(),
             handoff=reconciliation_result.handoffs[0],
         )
+        if is_terminal_agent_result(review_result) or not review_result.handoffs:
+            return
+
         await self._run_agent(
             workflow_run=workflow_run,
             state=state,

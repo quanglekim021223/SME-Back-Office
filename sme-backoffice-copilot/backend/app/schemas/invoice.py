@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.models.accounting import ClassificationProposal, ReconciliationAllocation
 from app.models.invoice import Invoice, InvoiceLineItem
 
 
@@ -48,6 +49,94 @@ class InvoiceLineItemResponse(BaseModel):
             total_amount=item.total_amount,
             currency=item.currency,
             confidence=item.confidence,
+        )
+
+
+class ClassificationProposalResponse(BaseModel):
+    """Response schema for a classification proposal attached to an invoice."""
+
+    id: UUID
+    invoice_id: UUID | None = None
+    target_type: str
+    status: str
+    version: int
+    confidence: str | None = None
+    source_agent: str | None = None
+    rationale: str | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
+    metadata: dict[str, object] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_model(
+        cls,
+        proposal: ClassificationProposal,
+    ) -> ClassificationProposalResponse:
+        """Build a response from a ClassificationProposal ORM model."""
+
+        return cls(
+            id=proposal.id,
+            invoice_id=proposal.invoice_id,
+            target_type=proposal.target_type,
+            status=proposal.status,
+            version=proposal.version,
+            confidence=proposal.confidence,
+            source_agent=proposal.source_agent,
+            rationale=proposal.rationale,
+            evidence_refs=proposal.evidence_refs or [],
+            metadata=proposal.metadata_ or {},
+            created_at=proposal.created_at,
+            updated_at=proposal.updated_at,
+        )
+
+
+class InvoiceReconciliationResponse(BaseModel):
+    """Response schema for an invoice reconciliation allocation."""
+
+    id: UUID
+    reconciliation_id: UUID
+    transaction_id: UUID | None = None
+    status: str
+    allocated_amount: Decimal
+    currency: str | None = None
+    confidence: str | None = None
+    allocation_method: str | None = None
+    reconciliation_status: str | None = None
+    rationale: str | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
+    metadata: dict[str, object] = Field(default_factory=dict)
+    transaction_description: str | None = None
+    transaction_posted_at: date | None = None
+    transaction_amount: Decimal | None = None
+
+    @classmethod
+    def from_model(
+        cls,
+        allocation: ReconciliationAllocation,
+    ) -> InvoiceReconciliationResponse:
+        """Build a response from a reconciliation allocation ORM model."""
+
+        reconciliation = allocation.reconciliation
+        transaction = allocation.transaction
+        return cls(
+            id=allocation.id,
+            reconciliation_id=allocation.reconciliation_id,
+            transaction_id=allocation.transaction_id,
+            status=allocation.status,
+            allocated_amount=allocation.allocated_amount,
+            currency=allocation.currency,
+            confidence=allocation.confidence,
+            allocation_method=allocation.allocation_method,
+            reconciliation_status=reconciliation.status if reconciliation else None,
+            rationale=reconciliation.rationale if reconciliation else None,
+            evidence_refs=reconciliation.evidence_refs if reconciliation else [],
+            metadata=reconciliation.metadata_ if reconciliation else {},
+            transaction_description=transaction.raw_description
+            if transaction
+            else None,
+            transaction_posted_at=transaction.posted_at if transaction else None,
+            transaction_amount=transaction.amount if transaction else None,
         )
 
 
@@ -109,6 +198,12 @@ class InvoiceDetailResponse(InvoiceSummaryResponse):
     notes: str | None = None
     source_processing_run_id: UUID | None = None
     line_items: list[InvoiceLineItemResponse] = Field(default_factory=list)
+    classification_proposals: list[ClassificationProposalResponse] = Field(
+        default_factory=list
+    )
+    reconciliations: list[InvoiceReconciliationResponse] = Field(
+        default_factory=list
+    )
 
     @classmethod
     def from_model(cls, invoice: Invoice) -> InvoiceDetailResponse:
@@ -124,6 +219,22 @@ class InvoiceDetailResponse(InvoiceSummaryResponse):
             line_items=[
                 InvoiceLineItemResponse.from_model(item)
                 for item in invoice.line_items
+            ],
+            classification_proposals=[
+                ClassificationProposalResponse.from_model(proposal)
+                for proposal in sorted(
+                    invoice.classification_proposals,
+                    key=lambda item: (item.created_at, item.version),
+                    reverse=True,
+                )
+            ],
+            reconciliations=[
+                InvoiceReconciliationResponse.from_model(allocation)
+                for allocation in sorted(
+                    invoice.reconciliation_allocations,
+                    key=lambda item: item.created_at,
+                    reverse=True,
+                )
             ],
         )
 

@@ -853,10 +853,32 @@ textarea:focus-visible {
 }
 
 .file-type-row span {
+  display: inline-flex;
   min-height: 1.7rem;
   padding: 0.22rem 0.55rem;
   background: var(--surface-muted);
   color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  border-radius: 999px;
+  align-items: center;
+}
+
+.file-type-badge-active {
+  background: var(--primary-soft) !important;
+  color: var(--primary) !important;
+  border: 1px solid rgb(15 118 110 / 25%);
+  transform: scale(1.05);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 5px rgb(15 118 110 / 12%);
+}
+
+.file-type-badge-inactive {
+  background: var(--surface-muted) !important;
+  color: var(--text-muted) !important;
+  opacity: 0.35;
+  transform: scale(0.92);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .upload-dropzone small,
@@ -1002,6 +1024,35 @@ textarea:focus-visible {
 .proposal-section {
   display: grid;
   gap: 0.75rem;
+}
+
+.automation-panel {
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.automation-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.automation-rationale {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.automation-rationale span {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.automation-rationale p {
+  margin: 0;
+  color: var(--text-muted);
 }
 
 .line-items-table-wrap {

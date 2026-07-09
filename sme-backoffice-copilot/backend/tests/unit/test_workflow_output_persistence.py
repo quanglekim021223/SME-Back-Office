@@ -1,5 +1,10 @@
 from uuid import UUID
 
+from app.models.accounting import (
+    ClassificationProposal,
+    Reconciliation,
+    ReconciliationAllocation,
+)
 from app.models.document import DocumentStatus
 from app.models.invoice import Invoice, InvoiceFieldEvidence, InvoiceLineItem
 from app.models.operations import (
@@ -45,6 +50,9 @@ class FakeWorkflowOutputPersistence:
         self.line_items: list[InvoiceLineItem] = []
         self.field_evidence: list[InvoiceFieldEvidence] = []
         self.review_tasks: list[ReviewTask] = []
+        self.classification_proposals: list[ClassificationProposal] = []
+        self.reconciliations: list[Reconciliation] = []
+        self.reconciliation_allocations: list[ReconciliationAllocation] = []
         self.document_status_updates: list[tuple[UUID, UUID, DocumentStatus]] = []
 
     def add_invoice(self, invoice: Invoice) -> Invoice:
@@ -65,6 +73,24 @@ class FakeWorkflowOutputPersistence:
     def add_review_task(self, review_task: ReviewTask) -> ReviewTask:
         self.review_tasks.append(review_task)
         return review_task
+
+    def add_classification_proposal(
+        self,
+        proposal: ClassificationProposal,
+    ) -> ClassificationProposal:
+        self.classification_proposals.append(proposal)
+        return proposal
+
+    def add_reconciliation(self, reconciliation: Reconciliation) -> Reconciliation:
+        self.reconciliations.append(reconciliation)
+        return reconciliation
+
+    def add_reconciliation_allocation(
+        self,
+        allocation: ReconciliationAllocation,
+    ) -> ReconciliationAllocation:
+        self.reconciliation_allocations.append(allocation)
+        return allocation
 
     async def mark_document_status(
         self,
@@ -227,3 +253,68 @@ async def test_output_service_creates_review_task_for_review_required() -> None:
     assert persistence.document_status_updates == [
         (state.tenant_id, state.document_id, DocumentStatus.REVIEW_REQUIRED)
     ]
+
+
+async def test_workflow_output_service_materializes_downstream_records() -> None:
+    import uuid
+    state = create_replay_state()
+
+    result = await WorkflowReplayRunner(
+        provider_runtime=ProviderRuntime(build_default_provider_routing_config()),
+        llm_provider=MockLLMProvider(),
+        ocr_provider=MockOCRProvider(),
+    ).run(state=state)
+
+    tx_id_1 = str(uuid.uuid4())
+    tx_id_2 = str(uuid.uuid4())
+    result.state.scratchpad["classification_proposal"] = {
+        "schema_version": "classification-draft.v1",
+        "classification_status": "ready",
+        "subject_type": "invoice",
+        "subject_ref": "assembled_invoice_draft",
+        "proposed_category_code": "office_supplies",
+        "proposed_direction": "outflow",
+        "rationale": "Matches supplier pattern.",
+        "evidence_refs": ["ocr:supplier_name"],
+        "confidence": "high",
+    }
+    result.state.scratchpad["reconciliation_result"] = {
+        "schema_version": "reconciliation-draft.v1",
+        "reconciliation_status": "review_required",
+        "invoice_ref": "assembled_invoice_draft",
+        "classification_ref": "classification_proposal",
+        "matched_transaction_refs": [tx_id_1, tx_id_2],
+        "candidate_count": 2,
+        "requires_review": True,
+        "review_reason": "ambiguous_match",
+        "confidence": "medium",
+    }
+
+    persistence = FakeWorkflowOutputPersistence()
+    service = WorkflowOutputPersistenceService(persistence)
+
+    materialized = await service.persist_invoice_review_from_workflow_result(result)
+
+    assert materialized is not None
+    assert len(persistence.classification_proposals) == 1
+    assert len(persistence.reconciliations) == 1
+    assert len(persistence.reconciliation_allocations) == 2
+
+    proposal = persistence.classification_proposals[0]
+    assert proposal.confidence == "high"
+    assert proposal.rationale == "Matches supplier pattern."
+    proposal_meta = proposal.metadata_
+    assert proposal_meta is not None
+    assert proposal_meta.get("proposed_category_code") == "office_supplies"
+
+    reconciliation = persistence.reconciliations[0]
+    assert reconciliation.confidence == "medium"
+    recon_meta = reconciliation.metadata_
+    assert recon_meta is not None
+    assert recon_meta.get("requires_review") is True
+    assert recon_meta.get("review_reason") == "ambiguous_match"
+
+    # Verify that the review task points to the created proposals
+    review_task = persistence.review_tasks[0]
+    assert review_task.classification_proposal_id == proposal.id
+    assert review_task.reconciliation_id == reconciliation.id

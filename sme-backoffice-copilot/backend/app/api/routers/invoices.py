@@ -4,9 +4,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.api.dependencies import (
     get_tenant_context,
@@ -17,14 +15,23 @@ from app.api.responses import APIError
 from app.core.auth import Permission, Principal
 from app.core.db import get_db_session
 from app.core.tenant import TenantContext
-from app.models.invoice import Invoice, InvoiceStatus
+from app.repositories.invoices import InvoiceRepository
 from app.schemas.invoice import (
     InvoiceDetailResponse,
     InvoiceListResponse,
     InvoiceSummaryResponse,
 )
+from app.services.audit import AuditService, AuditEvent
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
+
+
+def get_invoice_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> InvoiceRepository:
+    """Return the tenant-scoped invoice repository."""
+
+    return InvoiceRepository(session)
 
 
 @router.get("", response_model=InvoiceListResponse)
@@ -34,7 +41,7 @@ async def list_invoices(
         Principal,
         Depends(require_permission(Permission.READ_INVOICES)),
     ],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
+    repository: Annotated[InvoiceRepository, Depends(get_invoice_repository)],
     status_filter: Annotated[
         str | None,
         Query(
@@ -57,21 +64,13 @@ async def list_invoices(
     del principal
     tenant_id = resolve_tenant_uuid(tenant_context)
 
-    query = select(Invoice).where(Invoice.tenant_id == tenant_id)
-
-    if exclude_superseded:
-        query = query.where(Invoice.status != InvoiceStatus.SUPERSEDED.value)
-
-    if status_filter:
-        query = query.where(Invoice.status == status_filter)
-
-    count_query = select(func.count()).select_from(query.subquery())
-    count_result = await session.execute(count_query)
-    total = count_result.scalar_one()
-
-    items_query = query.order_by(Invoice.created_at.desc()).offset(offset).limit(limit)
-    result = await session.execute(items_query)
-    invoices = result.scalars().all()
+    invoices, total = await repository.list_for_tenant(
+        tenant_id=tenant_id,
+        status_filter=status_filter,
+        exclude_superseded=exclude_superseded,
+        limit=limit,
+        offset=offset,
+    )
 
     return InvoiceListResponse(
         items=[InvoiceSummaryResponse.from_model(inv) for inv in invoices],
@@ -89,20 +88,14 @@ async def get_invoice_detail(
         Principal,
         Depends(require_permission(Permission.READ_INVOICES)),
     ],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
+    repository: Annotated[InvoiceRepository, Depends(get_invoice_repository)],
 ) -> InvoiceDetailResponse:
-    """Get detailed information for a single invoice including its line items."""
-
-    del principal
     tenant_id = resolve_tenant_uuid(tenant_context)
 
-    statement = (
-        select(Invoice)
-        .where(Invoice.tenant_id == tenant_id, Invoice.id == invoice_id)
-        .options(selectinload(Invoice.line_items))
+    invoice = await repository.get_for_tenant_with_line_items(
+        tenant_id=tenant_id,
+        invoice_id=invoice_id,
     )
-    result = await session.execute(statement)
-    invoice = result.scalar_one_or_none()
 
     if invoice is None:
         raise APIError(
@@ -111,5 +104,15 @@ async def get_invoice_detail(
             message="Invoice was not found.",
             details={"invoice_id": str(invoice_id)},
         )
+
+    AuditService().log(
+        AuditEvent(
+            event="document.accessed",
+            tenant_id=str(tenant_id),
+            actor_id=principal.user_id,
+            resource_type="invoice",
+            resource_id=str(invoice_id),
+        )
+    )
 
     return InvoiceDetailResponse.from_model(invoice)

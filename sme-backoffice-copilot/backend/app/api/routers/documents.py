@@ -1,8 +1,10 @@
 """Document ingestion API router."""
 
 from typing import Annotated, cast
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
@@ -24,12 +26,14 @@ from app.providers.factory import (
     build_provider_routing_config_from_settings,
 )
 from app.providers.routing import ProviderRuntime
-from app.repositories.workflows import WorkflowRuntimeRepository
+from app.repositories import DocumentRepository, WorkflowRuntimeRepository
 from app.schemas.document import (
     DocumentUploadResponse,
     DocumentWorkflowTriggerResponse,
     MalwareScanResponse,
 )
+from app.services.audit import AuditService
+from app.services.bank_statement_import import BankStatementCsvImportService
 from app.services.document_events import DocumentEventPublisher
 from app.services.document_ingestion import (
     DocumentIngestionService,
@@ -82,6 +86,7 @@ def get_document_workflow_publisher(
     )
     return DocumentIngestedWorkflowPublisher(
         runner=runner,
+        bank_statement_importer=BankStatementCsvImportService(session),
         output_persistence_service=WorkflowOutputPersistenceService(
             SqlAlchemyWorkflowOutputPersistence(session),
             trace_provider=trace_provider,
@@ -173,6 +178,17 @@ async def upload_document(
     document = result.document
     malware_scan_result = result.malware_scan_result
     document_ingested_event = result.document_ingested_event
+
+    AuditService().log_document_uploaded(
+        tenant_id=tenant_id,
+        actor_id=getattr(tenant_context.principal, "user_id", None)
+        if tenant_context.principal
+        else None,
+        document_id=document.id,
+        filename=document.original_filename,
+        correlation_id=getattr(request.state, "correlation_id", None),
+    )
+
     return DocumentUploadResponse(
         id=document.id,
         tenant_id=document.tenant_id,
@@ -197,4 +213,92 @@ async def upload_document(
             event_name=document_ingested_event.event_name,
             document_id=document_ingested_event.document_id,
         ),
+    )
+
+
+@router.get(
+    "/{document_id}/download",
+    response_class=FileResponse,
+)
+async def download_document(
+    document_id: UUID,
+    tenant_context: Annotated[TenantContext, Depends(get_tenant_context)],
+    principal: Annotated[
+        Principal,
+        Depends(require_permission(Permission.READ_INVOICES)),
+    ],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    storage: Annotated[LocalDocumentStorage, Depends(get_document_storage)],
+) -> FileResponse:
+    """Download the original uploaded file for a tenant-scoped document."""
+
+    from app.services.audit import AuditEvent
+
+    del principal
+    tenant_id = resolve_tenant_uuid(tenant_context)
+    repository = DocumentRepository(session)
+    document = await repository.get_with_artifacts(
+        tenant_id=tenant_id,
+        document_id=document_id,
+    )
+
+    if document is None:
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="document_not_found",
+            message="Document was not found.",
+            details={"document_id": str(document_id)},
+        )
+
+    # Find the original artifact
+    original_artifact = next(
+        (art for art in document.artifacts if art.artifact_type == "original"),
+        None,
+    )
+    if original_artifact is None:
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="artifact_not_found",
+            message="Original document file was not found.",
+            details={"document_id": str(document_id)},
+        )
+
+    # Parse local:// storage URI to get the filesystem path
+    if not original_artifact.storage_uri.startswith("local://"):
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="unsupported_storage",
+            message="Document is not stored locally.",
+        )
+
+    object_key = original_artifact.storage_uri[8:]  # strip local://
+    file_path = storage.root_path / object_key
+
+    if not file_path.exists():
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="file_not_found",
+            message="File does not exist on disk.",
+        )
+
+    # Emit audit log for export/download
+    AuditService().log(
+        AuditEvent(
+            event="document.downloaded",
+            tenant_id=str(tenant_id),
+            actor_id=(
+                tenant_context.principal.user_id
+                if tenant_context.principal
+                else None
+            ),
+            resource_type="document",
+            resource_id=str(document_id),
+            extra={"filename": document.original_filename},
+        )
+    )
+
+    return FileResponse(
+        path=file_path,
+        media_type=document.mime_type,
+        filename=document.original_filename,
     )

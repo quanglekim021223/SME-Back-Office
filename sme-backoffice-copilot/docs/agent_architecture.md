@@ -20,15 +20,15 @@ human review where required.
            │ DocumentAccepted
            v
 ┌──────────────────────┐
-│ Privacy & Policy Gate│
-└──────────┬───────────┘
-           │ AllowedProcessingScope
-           v
-┌──────────────────────┐
 │ Document Layout      │
 │ Analyzer             │
 └──────────┬───────────┘
            │ Region plan + OCR/layout artifacts
+           v
+┌──────────────────────┐
+│ Privacy & Policy Gate│
+└──────────┬───────────┘
+           │ AllowedProcessingScope
            v
 ┌──────────┴───────────┬──────────────────────┬──────────────────────┐
 │ Metadata Extractor   │ Table Extractor       │ Totals Extractor      │

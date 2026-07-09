@@ -78,8 +78,8 @@ async def test_document_preparation_adapter_preserves_runtime_persistence() -> N
 
     assert [step.agent_name for step in result.step_executions] == [
         DOCUMENT_INTAKE_AGENT,
-        PRIVACY_POLICY_GATE_AGENT,
         DOCUMENT_LAYOUT_ANALYZER_AGENT,
+        PRIVACY_POLICY_GATE_AGENT,
     ]
     assert persistence.step_executions == result.step_executions
     assert persistence.handoffs == result.handoffs
@@ -143,8 +143,8 @@ async def test_invoice_extraction_adapter_runs_through_qa_valid_path() -> None:
 
     assert [step.agent_name for step in result.step_executions] == [
         DOCUMENT_INTAKE_AGENT,
-        PRIVACY_POLICY_GATE_AGENT,
         DOCUMENT_LAYOUT_ANALYZER_AGENT,
+        PRIVACY_POLICY_GATE_AGENT,
         METADATA_EXTRACTOR_AGENT,
         TABLE_EXTRACTOR_AGENT,
         TOTALS_EXTRACTOR_AGENT,

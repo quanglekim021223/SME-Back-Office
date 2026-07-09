@@ -74,9 +74,9 @@ async def test_document_intake_agent_routes_to_privacy_gate() -> None:
 
     handoff = result.handoffs[0]
     assert handoff.source_agent == DOCUMENT_INTAKE_AGENT
-    assert handoff.target_agent == PRIVACY_POLICY_GATE_AGENT
+    assert handoff.target_agent == DOCUMENT_LAYOUT_ANALYZER_AGENT
     assert handoff.handoff_type == HandoffType.CONTROL
-    assert handoff.stage == WorkflowStage.PRIVACY_POLICY_GATE
+    assert handoff.stage == WorkflowStage.LAYOUT_ANALYSIS
     assert handoff.confidence == ConfidenceLevel.HIGH
     artifacts = handoff.payload["artifacts"]
     assert isinstance(artifacts, dict)
@@ -84,7 +84,7 @@ async def test_document_intake_agent_routes_to_privacy_gate() -> None:
 
 
 @pytest.mark.asyncio
-async def test_privacy_policy_gate_agent_routes_to_layout_analysis() -> None:
+async def test_privacy_policy_gate_agent_routes_to_extraction_agents() -> None:
     state = create_state()
     agent = PrivacyPolicyGateAgent()
 
@@ -97,17 +97,22 @@ async def test_privacy_policy_gate_agent_routes_to_layout_analysis() -> None:
     assert result.output["policy_decision"] == "allow"
     assert result.output["policy_mode"] == "placeholder"
     assert result.output["policy_flags"] == state.policy_flags
-    assert len(result.handoffs) == 1
+    assert len(result.handoffs) == 3
 
-    handoff = result.handoffs[0]
-    assert handoff.source_agent == PRIVACY_POLICY_GATE_AGENT
-    assert handoff.target_agent == DOCUMENT_LAYOUT_ANALYZER_AGENT
-    assert handoff.stage == WorkflowStage.LAYOUT_ANALYSIS
-    assert handoff.payload["policy_decision"] == "allow"
+    assert {handoff.target_agent for handoff in result.handoffs} == {
+        METADATA_EXTRACTOR_AGENT,
+        TABLE_EXTRACTOR_AGENT,
+        TOTALS_EXTRACTOR_AGENT,
+    }
+    assert {handoff.stage for handoff in result.handoffs} == {
+        WorkflowStage.METADATA_EXTRACTION,
+        WorkflowStage.TABLE_EXTRACTION,
+        WorkflowStage.TOTALS_EXTRACTION,
+    }
 
 
 @pytest.mark.asyncio
-async def test_document_layout_analyzer_agent_routes_to_extraction_agents() -> None:
+async def test_document_layout_analyzer_agent_routes_to_privacy_gate() -> None:
     state = create_state()
     agent = DocumentLayoutAnalyzerAgent()
 
@@ -121,23 +126,14 @@ async def test_document_layout_analyzer_agent_routes_to_extraction_agents() -> N
     assert output["layout_detected"] is False
     assert output["requires_ocr"] is True
     assert result.metrics == {"layout_group_count": 3, "layout_region_count": 0}
-    assert {handoff.target_agent for handoff in result.handoffs} == {
-        METADATA_EXTRACTOR_AGENT,
-        TABLE_EXTRACTOR_AGENT,
-        TOTALS_EXTRACTOR_AGENT,
-    }
-    assert {handoff.stage for handoff in result.handoffs} == {
-        WorkflowStage.METADATA_EXTRACTION,
-        WorkflowStage.TABLE_EXTRACTION,
-        WorkflowStage.TOTALS_EXTRACTION,
-    }
-    assert all(
-        handoff.confidence == ConfidenceLevel.UNKNOWN for handoff in result.handoffs
-    )
-    assert all(
-        handoff.payload["layout_groups"] == output["layout_groups"]
-        for handoff in result.handoffs
-    )
+    assert len(result.handoffs) == 1
+
+    handoff = result.handoffs[0]
+    assert handoff.source_agent == DOCUMENT_LAYOUT_ANALYZER_AGENT
+    assert handoff.target_agent == PRIVACY_POLICY_GATE_AGENT
+    assert handoff.stage == WorkflowStage.PRIVACY_POLICY_GATE
+    assert handoff.confidence == ConfidenceLevel.UNKNOWN
+    assert handoff.payload["layout_groups"] == output["layout_groups"]
 
 
 @pytest.mark.asyncio

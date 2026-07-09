@@ -1,3 +1,4 @@
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -40,6 +41,22 @@ def create_state() -> WorkflowState:
             ASSEMBLED_INVOICE_DRAFT_KEY: {
                 "schema_version": "assembled-invoice-draft.v1",
             },
+            "invoice_metadata_group": {
+                "schema_version": "invoice-metadata-group.v1",
+                "extraction_status": "extracted",
+                "invoice_number": "INV-12345",
+                "supplier_name": "Google Cloud",
+                "customer_name": "ACME Corp",
+                "issue_date": "2026-07-01",
+                "due_date": "2026-07-31",
+                "currency": "USD"
+            },
+            "invoice_totals_group": {
+                "schema_version": "invoice-totals-group.v1",
+                "extraction_status": "extracted",
+                "total_amount": "1250.00",
+                "currency": "USD"
+            }
         },
     )
 
@@ -75,6 +92,12 @@ def create_handoff(
 
 @pytest.mark.asyncio
 async def test_downstream_agents_route_clean_invoice_to_insights() -> None:
+    from datetime import date
+    from decimal import Decimal
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from app.models.banking import Transaction
+
     state = create_state()
     context = create_context(state)
 
@@ -103,14 +126,41 @@ async def test_downstream_agents_route_clean_invoice_to_insights() -> None:
     assert classification_result.handoffs[0].target_agent == RECONCILIATION_AGENT
     assert classification_result.handoffs[0].stage == WorkflowStage.RECONCILIATION
 
-    reconciliation_result = await reconciliation_agent.run(
-        state=state,
-        context=context,
-        handoff=classification_result.handoffs[0],
-    )
+    # Mock the database transaction match
+    mock_tx = MagicMock(spec=Transaction)
+    mock_tx.id = uuid4()
+    mock_tx.direction = "outflow"
+    mock_tx.posted_at = date(2026, 7, 10)
+    mock_tx.value_at = date(2026, 7, 10)
+    mock_tx.amount = Decimal("-1250.00")
+    mock_tx.currency = "USD"
+    mock_tx.reference = "INV-12345"
+    mock_tx.raw_description = "Google Cloud Service INV-12345"
+    mock_tx.normalized_description = "Google Cloud Service"
+    mock_tx.counterparty_name = "Google Cloud"
+    mock_tx.content_hash = "somehash"
+    mock_tx.metadata_ = {}
+
+    mock_session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [mock_tx]
+    mock_session.execute.return_value = mock_result
+
+    mock_session_factory = MagicMock()
+    mock_session_factory.return_value.__aenter__.return_value = mock_session
+
+    with patch(
+        "app.workflows.downstream_agents.async_session_factory",
+        mock_session_factory,
+    ):
+        reconciliation_result = await reconciliation_agent.run(
+            state=state,
+            context=context,
+            handoff=classification_result.handoffs[0],
+        )
 
     assert reconciliation_result.status == AgentRunStatus.SUCCEEDED
-    assert reconciliation_result.metrics == {"candidate_count": 0}
+    assert reconciliation_result.metrics == {"candidate_count": 1}
     assert RECONCILIATION_RESULT_KEY in state.scratchpad
     assert reconciliation_result.handoffs[0].source_agent == RECONCILIATION_AGENT
     assert reconciliation_result.handoffs[0].target_agent == REVIEW_COORDINATOR_AGENT
@@ -160,7 +210,10 @@ async def test_review_coordinator_stops_when_blocking_qa_errors_exist() -> None:
     assert result.status == AgentRunStatus.REVIEW_REQUIRED
     assert result.handoffs == []
     assert result.output["review_coordination_ref"] == REVIEW_COORDINATION_RESULT_KEY
-    review_payload = state.scratchpad[REVIEW_COORDINATION_RESULT_KEY]
+    review_payload = cast(
+        dict[str, Any],
+        state.scratchpad[REVIEW_COORDINATION_RESULT_KEY],
+    )
     assert review_payload["review_status"] == BusinessDownstreamStatus.REVIEW_REQUIRED
     assert review_payload["review_required"] is True
     assert review_payload["review_reasons"] == ["ERR_LOGIC_MATH"]

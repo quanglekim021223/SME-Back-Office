@@ -90,7 +90,7 @@ class OpenAIResponsesLLMProvider:
         request: LLMGenerationRequest,
         context: LLMProviderRunContext,
     ) -> LLMGenerationResult:
-        """Generate text or structured JSON through OpenAI Responses or Chat Completions API."""
+        """Generate text or structured JSON through OpenAI APIs."""
 
         is_official_openai = (
             "api.openai.com" in self.base_url
@@ -117,7 +117,7 @@ class OpenAIResponsesLLMProvider:
             if request.response_format == LLMResponseFormat.JSON:
                 payload["response_format"] = {"type": "json_object"}
             if request.max_output_tokens is not None:
-                payload["max_tokens"] = request.max_output_tokens
+                payload["max_completion_tokens"] = request.max_output_tokens
 
         try:
             response_payload = await asyncio.to_thread(
@@ -131,7 +131,8 @@ class OpenAIResponsesLLMProvider:
             api_name = "Responses" if is_official_openai else "Chat Completions"
             raise ProviderExecutionError(
                 f"Could not call OpenAI {api_name} API. Check network access, "
-                "API key, and provider routing configuration."
+                "API key, and provider routing configuration. "
+                f"Original error: {exc}"
             ) from exc
 
         if is_official_openai:
@@ -147,19 +148,30 @@ class OpenAIResponsesLLMProvider:
             # Handle standard Chat Completions API
             error_details = response_payload.get("error")
             if error_details is not None:
-                raise ProviderExecutionError(f"OpenAI Chat Completions returned an error: {error_details}")
+                raise ProviderExecutionError(
+                    "OpenAI Chat Completions returned an error: "
+                    f"{error_details}"
+                )
             choices_list = response_payload.get("choices")
             if not isinstance(choices_list, list) or not choices_list:
-                raise ProviderExecutionError("OpenAI Chat Completions did not return choices.")
+                raise ProviderExecutionError(
+                    "OpenAI Chat Completions did not return choices."
+                )
             first_choice = choices_list[0]
             if not isinstance(first_choice, dict):
-                raise ProviderExecutionError("OpenAI Chat Completions choice is not a dict.")
+                raise ProviderExecutionError(
+                    "OpenAI Chat Completions choice is not a dict."
+                )
             message_dict = first_choice.get("message")
             if not isinstance(message_dict, dict):
-                raise ProviderExecutionError("OpenAI Chat Completions message is not a dict.")
+                raise ProviderExecutionError(
+                    "OpenAI Chat Completions message is not a dict."
+                )
             extracted_output = message_dict.get("content")
             if not isinstance(extracted_output, str):
-                raise ProviderExecutionError("OpenAI Chat Completions content is not a string.")
+                raise ProviderExecutionError(
+                    "OpenAI Chat Completions content is not a string."
+                )
             output_text = extracted_output
 
             usage_dict = response_payload.get("usage")

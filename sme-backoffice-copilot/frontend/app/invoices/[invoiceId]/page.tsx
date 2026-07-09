@@ -4,14 +4,13 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { use } from "react";
 
-import {
-  ErrorState,
-  LoadingState,
-} from "../../_components/status-states";
+import { ErrorState, LoadingState } from "../../_components/status-states";
 import {
   formatApiError,
   getInvoice,
+  type ClassificationProposalResponse,
   type InvoiceResponse,
+  type InvoiceReconciliationResponse,
 } from "../../_lib/api-client";
 
 type LoadState = "idle" | "loading" | "loaded" | "error";
@@ -51,6 +50,35 @@ function statusPillClass(status: string) {
   }
 }
 
+function confidencePillClass(confidence: string | null | undefined) {
+  switch (confidence) {
+    case "high":
+      return "status-pill status-pill-success";
+    case "medium":
+      return "status-pill status-pill-info";
+    case "low":
+    case "unknown":
+      return "status-pill status-pill-warning";
+    default:
+      return "status-pill status-pill-muted";
+  }
+}
+
+function titleCase(value: string | null | undefined) {
+  if (!value) return "—";
+  return value
+    .replaceAll("_", " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function metadataText(proposal: ClassificationProposalResponse, key: string) {
+  const value = proposal.metadata[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
 function DetailField({
   label,
   value,
@@ -61,7 +89,11 @@ function DetailField({
   emphasis?: boolean;
 }) {
   return (
-    <div className={emphasis ? "proposal-field proposal-field-emphasis" : "proposal-field"}>
+    <div
+      className={
+        emphasis ? "proposal-field proposal-field-emphasis" : "proposal-field"
+      }
+    >
       <span>{label}</span>
       <strong>{value || "—"}</strong>
     </div>
@@ -131,6 +163,9 @@ export default function InvoiceDetailPage({
 
   if (!invoice) return null;
 
+  const latestClassification = invoice.classification_proposals[0] ?? null;
+  const latestReconciliation = invoice.reconciliations[0] ?? null;
+
   return (
     <div className="page-stack">
       <section className="review-detail-layout">
@@ -158,12 +193,24 @@ export default function InvoiceDetailPage({
           <div className="proposal-summary-grid">
             <DetailField label="Invoice #" value={invoice.invoice_number} />
             <DetailField label="Supplier" value={invoice.supplier_name} />
-            <DetailField label="Supplier Tax ID" value={invoice.supplier_tax_id} />
+            <DetailField
+              label="Supplier Tax ID"
+              value={invoice.supplier_tax_id}
+            />
             <DetailField label="Customer" value={invoice.customer_name} />
-            <DetailField label="Customer Tax ID" value={invoice.customer_tax_id} />
+            <DetailField
+              label="Customer Tax ID"
+              value={invoice.customer_tax_id}
+            />
             <DetailField label="Direction" value={invoice.direction} />
-            <DetailField label="Issue date" value={formatDate(invoice.issue_date)} />
-            <DetailField label="Due date" value={formatDate(invoice.due_date)} />
+            <DetailField
+              label="Issue date"
+              value={formatDate(invoice.issue_date)}
+            />
+            <DetailField
+              label="Due date"
+              value={formatDate(invoice.due_date)}
+            />
             <DetailField label="Currency" value={invoice.currency} />
             <DetailField
               label="Subtotal"
@@ -186,6 +233,13 @@ export default function InvoiceDetailPage({
               <p>{invoice.notes}</p>
             </div>
           ) : null}
+
+          <ClassificationPanel proposal={latestClassification} />
+
+          <ReconciliationPanel
+            reconciliation={latestReconciliation}
+            invoiceCurrency={invoice.currency}
+          />
 
           {/* Line items */}
           <div className="proposal-section">
@@ -222,7 +276,9 @@ export default function InvoiceDetailPage({
                         <td>{item.product_code ?? "—"}</td>
                         <td>{item.quantity ?? "—"}</td>
                         <td>{item.unit_of_measure ?? "—"}</td>
-                        <td>{formatMoney(item.unit_price_amount, item.currency)}</td>
+                        <td>
+                          {formatMoney(item.unit_price_amount, item.currency)}
+                        </td>
                         <td>{formatMoney(item.net_amount, item.currency)}</td>
                         <td>{item.tax_rate ? `${item.tax_rate}%` : "—"}</td>
                         <td>
@@ -260,6 +316,181 @@ export default function InvoiceDetailPage({
           </div>
         </article>
       </section>
+    </div>
+  );
+}
+
+function ReconciliationPanel({
+  reconciliation,
+  invoiceCurrency,
+}: {
+  reconciliation: InvoiceReconciliationResponse | null;
+  invoiceCurrency: string | null;
+}) {
+  if (!reconciliation) {
+    return (
+      <div className="proposal-section automation-panel">
+        <div className="card-header card-header-compact">
+          <div>
+            <p className="eyebrow">Bank reconciliation</p>
+            <h4>No transaction match yet</h4>
+          </div>
+          <span className="status-pill status-pill-muted">Awaiting match</span>
+        </div>
+        <p className="muted-copy">
+          Upload a bank statement CSV with a matching transaction to reconcile
+          this invoice.
+        </p>
+      </div>
+    );
+  }
+
+  const score = reconciliation.metadata.candidate_score;
+  const scoreValue = typeof score === "number" ? `${score}/100` : "—";
+
+  return (
+    <div className="proposal-section automation-panel">
+      <div className="card-header card-header-compact">
+        <div>
+          <p className="eyebrow">Bank reconciliation</p>
+          <h4>Matched transaction</h4>
+        </div>
+        <div className="action-row">
+          <span className={confidencePillClass(reconciliation.confidence)}>
+            {reconciliation.confidence ?? "unknown"} confidence
+          </span>
+          <span
+            className={statusPillClass(
+              reconciliation.reconciliation_status ?? reconciliation.status,
+            )}
+          >
+            {(
+              reconciliation.reconciliation_status ?? reconciliation.status
+            ).replace("_", " ")}
+          </span>
+        </div>
+      </div>
+
+      <div className="proposal-summary-grid automation-summary-grid">
+        <DetailField
+          label="Allocated"
+          value={formatMoney(
+            reconciliation.allocated_amount,
+            reconciliation.currency ?? invoiceCurrency,
+          )}
+          emphasis
+        />
+        <DetailField
+          label="Transaction"
+          value={reconciliation.transaction_description}
+        />
+        <DetailField
+          label="Posted"
+          value={formatDate(reconciliation.transaction_posted_at)}
+        />
+        <DetailField
+          label="Bank amount"
+          value={formatMoney(
+            reconciliation.transaction_amount,
+            reconciliation.currency ?? invoiceCurrency,
+          )}
+        />
+        <DetailField label="Score" value={scoreValue} />
+        <DetailField
+          label="Method"
+          value={titleCase(reconciliation.allocation_method)}
+        />
+      </div>
+
+      {reconciliation.rationale ? (
+        <div className="automation-rationale">
+          <span>Rationale</span>
+          <p>{reconciliation.rationale}</p>
+        </div>
+      ) : null}
+
+      {reconciliation.evidence_refs.length > 0 ? (
+        <div className="evidence-ref-list">
+          {reconciliation.evidence_refs.map((ref) => (
+            <code key={ref}>{ref}</code>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ClassificationPanel({
+  proposal,
+}: {
+  proposal: ClassificationProposalResponse | null;
+}) {
+  if (!proposal) {
+    return (
+      <div className="proposal-section automation-panel">
+        <div className="card-header card-header-compact">
+          <div>
+            <p className="eyebrow">Accounting automation</p>
+            <h4>Classification not available yet</h4>
+          </div>
+          <span className="status-pill status-pill-muted">Not run</span>
+        </div>
+        <p className="muted-copy">
+          Classification will appear here after extraction is approved or a
+          workflow produces an accounting category proposal.
+        </p>
+      </div>
+    );
+  }
+
+  const categoryCode = metadataText(proposal, "proposed_category_code");
+  const categoryType = metadataText(proposal, "proposed_category_type");
+  const direction = metadataText(proposal, "proposed_direction");
+
+  return (
+    <div className="proposal-section automation-panel">
+      <div className="card-header card-header-compact">
+        <div>
+          <p className="eyebrow">Accounting automation</p>
+          <h4>Classification proposal</h4>
+        </div>
+        <div className="action-row">
+          <span className={confidencePillClass(proposal.confidence)}>
+            {proposal.confidence ?? "unknown"} confidence
+          </span>
+          <span className={statusPillClass(proposal.status)}>
+            {proposal.status.replace("_", " ")}
+          </span>
+        </div>
+      </div>
+
+      <div className="proposal-summary-grid automation-summary-grid">
+        <DetailField
+          label="Category"
+          value={titleCase(categoryCode)}
+          emphasis
+        />
+        <DetailField label="Direction" value={titleCase(direction)} />
+        <DetailField label="Category type" value={titleCase(categoryType)} />
+        <DetailField label="Source" value={proposal.source_agent} />
+        <DetailField label="Proposal" value={`v${proposal.version}`} />
+        <DetailField label="Updated" value={formatDate(proposal.updated_at)} />
+      </div>
+
+      {proposal.rationale ? (
+        <div className="automation-rationale">
+          <span>Rationale</span>
+          <p>{proposal.rationale}</p>
+        </div>
+      ) : null}
+
+      {proposal.evidence_refs.length > 0 ? (
+        <div className="evidence-ref-list">
+          {proposal.evidence_refs.map((ref) => (
+            <code key={ref}>{ref}</code>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

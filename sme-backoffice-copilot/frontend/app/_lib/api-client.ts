@@ -352,6 +352,39 @@ export type InvoiceLineItemResponse = {
   confidence: string | null;
 };
 
+export type ClassificationProposalResponse = {
+  id: string;
+  invoice_id: string | null;
+  target_type: string;
+  status: string;
+  version: number;
+  confidence: string | null;
+  source_agent: string | null;
+  rationale: string | null;
+  evidence_refs: string[];
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type InvoiceReconciliationResponse = {
+  id: string;
+  reconciliation_id: string;
+  transaction_id: string | null;
+  status: string;
+  allocated_amount: string;
+  currency: string | null;
+  confidence: string | null;
+  allocation_method: string | null;
+  reconciliation_status: string | null;
+  rationale: string | null;
+  evidence_refs: string[];
+  metadata: Record<string, unknown>;
+  transaction_description: string | null;
+  transaction_posted_at: string | null;
+  transaction_amount: string | null;
+};
+
 export type InvoiceResponse = {
   id: string;
   tenant_id: string;
@@ -375,12 +408,21 @@ export type InvoiceResponse = {
   supersedes_invoice_id: string | null;
   source_processing_run_id: string | null;
   line_items: InvoiceLineItemResponse[];
+  classification_proposals: ClassificationProposalResponse[];
+  reconciliations: InvoiceReconciliationResponse[];
   created_at: string;
   updated_at: string;
 };
 
 export type InvoiceListResponse = {
-  items: Omit<InvoiceResponse, "line_items" | "supplier_tax_id" | "customer_tax_id" | "notes" | "source_processing_run_id">[];
+  items: Omit<
+    InvoiceResponse,
+    | "line_items"
+    | "supplier_tax_id"
+    | "customer_tax_id"
+    | "notes"
+    | "source_processing_run_id"
+  >[];
   total: number;
   limit: number;
   offset: number;
@@ -413,8 +455,6 @@ export function listInvoices({
 export function getInvoice(invoiceId: string) {
   return apiGet<InvoiceResponse>(`/invoices/${invoiceId}`);
 }
-
-
 
 export function formatApiError(error: unknown) {
   if (error instanceof ApiClientError) {
