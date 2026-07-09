@@ -186,6 +186,7 @@ forwarded as-is.
 - [Product brief](docs/product_brief.md)
 - [Architecture](docs/architecture.md)
 - [Agent architecture](docs/agent_architecture.md)
+- [Security and privacy conventions](docs/security_privacy.md)
 - [Implementation plan](docs/implementation_plan.md)
 - [Data model](docs/data_model.md)
 - [Evaluation strategy](docs/evaluation.md)

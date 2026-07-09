@@ -378,12 +378,12 @@ Goal: make tenant and financial data handling safe by design.
 - [x] Add audit logging for approval/correction actions.
 - [x] Add audit logging for export/download actions.
 - [x] Redact sensitive payloads from logs.
-- [ ] Add secret management convention.
-- [ ] Add file processing sandbox strategy.
-- [ ] Add prompt-injection test cases.
+- [x] Add secret management convention.
+- [x] Add file processing sandbox strategy.
+- [x] Add prompt-injection test cases.
 - [x] Add cross-tenant access tests.
-- [ ] Add retention/deletion policy draft.
-- [ ] Add provider data-handling policy documentation.
+- [x] Add retention/deletion policy draft.
+- [x] Add provider data-handling policy documentation.
 
 ## Phase 10.5 — Post-extraction integration (Classification & Reconciliation)
 
