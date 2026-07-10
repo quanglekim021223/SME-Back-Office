@@ -184,6 +184,25 @@ export type LocalMetricsResponse = {
   };
 };
 
+export type FinancialMetricResponse = {
+  available: boolean;
+  amount: string | null;
+  currency: string | null;
+  by_currency: Record<string, string>;
+  transaction_count: number;
+  account_count: number;
+  period_start: string | null;
+  period_end: string | null;
+  source: string;
+};
+
+export type DashboardFinancialSummaryResponse = {
+  cash_position: FinancialMetricResponse;
+  inflow: FinancialMetricResponse;
+  outflow: FinancialMetricResponse;
+  generated_at: string;
+};
+
 export class ApiClientError extends Error {
   readonly status: number;
   readonly code: string;
@@ -361,6 +380,10 @@ export function correctReconciliation(
 
 export function getLocalMetrics() {
   return apiGet<LocalMetricsResponse>("/ops/metrics");
+}
+
+export function getDashboardFinancialSummary() {
+  return apiGet<DashboardFinancialSummaryResponse>("/ops/financial-summary");
 }
 
 // ── Invoice types ────────────────────────────────────────────────────────────

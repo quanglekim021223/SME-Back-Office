@@ -5,8 +5,11 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   formatApiError,
+  getDashboardFinancialSummary,
   getLocalMetrics,
   listReviewTasks,
+  type DashboardFinancialSummaryResponse,
+  type FinancialMetricResponse,
   type LocalMetricsResponse,
   type ReviewTaskSummaryResponse,
 } from "./_lib/api-client";
@@ -21,35 +24,6 @@ type DashboardMetric = {
   caption: string;
   source: string;
 };
-
-const cashPosition = {
-  label: "Cash position",
-  value: "$42.6k",
-  trend: "Placeholder",
-  tone: "neutral" as const,
-  caption:
-    "Available balance across connected accounts once banking sync exists.",
-  source: "Mock aggregate",
-};
-
-const inflowOutflow = [
-  {
-    label: "Inflow",
-    value: "$18.4k",
-    trend: "Placeholder",
-    tone: "positive" as const,
-    caption: "Customer receipts detected this week after statement parsing.",
-    source: "Mock statement data",
-  },
-  {
-    label: "Outflow",
-    value: "$9.7k",
-    trend: "Placeholder",
-    tone: "warning" as const,
-    caption: "Vendor payments and operating expenses after categorization.",
-    source: "Mock statement data",
-  },
-];
 
 const pipeline = [
   {
@@ -77,8 +51,8 @@ const pipeline = [
 const latestInsights = [
   {
     title: "Cash movement summary",
-    body: "Once statement parsing is connected, this card will compare weekly inflow and outflow using traceable source transactions.",
-    evidence: "Waiting for parsed bank statements",
+    body: "Imported bank transactions now drive the cashflow cards; future insight cards will explain movement changes with evidence refs.",
+    evidence: "Live bank transaction aggregates",
   },
   {
     title: "Unresolved finance work",
@@ -100,16 +74,22 @@ export default function HomePage() {
   const [opsMetrics, setOpsMetrics] = useState<LocalMetricsResponse | null>(
     null,
   );
+  const [financialSummary, setFinancialSummary] =
+    useState<DashboardFinancialSummaryResponse | null>(null);
   const [opsError, setOpsError] = useState<string | null>(null);
+  const [financialError, setFinancialError] = useState<string | null>(null);
   const [isLoadingReviews, setIsLoadingReviews] = useState(true);
   const [isLoadingOps, setIsLoadingOps] = useState(true);
+  const [isLoadingFinancial, setIsLoadingFinancial] = useState(true);
 
   useEffect(() => {
     async function loadReviewSummary() {
       setIsLoadingReviews(true);
       setIsLoadingOps(true);
+      setIsLoadingFinancial(true);
       setReviewError(null);
       setOpsError(null);
+      setFinancialError(null);
 
       try {
         const response = await listReviewTasks({ limit: 100 });
@@ -127,6 +107,15 @@ export default function HomePage() {
         setOpsError(formatApiError(error));
       } finally {
         setIsLoadingOps(false);
+      }
+
+      try {
+        const response = await getDashboardFinancialSummary();
+        setFinancialSummary(response);
+      } catch (error) {
+        setFinancialError(formatApiError(error));
+      } finally {
+        setIsLoadingFinancial(false);
       }
     }
 
@@ -152,9 +141,14 @@ export default function HomePage() {
   const correctionTone =
     correctionRate && correctionRate.rate >= 0.25 ? "warning" : "positive";
 
+  const financialMetricCards = buildFinancialMetricCards({
+    summary: financialSummary,
+    isLoading: isLoadingFinancial,
+    error: financialError,
+  });
+
   const metrics: DashboardMetric[] = [
-    cashPosition,
-    ...inflowOutflow,
+    ...financialMetricCards,
     {
       label: "Review queue",
       value: isLoadingReviews || isLoadingOps ? "…" : String(observedQueueSize),
@@ -194,9 +188,25 @@ export default function HomePage() {
     },
   ];
 
+  const hasFinancialData =
+    financialSummary?.inflow.available ||
+    financialSummary?.outflow.available ||
+    financialSummary?.cash_position.available ||
+    false;
+
   const operatingSignals = [
     { label: "Dashboard mode", value: "Local MVP" },
-    { label: "Financial data", value: "Placeholder" },
+    {
+      label: "Financial data",
+      value:
+        financialError !== null
+          ? "Needs attention"
+          : isLoadingFinancial
+            ? "Loading"
+            : hasFinancialData
+              ? "Live"
+              : "Awaiting bank data",
+    },
     {
       label: "Review API",
       value: reviewError ? "Needs attention" : "Connected",
@@ -212,13 +222,13 @@ export default function HomePage() {
       <section className="dashboard-hero dashboard-hero-compact">
         <div className="hero-copy">
           <span className="status-pill status-pill-inverted">
-            Local dashboard placeholder
+            Local dashboard
           </span>
           <h2>Cashflow, review work, and grounded signals in one place.</h2>
           <p>
             This dashboard gives the SME operator a calm daily snapshot. Cash
-            metrics are placeholder aggregates for now; unresolved review count
-            is wired to the backend review API.
+            metrics now read uploaded bank transactions when available; review
+            and correction signals are wired to live ops metrics.
           </p>
           <div className="hero-actions">
             <Link className="button button-primary" href="/upload">
@@ -230,18 +240,11 @@ export default function HomePage() {
           </div>
         </div>
 
-        <aside
-          className="dashboard-readiness-card"
-          aria-label="Dashboard data readiness"
-        >
-          <p className="eyebrow">Data readiness</p>
-          <div className="readiness-list">
-            <DashboardReadinessItem label="Upload API" value="Live" />
-            <DashboardReadinessItem label="Review count" value="Live" />
-            <DashboardReadinessItem label="Cash position" value="Placeholder" />
-            <DashboardReadinessItem label="Insights" value="Placeholder" />
-          </div>
-        </aside>
+        <NetCashMovementCard
+          error={financialError}
+          isLoading={isLoadingFinancial}
+          summary={financialSummary}
+        />
       </section>
 
       <section className="ops-strip" aria-label="Dashboard operating signals">
@@ -322,18 +325,58 @@ export default function HomePage() {
   );
 }
 
-function DashboardReadinessItem({
-  label,
-  value,
+function NetCashMovementCard({
+  summary,
+  isLoading,
+  error,
 }: {
-  label: string;
-  value: string;
+  summary: DashboardFinancialSummaryResponse | null;
+  isLoading: boolean;
+  error: string | null;
 }) {
+  const inflowAmount = Number(summary?.inflow.amount ?? 0);
+  const outflowAmount = Number(summary?.outflow.amount ?? 0);
+  const netAmount = inflowAmount - outflowAmount;
+  const currency =
+    summary?.inflow.currency ??
+    summary?.outflow.currency ??
+    summary?.cash_position.currency ??
+    "USD";
+  const hasCashMovement =
+    Boolean(summary?.inflow.available) || Boolean(summary?.outflow.available);
+  const periodLabel = formatPeriodLabel(summary);
+  const bars = buildNetMovementBars(inflowAmount, outflowAmount);
+
+  let value = "No data";
+  let note = "Upload a bank statement CSV to start tracking cash movement.";
+  if (isLoading) {
+    value = "…";
+    note = "Reading bank transaction aggregates.";
+  } else if (error !== null) {
+    value = "Unavailable";
+    note = "Financial summary API needs attention.";
+  } else if (hasCashMovement) {
+    value = formatSignedMoney(netAmount, currency);
+    note = `Cash in ${formatMoney(String(inflowAmount), currency)} minus cash out ${formatMoney(
+      String(outflowAmount),
+      currency,
+    )}.`;
+  }
+
   return (
-    <div>
-      <span>{label}</span>
+    <aside className="hero-balance-card" aria-label="Net cash movement">
+      <div className="cash-card-header">
+        <span>Net cash movement</span>
+        <span>{periodLabel}</span>
+      </div>
       <strong>{value}</strong>
-    </div>
+      <p>{note}</p>
+      <div className="mini-chart" aria-hidden="true">
+        {bars.map((height, index) => (
+          <i key={index} style={{ height: `${height}%` }} />
+        ))}
+      </div>
+    </aside>
   );
 }
 
@@ -350,4 +393,237 @@ function findOpenReviewQueueSize(metrics: LocalMetricsResponse | null) {
 
 function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`;
+}
+
+function buildFinancialMetricCards({
+  summary,
+  isLoading,
+  error,
+}: {
+  summary: DashboardFinancialSummaryResponse | null;
+  isLoading: boolean;
+  error: string | null;
+}): DashboardMetric[] {
+  return [
+    financialMetricToCard({
+      label: "Cash position",
+      metric: summary?.cash_position ?? null,
+      isLoading,
+      error,
+      positiveLabel: "Live balance",
+      emptyTrend: "Needs balance",
+      emptyCaption:
+        "Upload a bank statement CSV with a balance column to show available cash.",
+      liveCaption: "Latest known balance across imported bank accounts.",
+      tone: "neutral",
+    }),
+    financialMetricToCard({
+      label: "Inflow",
+      metric: summary?.inflow ?? null,
+      isLoading,
+      error,
+      positiveLabel: "Live transactions",
+      emptyTrend: "Awaiting bank data",
+      emptyCaption: "Upload a bank statement CSV to calculate receipts.",
+      liveCaption: "Incoming transactions from parsed bank statements.",
+      tone: "positive",
+    }),
+    financialMetricToCard({
+      label: "Outflow",
+      metric: summary?.outflow ?? null,
+      isLoading,
+      error,
+      positiveLabel: "Live transactions",
+      emptyTrend: "Awaiting bank data",
+      emptyCaption: "Upload a bank statement CSV to calculate payments.",
+      liveCaption: "Outgoing transactions from parsed bank statements.",
+      tone: "warning",
+    }),
+  ];
+}
+
+function financialMetricToCard({
+  label,
+  metric,
+  isLoading,
+  error,
+  positiveLabel,
+  emptyTrend,
+  emptyCaption,
+  liveCaption,
+  tone,
+}: {
+  label: string;
+  metric: FinancialMetricResponse | null;
+  isLoading: boolean;
+  error: string | null;
+  positiveLabel: string;
+  emptyTrend: string;
+  emptyCaption: string;
+  liveCaption: string;
+  tone: MetricTone;
+}): DashboardMetric {
+  if (isLoading) {
+    return {
+      label,
+      value: "…",
+      trend: "Loading",
+      tone: "neutral",
+      caption: "Reading persisted bank transaction aggregates.",
+      source: "Live bank data",
+    };
+  }
+
+  if (error !== null) {
+    return {
+      label,
+      value: "Unavailable",
+      trend: "Metrics issue",
+      tone: "warning",
+      caption: "Could not load the financial summary API.",
+      source: error,
+    };
+  }
+
+  if (!metric || !metric.available) {
+    return {
+      label,
+      value: "No data",
+      trend: emptyTrend,
+      tone: "neutral",
+      caption: emptyCaption,
+      source: metric?.source ?? "No parsed bank transactions yet",
+    };
+  }
+
+  return {
+    label,
+    value: formatFinancialAmount(metric),
+    trend: metricTrend(metric, positiveLabel),
+    tone,
+    caption: appendPeriod(liveCaption, metric),
+    source: metric.source,
+  };
+}
+
+function formatFinancialAmount(metric: FinancialMetricResponse) {
+  if (metric.amount !== null && metric.currency !== null) {
+    return formatMoney(metric.amount, metric.currency);
+  }
+
+  const currencies = Object.keys(metric.by_currency);
+  if (currencies.length > 1) {
+    return "Multi-currency";
+  }
+
+  return "No data";
+}
+
+function formatMoney(amount: string, currency: string) {
+  const numericAmount = Number(amount);
+  if (!Number.isFinite(numericAmount) || currency === "UNK") {
+    return amount;
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    currency,
+    maximumFractionDigits: Math.abs(numericAmount) >= 1000 ? 1 : 2,
+    notation: Math.abs(numericAmount) >= 1000 ? "compact" : "standard",
+    style: "currency",
+  }).format(numericAmount);
+}
+
+function metricTrend(metric: FinancialMetricResponse, fallback: string) {
+  if (metric.account_count > 0) {
+    return `${metric.account_count} account${metric.account_count === 1 ? "" : "s"}`;
+  }
+
+  if (metric.transaction_count > 0) {
+    return `${metric.transaction_count} transaction${
+      metric.transaction_count === 1 ? "" : "s"
+    }`;
+  }
+
+  return fallback;
+}
+
+function appendPeriod(caption: string, metric: FinancialMetricResponse) {
+  const period = formatDateRangeLabel({
+    emptyLabel: null,
+    end: metric.period_end,
+    start: metric.period_start,
+  });
+
+  if (period === null) {
+    return caption;
+  }
+
+  return `${caption} ${period}.`;
+}
+
+function formatPeriodLabel(summary: DashboardFinancialSummaryResponse | null) {
+  const start =
+    summary?.inflow.period_start ??
+    summary?.outflow.period_start ??
+    summary?.cash_position.period_start;
+  const end =
+    summary?.inflow.period_end ??
+    summary?.outflow.period_end ??
+    summary?.cash_position.period_end;
+
+  return formatDateRangeLabel({
+    emptyLabel: "Awaiting data",
+    end,
+    start,
+  });
+}
+
+function formatDateRangeLabel({
+  emptyLabel,
+  end,
+  start,
+}: {
+  emptyLabel: string | null;
+  end: string | null | undefined;
+  start: string | null | undefined;
+}) {
+  if (!start && !end) {
+    return emptyLabel;
+  }
+
+  if (start && end && start !== end) {
+    return `Period: ${start} to ${end}`;
+  }
+
+  if (start && end && start === end) {
+    return `As of ${end}`;
+  }
+
+  if (end) {
+    return `As of ${end}`;
+  }
+
+  return `From ${start}`;
+}
+
+function formatSignedMoney(amount: number, currency: string) {
+  const sign = amount > 0 ? "+" : amount < 0 ? "-" : "";
+  return `${sign}${formatMoney(String(Math.abs(amount)), currency)}`;
+}
+
+function buildNetMovementBars(inflowAmount: number, outflowAmount: number) {
+  const base = Math.max(Math.abs(inflowAmount), Math.abs(outflowAmount), 1);
+  const net = inflowAmount - outflowAmount;
+  const normalizedNet = Math.min(Math.abs(net) / base, 1);
+  const normalizedIn = Math.min(Math.abs(inflowAmount) / base, 1);
+  const normalizedOut = Math.min(Math.abs(outflowAmount) / base, 1);
+
+  return [
+    24 + normalizedOut * 28,
+    28 + normalizedIn * 34,
+    22 + normalizedNet * 22,
+    34 + normalizedIn * 38,
+    30 + normalizedOut * 30,
+    38 + normalizedNet * 42,
+  ].map((height) => Math.round(Math.min(Math.max(height, 18), 86)));
 }
