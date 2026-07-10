@@ -163,7 +163,7 @@ def test_record_handoff_persists_envelope_and_updates_routing_state() -> None:
     assert workflow_run.current_agent == "qa_validator"
 
 
-def test_request_retry_tracks_counts_and_keeps_workflow_running() -> None:
+def test_request_retry_tracks_counts_and_marks_workflow_retrying() -> None:
     metrics_registry.reset()
     persistence = FakeWorkflowRuntimePersistence()
     runtime = WorkflowRuntimeService(persistence)
@@ -189,8 +189,8 @@ def test_request_retry_tracks_counts_and_keeps_workflow_running() -> None:
     assert second_retry.retry_allowed is True
     assert state.retry_counts == {"totals_extractor": 2}
     assert workflow_run.retry_count == 2
-    assert workflow_run.status == WorkflowRunStatus.RUNNING.value
-    assert state.status == WorkflowStateStatus.RUNNING
+    assert workflow_run.status == WorkflowRunStatus.RETRYING.value
+    assert state.status == WorkflowStateStatus.RETRYING
     assert workflow_run.current_agent == "totals_extractor"
     snapshot = metrics_registry.snapshot()
     assert snapshot["retry_counts"]["agent:totals_extractor"] == 2

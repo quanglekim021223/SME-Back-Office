@@ -27,10 +27,12 @@ class WorkflowRunStatus(StrEnum):
 
     QUEUED = "queued"
     RUNNING = "running"
+    RETRYING = "retrying"
     REVIEW_REQUIRED = "review_required"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    LOST = "lost"
     DEAD_LETTERED = "dead_lettered"
 
 

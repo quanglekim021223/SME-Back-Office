@@ -8,6 +8,7 @@ from app.api.routers.health import router as health_router
 from app.api.routers.invoices import router as invoices_router
 from app.api.routers.ops import router as ops_router
 from app.api.routers.review_tasks import router as review_tasks_router
+from app.api.routers.workflows import router as workflows_router
 from app.core.config import Settings, get_settings
 from app.core.middleware import register_middleware
 from app.observability.logging_filter import (
@@ -39,6 +40,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(documents_router, prefix=resolved_settings.app_api_prefix)
     app.include_router(invoices_router, prefix=resolved_settings.app_api_prefix)
     app.include_router(review_tasks_router, prefix=resolved_settings.app_api_prefix)
+    app.include_router(workflows_router, prefix=resolved_settings.app_api_prefix)
     app.include_router(ops_router, prefix=resolved_settings.app_api_prefix)
     app.include_router(health_router)
 

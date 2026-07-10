@@ -68,10 +68,12 @@ def workflow_status_to_model_status(status: WorkflowStateStatus) -> WorkflowRunS
     status_map = {
         WorkflowStateStatus.QUEUED: WorkflowRunStatus.QUEUED,
         WorkflowStateStatus.RUNNING: WorkflowRunStatus.RUNNING,
+        WorkflowStateStatus.RETRYING: WorkflowRunStatus.RETRYING,
         WorkflowStateStatus.REVIEW_REQUIRED: WorkflowRunStatus.REVIEW_REQUIRED,
         WorkflowStateStatus.COMPLETED: WorkflowRunStatus.COMPLETED,
         WorkflowStateStatus.FAILED: WorkflowRunStatus.FAILED,
         WorkflowStateStatus.CANCELLED: WorkflowRunStatus.CANCELLED,
+        WorkflowStateStatus.LOST: WorkflowRunStatus.LOST,
         WorkflowStateStatus.DEAD_LETTERED: WorkflowRunStatus.DEAD_LETTERED,
     }
     return status_map[status]
@@ -281,7 +283,11 @@ class WorkflowRuntimeService:
             state.stage = stage
         elif status == WorkflowStateStatus.COMPLETED:
             state.stage = WorkflowStage.COMPLETED
-        elif status in {WorkflowStateStatus.FAILED, WorkflowStateStatus.DEAD_LETTERED}:
+        elif status in {
+            WorkflowStateStatus.FAILED,
+            WorkflowStateStatus.LOST,
+            WorkflowStateStatus.DEAD_LETTERED,
+        }:
             state.stage = WorkflowStage.FAILED
 
         if current_agent is not None:
@@ -352,7 +358,7 @@ class WorkflowRuntimeService:
         self.update_workflow_status(
             workflow_run=workflow_run,
             state=state,
-            status=WorkflowStateStatus.RUNNING,
+            status=WorkflowStateStatus.RETRYING,
             current_agent=agent_name,
         )
         decision = RetryDecision(
@@ -360,7 +366,7 @@ class WorkflowRuntimeService:
             retry_count=retry_count,
             max_retries=state.max_retries,
             retry_allowed=True,
-            workflow_status=WorkflowStateStatus.RUNNING,
+            workflow_status=WorkflowStateStatus.RETRYING,
         )
         metrics_registry.record_workflow_retry(
             agent_name=agent_name,

@@ -433,6 +433,58 @@ Goal: prepare the MVP for a controlled pilot.
 - [x] Review privacy checklist.
 - [x] Prepare pilot onboarding guide.
 
+## Phase 13 — Async job queue and worker runtime
+
+Goal: decouple workflow execution from the HTTP request lifecycle through an application-level queue abstraction, allowing interchangeable in-process and distributed worker runtimes.
+
+Boundary principle: API and application services publish workflow jobs through a queue interface; Celery/Redis stays an infrastructure adapter behind that boundary.
+
+### Phase 13.1 — Queue abstraction
+
+Goal: define the application boundary for background workflow execution without coupling the core app to Celery or any specific broker.
+
+- [x] Define `DocumentProcessingCommand` and `JobRef` contracts.
+- [x] Define `WorkflowJobQueue` protocol as the application boundary.
+- [ ] Keep API/application services free of direct Celery imports; use the queue boundary only.
+- [x] Add in-process queue adapter for local/dev fallback.
+- [ ] Move document upload workflow trigger to publish a background job instead of running workflow inline.
+- [ ] Keep upload API fast: persist document, create queued workflow run, enqueue job, return response.
+- [x] Add `queued`, `running`, `succeeded`, `failed`, `retrying`, `cancelled`, and `lost` workflow/job status handling.
+- [ ] Add progress reporting for workflow phases such as OCR, extraction, QA, classification, reconciliation, and insights.
+- [x] Add job cancellation contract so queued jobs can be cancelled before a worker starts them.
+
+### Phase 13.2 — Celery infrastructure
+
+Goal: implement the distributed worker runtime as an infrastructure adapter behind the queue boundary.
+
+- [ ] Add Celery/Redis queue adapter behind the `WorkflowJobQueue` boundary.
+- [ ] Add Celery app factory and worker entrypoint.
+- [ ] Add document-processing Celery task that loads command payloads and runs the workflow.
+- [ ] Add Redis service and worker command to Docker Compose.
+- [ ] Add configuration for queue mode, broker URL, result backend, concurrency, and retry limits.
+- [ ] Add priority queue support for high, medium, and low priority workflow jobs.
+- [ ] Add worker-side provider rate limiting for OCR and LLM calls.
+- [ ] Document worker scaling model by job type, such as OCR-heavy, LLM-heavy, and review-coordination work.
+
+### Phase 13.3 — Reliability
+
+Goal: make queued workflow execution safe to retry, trace, observe, and operate in a production pilot.
+
+- [ ] Add idempotency key based on workflow run ID.
+- [ ] Add duplicate job handling so replay/retry does not create duplicate invoices/review tasks.
+- [ ] Add worker correlation IDs and workflow correlation IDs across API -> queue -> worker.
+- [ ] Add queue metrics: enqueued, started, succeeded, failed, retried, queue latency.
+- [ ] Add retry policy with exponential backoff and terminal dead-letter/failure state.
+- [ ] Add worker heartbeat and `last_seen_at` tracking.
+- [ ] Mark stale running jobs as failed or lost after the configured heartbeat timeout.
+- [ ] Add dead-letter handling for terminal workflow failures.
+- [ ] Add tests for API enqueue behavior.
+- [ ] Add tests for in-process queue adapter.
+- [ ] Add tests for Celery adapter task payload construction without requiring a live broker.
+- [ ] Add tests for idempotent duplicate job handling.
+- [ ] Add tests for cancellation, progress updates, heartbeat timeout, and priority routing.
+- [ ] Document local worker startup, queue modes, and scaling model.
+
 ## Nice-to-have later
 
 - [ ] Add email ingestion.
