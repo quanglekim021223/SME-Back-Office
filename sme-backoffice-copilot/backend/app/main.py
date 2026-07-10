@@ -36,12 +36,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-        queue = InProcessWorkflowJobQueue(
-            DocumentProcessingWorkflowExecutor(
-                session_factory=async_session_factory,
-                settings=resolved_settings,
-            ).execute
+        queue = InProcessWorkflowJobQueue()
+        executor = DocumentProcessingWorkflowExecutor(
+            session_factory=async_session_factory,
+            settings=resolved_settings,
+            progress_observer=queue.report_progress,
         )
+        queue.set_handler(executor.execute)
         app.state.workflow_job_queue = queue
         await queue.start()
         try:

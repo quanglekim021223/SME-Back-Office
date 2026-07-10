@@ -45,6 +45,7 @@ async def test_in_process_queue_cancels_only_queued_jobs() -> None:
     assert cancelled is not None
     assert cancelled.status is JobStatus.CANCELLED
     assert await queue.get(job.job_id) == cancelled
+    assert await queue.cancel_for_workflow_run(job.workflow_run_id) == cancelled
 
 
 async def test_in_process_worker_runs_after_enqueue_returns() -> None:

@@ -57,6 +57,32 @@ export type DocumentUploadResponse = {
   duplicate: boolean;
 };
 
+export type WorkflowProgressResponse = {
+  phase: string;
+  label: string;
+  percent: number;
+  current_agent: string | null;
+  completed_agents: string[];
+  is_terminal: boolean;
+};
+
+export type WorkflowRunStatusResponse = {
+  id: string;
+  document_id: string | null;
+  workflow_name: string;
+  workflow_version: string;
+  status: string;
+  stage: string | null;
+  current_agent: string | null;
+  retry_count: number;
+  correlation_id: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  progress: WorkflowProgressResponse;
+};
+
 export type ReviewTaskStatus =
   | "open"
   | "in_progress"
@@ -296,6 +322,16 @@ export function uploadDocument({
         "Content-Type": inferUploadMediaType(file),
       },
     },
+  );
+}
+
+export function getWorkflowRun(workflowRunId: string) {
+  return apiGet<WorkflowRunStatusResponse>(`/workflow-runs/${workflowRunId}`);
+}
+
+export function cancelWorkflowRun(workflowRunId: string) {
+  return apiPost<WorkflowRunStatusResponse>(
+    `/workflow-runs/${workflowRunId}/cancel`,
   );
 }
 

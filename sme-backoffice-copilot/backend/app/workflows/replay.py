@@ -56,6 +56,7 @@ from app.workflows.invoice_extraction import (
 )
 from app.workflows.runtime import (
     RetryDecision,
+    WorkflowProgressObserver,
     WorkflowRuntimePersistence,
     WorkflowRuntimeService,
 )
@@ -169,9 +170,13 @@ class WorkflowReplayRunner:
         ocr_provider: Any | None = None,
         provider_privacy_context: Any | None = None,
         trace_provider: Any | None = None,
+        progress_observer: WorkflowProgressObserver | None = None,
     ) -> None:
         self.persistence = persistence or InMemoryWorkflowRuntimePersistence()
-        self.runtime = WorkflowRuntimeService(self.persistence)
+        self.runtime = WorkflowRuntimeService(
+            self.persistence,
+            progress_observer=progress_observer,
+        )
         self.step_executions: list[AgentStepExecution] = []
         self.handoffs: list[AgentHandoff] = []
 

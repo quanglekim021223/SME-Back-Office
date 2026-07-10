@@ -12,6 +12,9 @@ from app.jobs.contracts import (
     JobStatus,
     WorkflowJobHandler,
 )
+from app.models.workflow import WorkflowRun
+from app.workflows.contracts import WorkflowState
+from app.workflows.progress import WorkflowProgressSnapshot, build_workflow_progress
 
 logger = logging.getLogger("app.workflow_queue")
 
@@ -26,12 +29,21 @@ class InProcessWorkflowJobQueue:
 
     def __init__(self, handler: WorkflowJobHandler | None = None) -> None:
         self._jobs: dict[UUID, JobRef] = {}
+        self._job_ids_by_workflow_run: dict[UUID, UUID] = {}
+        self._progress_by_workflow_run: dict[UUID, WorkflowProgressSnapshot] = {}
         self._pending: asyncio.Queue[tuple[UUID, DocumentProcessingCommand]] = (
             asyncio.Queue()
         )
         self._handler = handler
         self._worker_task: asyncio.Task[None] | None = None
         self.commands: list[DocumentProcessingCommand] = []
+
+    def set_handler(self, handler: WorkflowJobHandler) -> None:
+        """Attach the local worker handler before the application starts."""
+
+        if self._worker_task is not None:
+            raise RuntimeError("Cannot replace an in-process worker while running.")
+        self._handler = handler
 
     async def start(self) -> None:
         """Start the local worker once application startup has completed."""
@@ -64,6 +76,7 @@ class InProcessWorkflowJobQueue:
             priority=command.priority,
         )
         self._jobs[job.job_id] = job
+        self._job_ids_by_workflow_run[command.workflow_run_id] = job.job_id
         self.commands.append(command)
         await self._pending.put((job.job_id, command))
         return job
@@ -83,6 +96,25 @@ class InProcessWorkflowJobQueue:
         cancelled = job.model_copy(update={"status": JobStatus.CANCELLED})
         self._jobs[job_id] = cancelled
         return cancelled
+
+    async def cancel_for_workflow_run(self, workflow_run_id: UUID) -> JobRef | None:
+        """Cancel the pending job associated with one workflow run."""
+
+        job_id = self._job_ids_by_workflow_run.get(workflow_run_id)
+        return await self.cancel(job_id) if job_id is not None else None
+
+    async def get_progress(
+        self,
+        workflow_run_id: UUID,
+    ) -> WorkflowProgressSnapshot | None:
+        """Return the latest in-memory progress emitted by the workflow runtime."""
+
+        return self._progress_by_workflow_run.get(workflow_run_id)
+
+    def report_progress(self, workflow_run: WorkflowRun, state: WorkflowState) -> None:
+        """Store a live snapshot emitted by the workflow runtime."""
+
+        self._progress_by_workflow_run[workflow_run.id] = build_workflow_progress(state)
 
     async def wait_until_idle(self) -> None:
         """Wait until the local worker has drained all accepted jobs."""

@@ -450,7 +450,7 @@ Goal: define the application boundary for background workflow execution without 
 - [x] Move document upload workflow trigger to publish a background job instead of running workflow inline.
 - [x] Keep upload API fast: persist document, create queued workflow run, enqueue job, return response.
 - [x] Add `queued`, `running`, `succeeded`, `failed`, `retrying`, `cancelled`, and `lost` workflow/job status handling.
-- [ ] Add progress reporting for workflow phases such as OCR, extraction, QA, classification, reconciliation, and insights.
+- [x] Add progress reporting for workflow phases such as OCR, extraction, QA, classification, reconciliation, and insights.
 - [x] Add job cancellation contract so queued jobs can be cancelled before a worker starts them.
 
 ### Phase 13.2 — Celery infrastructure

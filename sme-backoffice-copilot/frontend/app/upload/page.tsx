@@ -1,13 +1,16 @@
 "use client";
 
 import type { DragEvent } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   ApiClientError,
+  cancelWorkflowRun,
   type DocumentType,
   type DocumentUploadResponse,
+  type WorkflowRunStatusResponse,
   formatApiError,
+  getWorkflowRun,
   uploadDocument,
 } from "../_lib/api-client";
 
@@ -89,6 +92,9 @@ export default function UploadPage() {
   );
   const [uploadResult, setUploadResult] =
     useState<DocumentUploadResponse | null>(null);
+  const [workflowRun, setWorkflowRun] =
+    useState<WorkflowRunStatusResponse | null>(null);
+  const [isCancellingWorkflow, setIsCancellingWorkflow] = useState(false);
   const [uploadActivities, setUploadActivities] = useState<UploadActivity[]>(
     [],
   );
@@ -98,13 +104,52 @@ export default function UploadPage() {
     ? validateSelectedFile(selectedFile)
     : null;
   const isUploading = uploadStatus === "uploading";
+  const workflowRunId = uploadResult?.workflow_trigger.workflow_run_id;
   const activityItems =
     uploadActivities.length > 0 ? uploadActivities : sampleUploads;
 
   const lifecycleSteps = useMemo(
-    () => buildLifecycleSteps(uploadResult, uploadStatus),
-    [uploadResult, uploadStatus],
+    () => buildLifecycleSteps(uploadResult, uploadStatus, workflowRun),
+    [uploadResult, uploadStatus, workflowRun],
   );
+
+  useEffect(() => {
+    if (!workflowRunId) {
+      return;
+    }
+
+    let isCurrent = true;
+    let timeoutId: number | undefined;
+
+    const pollWorkflow = async () => {
+      try {
+        const nextWorkflowRun = await getWorkflowRun(workflowRunId);
+        if (!isCurrent) {
+          return;
+        }
+        setWorkflowRun(nextWorkflowRun);
+        if (!nextWorkflowRun.progress.is_terminal) {
+          timeoutId = window.setTimeout(() => {
+            void pollWorkflow();
+          }, 1250);
+        }
+      } catch {
+        if (isCurrent) {
+          timeoutId = window.setTimeout(() => {
+            void pollWorkflow();
+          }, 2500);
+        }
+      }
+    };
+
+    void pollWorkflow();
+    return () => {
+      isCurrent = false;
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [workflowRunId]);
 
   function handleFileSelection(file: File | null) {
     if (isUploading) {
@@ -113,6 +158,7 @@ export default function UploadPage() {
 
     setSelectedFile(file);
     setUploadResult(null);
+    setWorkflowRun(null);
 
     if (!file) {
       setUploadStatus("idle");
@@ -147,6 +193,7 @@ export default function UploadPage() {
     }
 
     setUploadStatus("uploading");
+    setWorkflowRun(null);
     setStatusMessage("Uploading document to the backend...");
 
     try {
@@ -200,6 +247,25 @@ export default function UploadPage() {
 
       setUploadStatus("error");
       setStatusMessage(formatApiError(error));
+    }
+  }
+
+  async function handleCancelWorkflow() {
+    if (!workflowRunId || !workflowRun || workflowRun.status !== "queued") {
+      return;
+    }
+
+    setIsCancellingWorkflow(true);
+    try {
+      const cancelledWorkflow = await cancelWorkflowRun(workflowRunId);
+      setWorkflowRun(cancelledWorkflow);
+      setStatusMessage(
+        "Queued workflow cancelled. The document was not processed.",
+      );
+    } catch (error) {
+      setStatusMessage(formatApiError(error));
+    } finally {
+      setIsCancellingWorkflow(false);
     }
   }
 
@@ -340,10 +406,16 @@ export default function UploadPage() {
           </div>
 
           <UploadStatusCard
+            canCancelWorkflow={workflowRun?.status === "queued"}
             file={selectedFile}
+            isCancellingWorkflow={isCancellingWorkflow}
             message={statusMessage}
+            onCancelWorkflow={() => {
+              void handleCancelWorkflow();
+            }}
             result={uploadResult}
             status={uploadStatus}
+            workflowRun={workflowRun}
           />
         </form>
 
@@ -447,15 +519,23 @@ function UploadProcessingCard({
 }
 
 function UploadStatusCard({
+  canCancelWorkflow,
   file,
+  isCancellingWorkflow,
   message,
+  onCancelWorkflow,
   result,
   status,
+  workflowRun,
 }: {
+  canCancelWorkflow: boolean;
   file: File | null;
+  isCancellingWorkflow: boolean;
   message: string;
+  onCancelWorkflow: () => void;
   result: DocumentUploadResponse | null;
   status: UploadStatus;
+  workflowRun: WorkflowRunStatusResponse | null;
 }) {
   return (
     <div className={`upload-status-card upload-status-card-${status}`}>
@@ -463,6 +543,30 @@ function UploadStatusCard({
         <strong>{formatUploadStatus(status)}</strong>
         <p>{message}</p>
       </div>
+      {workflowRun ? (
+        <div className="workflow-progress" aria-live="polite">
+          <div className="workflow-progress-heading">
+            <span>{workflowRun.progress.label}</span>
+            <strong>{workflowRun.progress.percent}%</strong>
+          </div>
+          <div
+            aria-label={`Workflow progress ${workflowRun.progress.percent}%`}
+            aria-valuemax={100}
+            aria-valuemin={0}
+            aria-valuenow={workflowRun.progress.percent}
+            className="workflow-progress-track"
+            role="progressbar"
+          >
+            <span style={{ width: `${workflowRun.progress.percent}%` }} />
+          </div>
+          <small>
+            {formatStatus(workflowRun.status)}
+            {workflowRun.progress.current_agent
+              ? ` - ${formatStatus(workflowRun.progress.current_agent)}`
+              : null}
+          </small>
+        </div>
+      ) : null}
       {file ? (
         <dl>
           <div>
@@ -494,6 +598,16 @@ function UploadStatusCard({
             </>
           ) : null}
         </dl>
+      ) : null}
+      {canCancelWorkflow ? (
+        <button
+          className="button button-secondary workflow-cancel-button"
+          disabled={isCancellingWorkflow}
+          onClick={onCancelWorkflow}
+          type="button"
+        >
+          {isCancellingWorkflow ? "Cancelling..." : "Cancel queued workflow"}
+        </button>
       ) : null}
     </div>
   );
@@ -532,6 +646,7 @@ function validateSelectedFile(file: File): {
 function buildLifecycleSteps(
   result: DocumentUploadResponse | null,
   uploadStatus: UploadStatus,
+  workflowRun: WorkflowRunStatusResponse | null,
 ) {
   if (!result) {
     const isUploading = uploadStatus === "uploading";
@@ -590,12 +705,16 @@ function buildLifecycleSteps(
     },
     {
       label: "Processing",
-      state: "current",
-      value: result.workflow_trigger.workflow_run_id
-        ? `Queued in the background as ${formatIdentifier(
-            result.workflow_trigger.workflow_run_id,
-          )}`
-        : "Queued for the controlled workflow runtime",
+      state: workflowRun
+        ? workflowLifecycleState(workflowRun.status)
+        : "current",
+      value: workflowRun
+        ? `${workflowRun.progress.label} (${workflowRun.progress.percent}%)`
+        : result.workflow_trigger.workflow_run_id
+          ? `Queued in the background as ${formatIdentifier(
+              result.workflow_trigger.workflow_run_id,
+            )}`
+          : "Queued for the controlled workflow runtime",
     },
   ] as const;
 }
@@ -649,6 +768,16 @@ function formatHash(hash: string) {
 
 function formatIdentifier(identifier: string) {
   return `${identifier.slice(0, 8)}...${identifier.slice(-6)}`;
+}
+
+function workflowLifecycleState(status: string) {
+  if (["completed", "review_required", "cancelled"].includes(status)) {
+    return "done";
+  }
+  if (["failed", "lost", "dead_lettered"].includes(status)) {
+    return "error";
+  }
+  return "current";
 }
 
 function formatBytes(bytes: number) {

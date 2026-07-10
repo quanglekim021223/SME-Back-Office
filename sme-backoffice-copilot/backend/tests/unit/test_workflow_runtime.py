@@ -133,6 +133,7 @@ def test_record_agent_step_persists_step_execution_and_updates_state() -> None:
     metric = snapshot["agent_steps"]["document_intake:succeeded"]
     assert metric["count"] == 1
     assert metric["avg_duration_ms"] == 12.0
+    assert state.stage == WorkflowStage.DOCUMENT_INTAKE
 
 
 def test_record_handoff_persists_envelope_and_updates_routing_state() -> None:

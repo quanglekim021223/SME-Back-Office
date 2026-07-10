@@ -15,6 +15,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.workflows.progress import WorkflowProgressSnapshot
+
 
 class JobStatus(StrEnum):
     """Lifecycle states of a queue job, distinct from business review state."""
@@ -78,6 +80,15 @@ class WorkflowJobQueue(Protocol):
 
     async def cancel(self, job_id: UUID) -> JobRef | None:
         """Cancel a queued job; running jobs are left to their runtime policy."""
+
+    async def cancel_for_workflow_run(self, workflow_run_id: UUID) -> JobRef | None:
+        """Cancel the queued job associated with a workflow run, when supported."""
+
+    async def get_progress(
+        self,
+        workflow_run_id: UUID,
+    ) -> WorkflowProgressSnapshot | None:
+        """Return the newest live progress snapshot for a workflow run."""
 
 
 WorkflowJobHandler = Callable[[DocumentProcessingCommand], Awaitable[None]]

@@ -28,7 +28,7 @@ from app.services.workflow_outputs import (
 )
 from app.workflows.contracts import WorkflowStage, WorkflowState, WorkflowStateStatus
 from app.workflows.replay import ReplayScenario, WorkflowReplayRunner
-from app.workflows.runtime import WorkflowRuntimeService
+from app.workflows.runtime import WorkflowProgressObserver, WorkflowRuntimeService
 
 logger = logging.getLogger("app.workflow")
 
@@ -41,9 +41,11 @@ class DocumentProcessingWorkflowExecutor:
         *,
         session_factory: async_sessionmaker[AsyncSession],
         settings: Settings,
+        progress_observer: WorkflowProgressObserver | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.settings = settings
+        self.progress_observer = progress_observer
 
     async def execute(self, command: DocumentProcessingCommand) -> None:
         """Load the durable run and execute it outside the original HTTP request."""
@@ -71,7 +73,10 @@ class DocumentProcessingWorkflowExecutor:
                 if command.document_type == DocumentType.BANK_STATEMENT.value:
                     await self._run_bank_statement(
                         session=session,
-                        runtime=WorkflowRuntimeService(repository),
+                        runtime=WorkflowRuntimeService(
+                            repository,
+                            progress_observer=self.progress_observer,
+                        ),
                         workflow_run=workflow_run,
                         state=state,
                         command=command,
@@ -113,6 +118,7 @@ class DocumentProcessingWorkflowExecutor:
             ocr_provider=build_ocr_provider_from_settings(self.settings),
             provider_privacy_context=ProviderPrivacyContext(tenant_allows_cloud=True),
             trace_provider=trace_provider,
+            progress_observer=self.progress_observer,
         )
         result = await runner.run(
             state=state,
@@ -164,7 +170,10 @@ class DocumentProcessingWorkflowExecutor:
         if workflow_run is None:
             return
         state = WorkflowState.model_validate(workflow_run.state or {})
-        WorkflowRuntimeService(repository).mark_failed(
+        WorkflowRuntimeService(
+            repository,
+            progress_observer=self.progress_observer,
+        ).mark_failed(
             workflow_run=workflow_run,
             state=state,
             error_code="ERR_WORKFLOW_EXECUTION_FAILED",
