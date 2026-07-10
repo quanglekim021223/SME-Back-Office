@@ -5,6 +5,7 @@ from app.jobs.contracts import (
     JobPriority,
     JobRef,
     JobStatus,
+    WorkflowJobHandler,
     WorkflowJobQueue,
 )
 from app.jobs.in_process import InProcessWorkflowJobQueue
@@ -16,4 +17,5 @@ __all__ = [
     "JobRef",
     "JobStatus",
     "WorkflowJobQueue",
+    "WorkflowJobHandler",
 ]

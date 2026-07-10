@@ -73,6 +73,26 @@ def test_start_workflow_persists_running_workflow_state() -> None:
     assert workflow_run.state["status"] == WorkflowStateStatus.RUNNING.value
 
 
+def test_queue_workflow_persists_a_queued_workflow_state() -> None:
+    persistence = FakeWorkflowRuntimePersistence()
+    runtime = WorkflowRuntimeService(persistence)
+    state = create_state()
+
+    workflow_run = runtime.queue_workflow(
+        state=state,
+        workflow_name="document_processing",
+        workflow_version="0.1.0",
+        correlation_id="corr-queued",
+    )
+
+    assert workflow_run in persistence.workflow_runs
+    assert state.workflow_run_id == workflow_run.id
+    assert state.status == WorkflowStateStatus.QUEUED
+    assert workflow_run.status == WorkflowRunStatus.QUEUED.value
+    assert workflow_run.state is not None
+    assert workflow_run.state["status"] == WorkflowStateStatus.QUEUED.value
+
+
 def test_record_agent_step_persists_step_execution_and_updates_state() -> None:
     metrics_registry.reset()
     persistence = FakeWorkflowRuntimePersistence()

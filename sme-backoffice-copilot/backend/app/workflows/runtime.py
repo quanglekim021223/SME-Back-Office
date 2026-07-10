@@ -147,6 +147,74 @@ class WorkflowRuntimeService:
         )
         return self.persistence.add_workflow_run(workflow_run)
 
+    def queue_workflow(
+        self,
+        *,
+        state: WorkflowState,
+        workflow_name: str,
+        workflow_version: str,
+        correlation_id: str | None = None,
+    ) -> WorkflowRun:
+        """Persist a workflow that has been accepted but not yet started."""
+
+        workflow_run_id = state.workflow_run_id or uuid4()
+        state.workflow_run_id = workflow_run_id
+        state.status = WorkflowStateStatus.QUEUED
+        workflow_run = WorkflowRun(
+            id=workflow_run_id,
+            tenant_id=state.tenant_id,
+            document_id=state.document_id,
+            processing_run_id=state.processing_run_id,
+            workflow_name=workflow_name,
+            workflow_version=workflow_version,
+            status=WorkflowRunStatus.QUEUED.value,
+            current_agent=state.current_agent,
+            retry_count=sum(state.retry_counts.values()),
+            correlation_id=correlation_id,
+            state=serialize_workflow_state(state),
+        )
+        logger.info(
+            "workflow.queued",
+            extra={
+                "event": "workflow.queued",
+                "workflow_run_id": str(workflow_run.id),
+                "tenant_id": str(state.tenant_id),
+                "document_id": str(state.document_id),
+                "workflow_name": workflow_name,
+                "workflow_version": workflow_version,
+                "correlation_id": correlation_id,
+            },
+        )
+        return self.persistence.add_workflow_run(workflow_run)
+
+    def resume_workflow(
+        self,
+        *,
+        workflow_run: WorkflowRun,
+        state: WorkflowState,
+        correlation_id: str | None = None,
+    ) -> WorkflowRun:
+        """Move a previously queued workflow into the running state."""
+
+        state.workflow_run_id = workflow_run.id
+        state.status = WorkflowStateStatus.RUNNING
+        workflow_run.status = WorkflowRunStatus.RUNNING.value
+        workflow_run.current_agent = state.current_agent
+        if correlation_id is not None:
+            workflow_run.correlation_id = correlation_id
+        workflow_run.state = serialize_workflow_state(state)
+        logger.info(
+            "workflow.resumed",
+            extra={
+                "event": "workflow.resumed",
+                "workflow_run_id": str(workflow_run.id),
+                "tenant_id": str(state.tenant_id),
+                "document_id": str(state.document_id),
+                "correlation_id": workflow_run.correlation_id,
+            },
+        )
+        return workflow_run
+
     def record_agent_step(
         self,
         *,

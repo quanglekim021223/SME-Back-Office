@@ -38,6 +38,8 @@ export type DocumentWorkflowTriggerResponse = {
   event_name: string;
   document_id: string;
   status: string;
+  workflow_run_id: string | null;
+  job_id: string | null;
 };
 
 export type DocumentUploadResponse = {

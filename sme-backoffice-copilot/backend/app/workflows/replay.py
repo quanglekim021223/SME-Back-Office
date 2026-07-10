@@ -215,17 +215,25 @@ class WorkflowReplayRunner:
         state: WorkflowState,
         scenario: ReplayScenario = ReplayScenario.HAPPY_PATH,
         correlation_id: str | None = None,
+        workflow_run: WorkflowRun | None = None,
     ) -> WorkflowReplayResult:
         """Replay the controlled multi-agent workflow for one scenario."""
 
         self.step_executions = []
         self.handoffs = []
-        workflow_run = self.runtime.start_workflow(
-            state=state,
-            workflow_name=WORKFLOW_REPLAY_NAME,
-            workflow_version=WORKFLOW_REPLAY_VERSION,
-            correlation_id=correlation_id,
-        )
+        if workflow_run is None:
+            workflow_run = self.runtime.start_workflow(
+                state=state,
+                workflow_name=WORKFLOW_REPLAY_NAME,
+                workflow_version=WORKFLOW_REPLAY_VERSION,
+                correlation_id=correlation_id,
+            )
+        else:
+            self.runtime.resume_workflow(
+                workflow_run=workflow_run,
+                state=state,
+                correlation_id=correlation_id,
+            )
         context = AgentExecutionContext(
             tenant_id=state.tenant_id,
             document_id=state.document_id,

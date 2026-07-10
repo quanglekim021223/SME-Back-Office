@@ -1,3 +1,4 @@
+import asyncio
 from uuid import uuid4
 
 from app.jobs import (
@@ -11,6 +12,7 @@ from app.jobs import (
 def build_command() -> DocumentProcessingCommand:
     return DocumentProcessingCommand(
         workflow_run_id=uuid4(),
+        event_id=uuid4(),
         tenant_id=uuid4(),
         document_id=uuid4(),
         document_type="invoice",
@@ -43,3 +45,31 @@ async def test_in_process_queue_cancels_only_queued_jobs() -> None:
     assert cancelled is not None
     assert cancelled.status is JobStatus.CANCELLED
     assert await queue.get(job.job_id) == cancelled
+
+
+async def test_in_process_worker_runs_after_enqueue_returns() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def handler(command: DocumentProcessingCommand) -> None:
+        assert command.document_type == "invoice"
+        started.set()
+        await release.wait()
+
+    queue = InProcessWorkflowJobQueue(handler)
+    await queue.start()
+    try:
+        job = await queue.enqueue(build_command())
+
+        await asyncio.wait_for(started.wait(), timeout=0.1)
+        running = await queue.get(job.job_id)
+        assert running is not None
+        assert running.status is JobStatus.RUNNING
+
+        release.set()
+        await asyncio.wait_for(queue.wait_until_idle(), timeout=0.1)
+        completed = await queue.get(job.job_id)
+        assert completed is not None
+        assert completed.status is JobStatus.SUCCEEDED
+    finally:
+        await queue.stop()

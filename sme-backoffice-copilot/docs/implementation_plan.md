@@ -447,8 +447,8 @@ Goal: define the application boundary for background workflow execution without 
 - [x] Define `WorkflowJobQueue` protocol as the application boundary.
 - [ ] Keep API/application services free of direct Celery imports; use the queue boundary only.
 - [x] Add in-process queue adapter for local/dev fallback.
-- [ ] Move document upload workflow trigger to publish a background job instead of running workflow inline.
-- [ ] Keep upload API fast: persist document, create queued workflow run, enqueue job, return response.
+- [x] Move document upload workflow trigger to publish a background job instead of running workflow inline.
+- [x] Keep upload API fast: persist document, create queued workflow run, enqueue job, return response.
 - [x] Add `queued`, `running`, `succeeded`, `failed`, `retrying`, `cancelled`, and `lost` workflow/job status handling.
 - [ ] Add progress reporting for workflow phases such as OCR, extraction, QA, classification, reconciliation, and insights.
 - [x] Add job cancellation contract so queued jobs can be cancelled before a worker starts them.

@@ -25,6 +25,8 @@ class DocumentWorkflowTriggerResponse(BaseModel):
     event_name: str
     document_id: UUID
     status: str = "published"
+    workflow_run_id: UUID | None = None
+    job_id: UUID | None = None
 
 
 class DocumentUploadResponse(BaseModel):

@@ -7,6 +7,7 @@ adapters decide whether that work runs in-process or on a distributed worker.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Protocol
@@ -42,6 +43,7 @@ class DocumentProcessingCommand(BaseModel):
 
     schema_version: str = "document-processing-command.v1"
     workflow_run_id: UUID
+    event_id: UUID
     tenant_id: UUID
     document_id: UUID
     document_type: str = Field(min_length=1)
@@ -76,3 +78,6 @@ class WorkflowJobQueue(Protocol):
 
     async def cancel(self, job_id: UUID) -> JobRef | None:
         """Cancel a queued job; running jobs are left to their runtime policy."""
+
+
+WorkflowJobHandler = Callable[[DocumentProcessingCommand], Awaitable[None]]

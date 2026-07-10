@@ -158,7 +158,9 @@ export default function UploadPage() {
       setUploadResult(result);
       setUploadStatus("uploaded");
       setStatusMessage(
-        "Upload accepted. The DocumentIngested trigger was published.",
+        result.workflow_trigger.workflow_run_id
+          ? "Upload accepted. OCR and extraction are now running in the background."
+          : "Upload accepted. The DocumentIngested trigger was published.",
       );
       setUploadActivities((items) =>
         [buildUploadActivity(result), ...items].slice(0, 5),
@@ -481,6 +483,14 @@ function UploadStatusCard({
                 <dt>Hash</dt>
                 <dd>{formatHash(result.content_hash)}</dd>
               </div>
+              {result.workflow_trigger.workflow_run_id ? (
+                <div>
+                  <dt>Workflow run</dt>
+                  <dd>
+                    {formatIdentifier(result.workflow_trigger.workflow_run_id)}
+                  </dd>
+                </div>
+              ) : null}
             </>
           ) : null}
         </dl>
@@ -581,7 +591,11 @@ function buildLifecycleSteps(
     {
       label: "Processing",
       state: "current",
-      value: "Queued for the controlled workflow runtime",
+      value: result.workflow_trigger.workflow_run_id
+        ? `Queued in the background as ${formatIdentifier(
+            result.workflow_trigger.workflow_run_id,
+          )}`
+        : "Queued for the controlled workflow runtime",
     },
   ] as const;
 }
@@ -631,6 +645,10 @@ function formatStatus(status: string) {
 
 function formatHash(hash: string) {
   return `${hash.slice(0, 10)}...${hash.slice(-6)}`;
+}
+
+function formatIdentifier(identifier: string) {
+  return `${identifier.slice(0, 8)}...${identifier.slice(-6)}`;
 }
 
 function formatBytes(bytes: number) {

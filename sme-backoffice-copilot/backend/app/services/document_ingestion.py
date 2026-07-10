@@ -20,6 +20,7 @@ from app.services.document_events import (
     DocumentEventPublisher,
     DocumentIngested,
     NoopDocumentEventPublisher,
+    WorkflowJobSubmission,
 )
 from app.services.document_storage import (
     LocalDocumentStorage,
@@ -101,6 +102,7 @@ class DocumentUploadResult:
     stored_file: StoredFile
     malware_scan_result: MalwareScanResult
     document_ingested_event: DocumentIngested
+    workflow_job_submission: WorkflowJobSubmission | None = None
 
 
 class DuplicateDocumentError(Exception):
@@ -209,7 +211,9 @@ class DocumentIngestionService:
             local_path=str(stored_file.path),
             correlation_id=correlation_id,
         )
-        await self.event_publisher.publish_document_ingested(document_ingested_event)
+        workflow_job_submission = await self.event_publisher.publish_document_ingested(
+            document_ingested_event
+        )
 
         return DocumentUploadResult(
             document=document,
@@ -217,4 +221,5 @@ class DocumentIngestionService:
             stored_file=stored_file,
             malware_scan_result=malware_scan_result,
             document_ingested_event=document_ingested_event,
+            workflow_job_submission=workflow_job_submission,
         )

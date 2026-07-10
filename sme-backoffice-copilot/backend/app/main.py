@@ -1,5 +1,8 @@
 """FastAPI application entry point and composition root."""
 
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.api.exception_handlers import register_exception_handlers
@@ -10,11 +13,14 @@ from app.api.routers.ops import router as ops_router
 from app.api.routers.review_tasks import router as review_tasks_router
 from app.api.routers.workflows import router as workflows_router
 from app.core.config import Settings, get_settings
+from app.core.db import async_session_factory
 from app.core.middleware import register_middleware
+from app.jobs import InProcessWorkflowJobQueue
 from app.observability.logging_filter import (
     setup_logging_redaction,
     setup_structured_logging,
 )
+from app.workflows.job_executor import DocumentProcessingWorkflowExecutor
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -28,10 +34,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     setup_structured_logging(log_format=resolved_settings.log_format.value)
     setup_logging_redaction()
 
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+        queue = InProcessWorkflowJobQueue(
+            DocumentProcessingWorkflowExecutor(
+                session_factory=async_session_factory,
+                settings=resolved_settings,
+            ).execute
+        )
+        app.state.workflow_job_queue = queue
+        await queue.start()
+        try:
+            yield
+        finally:
+            await queue.stop()
+
     app = FastAPI(
         title=resolved_settings.app_name,
         debug=resolved_settings.app_debug,
         version="0.1.0",
+        lifespan=lifespan,
     )
     app.state.settings = resolved_settings
 
