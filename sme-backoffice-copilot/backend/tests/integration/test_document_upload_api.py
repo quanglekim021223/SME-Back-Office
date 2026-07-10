@@ -32,6 +32,7 @@ class FakeDocumentIngestionService:
         content: bytes,
         media_type: str,
         document_type,
+        correlation_id: str | None = None,
     ) -> DocumentUploadResult:
         self.calls.append(
             {
@@ -40,6 +41,7 @@ class FakeDocumentIngestionService:
                 "content": content,
                 "media_type": media_type,
                 "document_type": document_type,
+                "correlation_id": correlation_id,
             }
         )
         if self.error is not None:

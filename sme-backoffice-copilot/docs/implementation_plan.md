@@ -416,22 +416,22 @@ Goal: make the system debuggable and operable.
 
 Goal: prepare the MVP for a controlled pilot.
 
-- [ ] Decide target pilot scope.
-- [ ] Decide supported invoice formats.
-- [ ] Decide supported bank statement formats.
-- [ ] Decide supported currencies.
-- [ ] Decide supported locales/languages.
-- [ ] Define auto-approval thresholds.
-- [ ] Define human review policy.
-- [ ] Define backup and restore strategy.
-- [ ] Define deployment environment strategy.
-- [ ] Define database migration process.
-- [ ] Define rollback process.
-- [ ] Run full test suite.
-- [ ] Run full evaluation suite.
-- [ ] Review security checklist.
-- [ ] Review privacy checklist.
-- [ ] Prepare pilot onboarding guide.
+- [x] Decide target pilot scope.
+- [x] Decide supported invoice formats.
+- [x] Decide supported bank statement formats.
+- [x] Decide supported currencies.
+- [x] Decide supported locales/languages.
+- [x] Define auto-approval thresholds.
+- [x] Define human review policy.
+- [x] Define backup and restore strategy.
+- [x] Define deployment environment strategy.
+- [x] Define database migration process.
+- [x] Define rollback process.
+- [x] Run full test suite.
+- [x] Run full evaluation suite.
+- [x] Review security checklist.
+- [x] Review privacy checklist.
+- [x] Prepare pilot onboarding guide.
 
 ## Nice-to-have later
 
