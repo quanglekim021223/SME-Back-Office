@@ -2026,6 +2026,7 @@ textarea:focus-visible {
 .metric-card strong {
   font-size: clamp(1.65rem, 2.7vw, 2.35rem);
   letter-spacing: -0.045em;
+  overflow-wrap: anywhere;
 }
 
 .metric-card p {

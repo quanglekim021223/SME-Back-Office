@@ -3,10 +3,19 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import require_permission
+from app.api.dependencies import (
+    get_tenant_context,
+    require_permission,
+    resolve_tenant_uuid,
+)
 from app.core.auth import Permission, Principal
+from app.core.db import get_db_session
+from app.core.tenant import TenantContext
 from app.observability.metrics import metrics_registry
+from app.schemas.dashboard import DashboardFinancialSummaryResponse
+from app.services.dashboard_financial_summary import DashboardFinancialSummaryService
 
 router = APIRouter(prefix="/ops", tags=["ops"])
 
@@ -22,3 +31,21 @@ async def get_local_metrics(
 
     del principal
     return metrics_registry.snapshot()
+
+
+@router.get("/financial-summary", response_model=DashboardFinancialSummaryResponse)
+async def get_financial_summary(
+    tenant_context: Annotated[TenantContext, Depends(get_tenant_context)],
+    principal: Annotated[
+        Principal,
+        Depends(require_permission(Permission.READ_TENANT)),
+    ],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> DashboardFinancialSummaryResponse:
+    """Return tenant financial aggregates for the local dashboard."""
+
+    del principal
+    tenant_id = resolve_tenant_uuid(tenant_context)
+    return await DashboardFinancialSummaryService(session).build_for_tenant(
+        tenant_id=tenant_id,
+    )
