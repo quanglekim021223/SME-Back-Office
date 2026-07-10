@@ -100,11 +100,15 @@ export default function InvoicesPage() {
       },
       {
         label: "With totals",
-        value: String(invoices.filter((inv) => inv.total_amount !== null).length),
+        value: String(
+          invoices.filter((inv) => inv.total_amount !== null).length,
+        ),
       },
       {
         label: "Extracted",
-        value: String(invoices.filter((inv) => inv.status === "extracted").length),
+        value: String(
+          invoices.filter((inv) => inv.status === "extracted").length,
+        ),
       },
     ];
   }, [invoices]);
