@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from app.workflows.contracts import WorkflowStage, WorkflowState, WorkflowStateStatus
@@ -19,6 +20,67 @@ class WorkflowProgressSnapshot:
     current_agent: str | None
     completed_agents: list[str]
     is_terminal: bool
+
+
+def serialize_workflow_progress(
+    snapshot: WorkflowProgressSnapshot,
+) -> dict[str, object]:
+    """Serialize a progress snapshot for a queue result backend."""
+
+    return {
+        "status": snapshot.status,
+        "stage": snapshot.stage,
+        "phase": snapshot.phase,
+        "label": snapshot.label,
+        "percent": snapshot.percent,
+        "current_agent": snapshot.current_agent,
+        "completed_agents": list(snapshot.completed_agents),
+        "is_terminal": snapshot.is_terminal,
+    }
+
+
+def workflow_progress_from_payload(
+    payload: Mapping[str, object],
+) -> WorkflowProgressSnapshot:
+    """Parse queue progress metadata without depending on a Pydantic model."""
+
+    completed_agents = payload.get("completed_agents")
+    if not isinstance(completed_agents, list) or not all(
+        isinstance(agent, str) for agent in completed_agents
+    ):
+        raise ValueError("Workflow progress has invalid completed_agents.")
+
+    status = _required_str(payload, "status")
+    stage = _required_str(payload, "stage")
+    phase = _required_str(payload, "phase")
+    label = _required_str(payload, "label")
+    percent = payload.get("percent")
+    is_terminal = payload.get("is_terminal")
+    current_agent = payload.get("current_agent")
+    if isinstance(percent, bool) or not isinstance(percent, int):
+        raise ValueError("Workflow progress has invalid percent.")
+    if not isinstance(is_terminal, bool):
+        raise ValueError("Workflow progress has invalid is_terminal.")
+    if current_agent is not None and not isinstance(current_agent, str):
+        raise ValueError("Workflow progress has invalid current_agent.")
+
+    return WorkflowProgressSnapshot(
+        status=status,
+        stage=stage,
+        phase=phase,
+        label=label,
+        percent=percent,
+        current_agent=current_agent,
+        completed_agents=completed_agents,
+        is_terminal=is_terminal,
+    )
+
+
+def _required_str(payload: Mapping[str, object], key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str):
+        raise ValueError(f"Workflow progress has invalid {key}.")
+    return value
 
 
 _STAGE_PROGRESS: dict[WorkflowStage, tuple[str, str, int]] = {

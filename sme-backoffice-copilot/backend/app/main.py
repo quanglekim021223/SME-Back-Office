@@ -16,6 +16,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import async_session_factory
 from app.core.middleware import register_middleware
 from app.jobs import InProcessWorkflowJobQueue
+from app.jobs.factory import create_workflow_job_queue
 from app.observability.logging_filter import (
     setup_logging_redaction,
     setup_structured_logging,
@@ -36,19 +37,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-        queue = InProcessWorkflowJobQueue()
+        queue = create_workflow_job_queue(resolved_settings)
         executor = DocumentProcessingWorkflowExecutor(
             session_factory=async_session_factory,
             settings=resolved_settings,
-            progress_observer=queue.report_progress,
+            progress_observer=(
+                queue.report_progress
+                if isinstance(queue, InProcessWorkflowJobQueue)
+                else None
+            ),
         )
-        queue.set_handler(executor.execute)
         app.state.workflow_job_queue = queue
-        await queue.start()
+        if isinstance(queue, InProcessWorkflowJobQueue):
+            queue.set_handler(executor.execute)
+            await queue.start()
         try:
             yield
         finally:
-            await queue.stop()
+            if isinstance(queue, InProcessWorkflowJobQueue):
+                await queue.stop()
 
     app = FastAPI(
         title=resolved_settings.app_name,

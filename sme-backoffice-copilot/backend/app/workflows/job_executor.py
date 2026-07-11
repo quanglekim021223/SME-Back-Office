@@ -47,7 +47,12 @@ class DocumentProcessingWorkflowExecutor:
         self.settings = settings
         self.progress_observer = progress_observer
 
-    async def execute(self, command: DocumentProcessingCommand) -> None:
+    async def execute(
+        self,
+        command: DocumentProcessingCommand,
+        *,
+        mark_failed: bool = True,
+    ) -> None:
         """Load the durable run and execute it outside the original HTTP request."""
 
         async with self.session_factory() as session:
@@ -91,12 +96,54 @@ class DocumentProcessingWorkflowExecutor:
                 await session.commit()
             except Exception as exc:
                 await session.rollback()
-                await self._mark_failed(
-                    session=session,
-                    command=command,
-                    error=exc,
-                )
+                if mark_failed:
+                    await self._mark_failed(
+                        session=session,
+                        command=command,
+                        error=exc,
+                    )
                 raise
+
+    async def record_retry(
+        self,
+        command: DocumentProcessingCommand,
+        *,
+        error: Exception,
+    ) -> None:
+        """Persist queue retry state before Celery schedules the next attempt."""
+
+        async with self.session_factory() as session:
+            repository = WorkflowRuntimeRepository(session)
+            workflow_run = await repository.get_for_tenant(
+                tenant_id=command.tenant_id,
+                object_id=command.workflow_run_id,
+            )
+            if workflow_run is None:
+                return
+            state = WorkflowState.model_validate(workflow_run.state or {})
+            state.max_retries = self.settings.celery_task_max_retries
+            WorkflowRuntimeService(
+                repository,
+                progress_observer=self.progress_observer,
+            ).request_retry(
+                workflow_run=workflow_run,
+                state=state,
+                agent_name="workflow_queue",
+                error_code="ERR_WORKFLOW_JOB_RETRY",
+                error_message=str(error),
+            )
+            await session.commit()
+
+    async def mark_failed_from_exception(
+        self,
+        command: DocumentProcessingCommand,
+        *,
+        error: Exception,
+    ) -> None:
+        """Persist terminal failure after the worker has exhausted retries."""
+
+        async with self.session_factory() as session:
+            await self._mark_failed(session=session, command=command, error=error)
 
     async def _run_invoice(
         self,

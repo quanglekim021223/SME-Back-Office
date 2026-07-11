@@ -445,7 +445,7 @@ Goal: define the application boundary for background workflow execution without 
 
 - [x] Define `DocumentProcessingCommand` and `JobRef` contracts.
 - [x] Define `WorkflowJobQueue` protocol as the application boundary.
-- [ ] Keep API/application services free of direct Celery imports; use the queue boundary only.
+- [x] Keep API/application services free of direct Celery imports; use the queue boundary only.
 - [x] Add in-process queue adapter for local/dev fallback.
 - [x] Move document upload workflow trigger to publish a background job instead of running workflow inline.
 - [x] Keep upload API fast: persist document, create queued workflow run, enqueue job, return response.
@@ -457,14 +457,14 @@ Goal: define the application boundary for background workflow execution without 
 
 Goal: implement the distributed worker runtime as an infrastructure adapter behind the queue boundary.
 
-- [ ] Add Celery/Redis queue adapter behind the `WorkflowJobQueue` boundary.
-- [ ] Add Celery app factory and worker entrypoint.
-- [ ] Add document-processing Celery task that loads command payloads and runs the workflow.
-- [ ] Add Redis service and worker command to Docker Compose.
-- [ ] Add configuration for queue mode, broker URL, result backend, concurrency, and retry limits.
-- [ ] Add priority queue support for high, medium, and low priority workflow jobs.
+- [x] Add Celery/Redis queue adapter behind the `WorkflowJobQueue` boundary.
+- [x] Add Celery app factory and worker entrypoint.
+- [x] Add document-processing Celery task that loads command payloads and runs the workflow.
+- [x] Add Redis service and worker command to Docker Compose.
+- [x] Add configuration for queue mode, broker URL, result backend, concurrency, and retry limits.
+- [x] Add priority queue support for high, medium, and low priority workflow jobs.
 - [ ] Add worker-side provider rate limiting for OCR and LLM calls.
-- [ ] Document worker scaling model by job type, such as OCR-heavy, LLM-heavy, and review-coordination work.
+- [x] Document worker scaling model by job type, such as OCR-heavy, LLM-heavy, and review-coordination work.
 
 ### Phase 13.3 — Reliability
 

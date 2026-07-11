@@ -18,11 +18,23 @@ services:
     env_file:
       - path: ../.env
         required: false
+    environment:
+      DATABASE_URL: postgresql+asyncpg://sme:sme@postgres:5432/sme_backoffice
+      UPLOAD_STORAGE_ROOT: /data/uploads
+      WORKFLOW_QUEUE_MODE: celery
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
     ports:
       - "8000:8000"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../backend/app:/app/app
+      - uploads_data:/data/uploads
     healthcheck:
       test:
         [
@@ -35,6 +47,47 @@ services:
       timeout: 3s
       retries: 5
       start_period: 10s
+
+  worker:
+    build:
+      context: ../backend
+    command:
+      [
+        "celery",
+        "-A",
+        "app.workers.celery_app:celery_app",
+        "worker",
+        "--loglevel=INFO",
+        "--concurrency=${CELERY_WORKER_CONCURRENCY:-2}",
+        "--queues=document-processing-high,document-processing-medium,document-processing-low",
+      ]
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+asyncpg://sme:sme@postgres:5432/sme_backoffice
+      UPLOAD_STORAGE_ROOT: /data/uploads
+      WORKFLOW_QUEUE_MODE: celery
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../backend/app:/app/app
+      - uploads_data:/data/uploads
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   postgres:
     image: postgres:17-alpine
@@ -54,3 +107,4 @@ services:
 
 volumes:
   postgres_data:
+  uploads_data:
