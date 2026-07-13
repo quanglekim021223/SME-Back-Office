@@ -10,6 +10,8 @@ requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.13,<2",
   "asyncpg>=0.29,<1",
+  "azure-identity>=1.19,<2",
+  "azure-storage-blob>=12.24,<13",
   "celery[redis]>=5.4,<6",
   "fastapi>=0.115,<1",
   "langgraph>=0.2,<2",

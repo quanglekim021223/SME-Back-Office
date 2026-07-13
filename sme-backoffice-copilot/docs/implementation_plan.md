@@ -488,6 +488,107 @@ Goal: make queued workflow execution safe to retry, trace, observe, and operate 
 - [x] Document local worker startup, queue modes, outbox recovery, and scaling model.
 - [ ] Split the monolithic document task into independently scalable OCR and LLM stage tasks when production load justifies the added orchestration complexity.
 
+## Phase 14 — Public pilot deployment
+
+Goal: deploy a secure, observable public pilot without changing the application
+boundary between HTTP, queue, worker, database, and document storage.
+
+Target architecture:
+
+```text
+Browser
+  -> Vercel (Next.js frontend)
+  -> Azure Container Apps (FastAPI API)
+       -> Neon PostgreSQL
+       -> Upstash Redis
+       -> Azure Blob Storage (private documents)
+       -> Azure AI Document Intelligence
+
+Azure Container Apps (Celery worker)
+Azure Container Apps (outbox dispatcher)
+```
+
+Keep the API, Celery worker, and outbox dispatcher as independently deployed
+processes. They use the same image, but each has its own command, health
+policy, scaling configuration, and environment variables.
+
+### Phase 14.1 — Deployment foundation
+
+Goal: define the public environments and prepare deployment-safe configuration.
+
+- [x] Create an Azure resource group and choose one pilot region close to pilot users.
+- [ ] Create separate `staging` and `production` environments; do not use local credentials in either.
+- [ ] Create a dedicated Azure service principal or managed identity for deployment automation.
+- [x] Create Azure Blob Storage with a private container for original documents and derived artifacts.
+- [x] Add an `AzureBlobStorage` adapter behind the existing document-storage boundary.
+- [ ] Store only document metadata, content hashes, and Blob object keys in PostgreSQL; do not store file bytes in database rows.
+- [ ] Configure lifecycle rules for document retention and deletion according to `docs/security_privacy.md`.
+- [ ] Decide initial managed-service split: Neon PostgreSQL, Upstash Redis, Azure Blob Storage, Azure Document Intelligence, and Azure Container Apps.
+- [ ] Document all required environment variables in `.env.example` without committing any secret values.
+
+### Phase 14.2 — Container workloads
+
+Goal: run each runtime role independently in Azure Container Apps.
+
+- [ ] Build and publish the backend image to Azure Container Registry or GitHub Container Registry.
+- [ ] Deploy FastAPI as the public Container App with HTTPS ingress and a `/health` endpoint.
+- [ ] Deploy Celery worker as a private Container App with no public ingress.
+- [ ] Deploy outbox dispatcher as a private Container App with no public ingress.
+- [ ] Configure `QUEUE_MODE=celery` for deployed API and dispatcher processes.
+- [ ] Configure Celery worker queue routing and priority queues: `high`, `medium`, `low`.
+- [ ] Configure worker concurrency conservatively for OCR/LLM provider quotas, then tune from ops metrics.
+- [ ] Add liveness/readiness checks for API, worker heartbeat, and outbox dispatcher.
+- [ ] Configure minimum replicas appropriate for the pilot so workers do not sleep while queued work exists.
+- [ ] Verify API, worker, and outbox dispatcher can be restarted independently without losing committed jobs.
+
+### Phase 14.3 — Security, secrets, and networking
+
+Goal: make public access narrow, private data encrypted, and credentials replaceable.
+
+- [ ] Put runtime secrets in Azure Key Vault or the Container Apps secret store; never place secrets in Docker images, source code, or frontend variables.
+- [ ] Grant the API/worker identity least-privilege access to Blob Storage and Key Vault.
+- [ ] Use private Blob containers and short-lived server-generated access URLs when a browser must retrieve a document.
+- [ ] Restrict CORS to the deployed Vercel domain and staging domain.
+- [ ] Set `APP_ENV`, `APP_DEBUG=false`, trusted frontend origins, and production log level explicitly.
+- [ ] Enable TLS for every public endpoint and use TLS connection strings for Neon and Upstash.
+- [ ] Configure provider keys for Azure Document Intelligence and the selected LLM without logging their values.
+- [ ] Verify production logs redact invoice fields, provider payloads, authorization headers, and secrets.
+- [ ] Configure API, Celery worker, and outbox dispatcher with Neon pooled PostgreSQL connection strings.
+- [ ] Reserve the Neon direct PostgreSQL connection string for Alembic migrations and explicit administrative operations only.
+- [ ] Set bounded SQLAlchemy pool size and max overflow per runtime role so API, worker, and dispatcher cannot exhaust Neon connection limits collectively.
+- [ ] Configure Celery broker, result backend when enabled, and Redis provider-rate-limit client with Upstash `rediss://` TLS URLs.
+- [ ] Reject non-TLS Redis URLs outside explicitly local development configuration.
+- [ ] Verify hosted PostgreSQL and Redis connections negotiate TLS during the public smoke test.
+
+### Phase 14.4 — Frontend and delivery pipeline
+
+Goal: deploy a reproducible frontend and backend from reviewed source changes.
+
+- [ ] Deploy Next.js frontend to Vercel.
+- [ ] Configure Vercel environment variables with the public API base URL only; do not expose backend/provider secrets.
+- [ ] Add a GitHub Actions workflow that runs backend tests, frontend checks, and image build before deployment.
+- [ ] Deploy automatically to staging from the integration branch.
+- [ ] Require manual approval for production deployment.
+- [ ] Run database migrations as an explicit release step before new worker/API code starts.
+- [ ] Record deployed image tag, migration revision, and frontend deployment URL in release notes.
+- [ ] Define rollback: redeploy prior image tag, then use backward-compatible migrations or a documented database restore procedure.
+
+### Phase 14.5 — Public smoke test and pilot handoff
+
+Goal: prove the deployed system works end-to-end before inviting pilot users.
+
+- [ ] Run migration against the hosted PostgreSQL database.
+- [ ] Confirm API health endpoint and frontend API connectivity.
+- [ ] Upload one invoice and confirm the HTTP request returns before OCR/LLM workflow completes.
+- [ ] Confirm Blob object upload, durable outbox delivery, Celery execution, workflow progress, and review task creation.
+- [ ] Approve/correct a review task and verify classification/reconciliation continuation.
+- [ ] Upload a matching bank CSV and verify reconciliation output.
+- [ ] Intentionally restart a worker during a workflow and verify heartbeat recovery, retry, or terminal failure behavior.
+- [ ] Intentionally make Redis unavailable briefly and verify committed outbox events are later dispatched.
+- [ ] Verify Ops dashboard shows endpoint latency, provider failures, queue depth, queue latency, retry counts, and correction rate.
+- [ ] Capture public-pilot screenshots and a short demo recording for the presentation.
+- [ ] Create a pilot operator runbook: incident triage, replay/cancel workflow, retry dead-letter job, data deletion request, and rollback.
+
 ## Nice-to-have later
 
 - [ ] Add email ingestion.

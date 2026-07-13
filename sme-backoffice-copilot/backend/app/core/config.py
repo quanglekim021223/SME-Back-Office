@@ -59,6 +59,13 @@ class WorkflowQueueMode(StrEnum):
     CELERY = "celery"
 
 
+class DocumentStorageProvider(StrEnum):
+    """Durable storage backends for original uploaded documents."""
+
+    LOCAL = "local"
+    AZURE_BLOB = "azure_blob"
+
+
 class Settings(BaseSettings):
     """Environment-backed settings shared by backend infrastructure."""
 
@@ -86,6 +93,7 @@ class Settings(BaseSettings):
     provider_ocr_requests_per_second: int = Field(default=5, ge=1)
     provider_llm_requests_per_second: int = Field(default=5, ge=1)
     provider_rate_limit_wait_timeout_seconds: float = Field(default=30.0, gt=0)
+    document_storage_provider: DocumentStorageProvider = DocumentStorageProvider.LOCAL
     upload_storage_root: str = "../data/uploads"
     upload_max_size_bytes: int = 20 * 1024 * 1024
     upload_allowed_mime_types: list[str] = [
@@ -94,6 +102,9 @@ class Settings(BaseSettings):
         "image/jpeg",
         "text/csv",
     ]
+    azure_storage_blob_endpoint: str = ""
+    azure_storage_container: str = "documents"
+    azure_storage_connection_string: str = ""
     ocr_provider: OCRProviderType = OCRProviderType.MOCK
     llm_provider: LLMProviderType = LLMProviderType.MOCK
     workflow_orchestration_mode: WorkflowOrchestrationMode = (
