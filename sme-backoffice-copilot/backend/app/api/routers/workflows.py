@@ -1,5 +1,6 @@
 """Read-only workflow execution API."""
 
+import logging
 from typing import Annotated, cast
 from uuid import UUID
 
@@ -16,12 +17,15 @@ from app.core.auth import Permission, Principal
 from app.core.db import get_db_session
 from app.core.tenant import TenantContext
 from app.jobs import JobStatus, WorkflowJobQueue
-from app.repositories.workflows import WorkflowRuntimeRepository
+from app.models.base import utc_now
+from app.models.jobs import WorkflowJobStatus
+from app.repositories.jobs import WorkflowJobRepository
 from app.schemas.workflow import WorkflowRunStatusResponse
 from app.workflows.contracts import WorkflowState, WorkflowStateStatus
 from app.workflows.runtime import WorkflowRuntimeService
 
 router = APIRouter(prefix="/workflow-runs", tags=["workflows"])
+logger = logging.getLogger("app.workflow")
 
 
 @router.get("/{workflow_run_id}", response_model=WorkflowRunStatusResponse)
@@ -39,7 +43,7 @@ async def get_workflow_run_status(
 
     del principal
     tenant_id = resolve_tenant_uuid(tenant_context)
-    workflow_run = await WorkflowRuntimeRepository(session).get_for_tenant(
+    workflow_run = await WorkflowJobRepository(session).get_for_tenant(
         tenant_id=tenant_id,
         object_id=workflow_run_id,
     )
@@ -52,9 +56,21 @@ async def get_workflow_run_status(
         )
 
     queue = cast(WorkflowJobQueue, request.app.state.workflow_job_queue)
+    try:
+        live_progress = await queue.get_progress(workflow_run.id)
+    except Exception:
+        logger.warning(
+            "workflow.live_progress.unavailable",
+            extra={
+                "workflow_run_id": str(workflow_run.id),
+                "tenant_id": str(tenant_id),
+            },
+            exc_info=True,
+        )
+        live_progress = None
     return WorkflowRunStatusResponse.from_model(
         workflow_run,
-        live_progress=await queue.get_progress(workflow_run.id),
+        live_progress=live_progress,
     )
 
 
@@ -73,7 +89,7 @@ async def cancel_workflow_run(
 
     del principal
     tenant_id = resolve_tenant_uuid(tenant_context)
-    repository = WorkflowRuntimeRepository(session)
+    repository = WorkflowJobRepository(session)
     workflow_run = await repository.get_for_tenant(
         tenant_id=tenant_id,
         object_id=workflow_run_id,
@@ -93,15 +109,24 @@ async def cancel_workflow_run(
             details={"workflow_run_id": str(workflow_run_id)},
         )
 
-    queue = cast(WorkflowJobQueue, request.app.state.workflow_job_queue)
-    job = await queue.cancel_for_workflow_run(workflow_run_id)
-    if job is None or job.status is not JobStatus.CANCELLED:
+    durable_job = await repository.get_job_for_workflow_run(
+        workflow_run_id,
+        for_update=True,
+    )
+    if (
+        durable_job is not None
+        and durable_job.status == WorkflowJobStatus.RUNNING.value
+    ):
         raise APIError(
             status_code=status.HTTP_409_CONFLICT,
             code="workflow_not_cancellable",
             message="The worker has already started this workflow.",
             details={"workflow_run_id": str(workflow_run_id)},
         )
+    if durable_job is not None:
+        durable_job.status = WorkflowJobStatus.CANCELLED.value
+        durable_job.finished_at = utc_now()
+        await repository.cancel_pending_outbox(durable_job.id)
 
     state = WorkflowState.model_validate(
         {
@@ -120,4 +145,13 @@ async def cancel_workflow_run(
         status=WorkflowStateStatus.CANCELLED,
     )
     await repository.commit()
+    queue = cast(WorkflowJobQueue, request.app.state.workflow_job_queue)
+    job = await queue.cancel_for_workflow_run(workflow_run_id)
+    if durable_job is None and (job is None or job.status is not JobStatus.CANCELLED):
+        raise APIError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="workflow_not_cancellable",
+            message="The queued job could not be cancelled.",
+            details={"workflow_run_id": str(workflow_run_id)},
+        )
     return WorkflowRunStatusResponse.from_model(workflow_run)

@@ -22,6 +22,13 @@ class FakeWorkflowRepository:
     async def commit(self) -> None:
         return None
 
+    async def get_job_for_workflow_run(self, workflow_run_id, *, for_update=False):
+        del workflow_run_id, for_update
+        return None
+
+    async def cancel_pending_outbox(self, workflow_job_id) -> None:
+        del workflow_job_id
+
 
 class FakeWorkflowQueue:
     def __init__(self, *, cancellable_job=None) -> None:
@@ -66,7 +73,7 @@ def test_workflow_run_status_is_tenant_scoped(
     )
     fake_repository = FakeWorkflowRepository(workflow_run)
     monkeypatch.setattr(
-        "app.api.routers.workflows.WorkflowRuntimeRepository",
+        "app.api.routers.workflows.WorkflowJobRepository",
         lambda session: fake_repository,
     )
 
@@ -119,7 +126,7 @@ def test_workflow_run_status_hides_other_tenant_data(
     )
     fake_repository = FakeWorkflowRepository(workflow_run)
     monkeypatch.setattr(
-        "app.api.routers.workflows.WorkflowRuntimeRepository",
+        "app.api.routers.workflows.WorkflowJobRepository",
         lambda session: fake_repository,
     )
 
@@ -159,7 +166,7 @@ def test_workflow_run_cancel_marks_queued_run_cancelled(
         )
     )
     monkeypatch.setattr(
-        "app.api.routers.workflows.WorkflowRuntimeRepository",
+        "app.api.routers.workflows.WorkflowJobRepository",
         lambda session: fake_repository,
     )
 

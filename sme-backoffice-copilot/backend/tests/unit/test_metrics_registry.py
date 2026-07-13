@@ -86,3 +86,25 @@ def test_metrics_registry_records_review_queue_size_and_correction_rate() -> Non
         "review_action_count": 2,
         "rate": 0.5,
     }
+
+
+def test_metrics_registry_records_queue_reliability_signals() -> None:
+    registry = InMemoryMetricsRegistry()
+
+    registry.record_queue_enqueued()
+    registry.record_queue_started(queue_latency_ms=125.0)
+    registry.record_queue_retry()
+    registry.record_queue_started(queue_latency_ms=75.0)
+    registry.record_queue_failed(dead_lettered=True)
+    registry.record_queue_lost()
+
+    queue = registry.snapshot()["workflow_queue"]
+    assert queue["events"] == {
+        "dead_lettered": 1,
+        "enqueued": 1,
+        "lost": 1,
+        "retried": 1,
+        "started": 2,
+    }
+    assert queue["running_jobs"] == 0
+    assert queue["queue_latency"]["avg_duration_ms"] == 100.0

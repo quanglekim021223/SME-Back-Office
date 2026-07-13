@@ -199,7 +199,6 @@ class DocumentIngestionService:
 
         self.persistence.add_document(document)
         self.persistence.add_artifact(artifact)
-        await self.persistence.commit()
 
         document_ingested_event = DocumentIngested(
             tenant_id=tenant_id,
@@ -214,6 +213,9 @@ class DocumentIngestionService:
         workflow_job_submission = await self.event_publisher.publish_document_ingested(
             document_ingested_event
         )
+        # Document metadata, WorkflowRun, WorkflowJob, and OutboxEvent share the
+        # request session and are committed atomically here.
+        await self.persistence.commit()
 
         return DocumentUploadResult(
             document=document,

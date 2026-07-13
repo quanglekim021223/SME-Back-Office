@@ -34,6 +34,7 @@ class CeleryWorkflowJobQueue:
         """Send a JSON-safe command to the priority-specific Celery queue."""
 
         job = JobRef(
+            job_id=command.job_id,
             workflow_run_id=command.workflow_run_id,
             priority=command.priority,
         )
@@ -74,8 +75,12 @@ class CeleryWorkflowJobQueue:
     async def cancel_for_workflow_run(self, workflow_run_id: UUID) -> JobRef | None:
         """Cancel the API-process job reference for a durable workflow run."""
 
-        job_id = self._job_ids_by_workflow_run.get(workflow_run_id)
-        return await self.cancel(job_id) if job_id is not None else None
+        job_id = self._job_ids_by_workflow_run.get(workflow_run_id, workflow_run_id)
+        job = self._jobs.get(job_id)
+        if job is None:
+            job = JobRef(job_id=job_id, workflow_run_id=workflow_run_id)
+            self._jobs[job_id] = job
+        return await self.cancel(job_id)
 
     async def get_progress(
         self,
@@ -83,9 +88,7 @@ class CeleryWorkflowJobQueue:
     ) -> WorkflowProgressSnapshot | None:
         """Read worker-reported progress metadata from the Celery backend."""
 
-        job_id = self._job_ids_by_workflow_run.get(workflow_run_id)
-        if job_id is None:
-            return None
+        job_id = self._job_ids_by_workflow_run.get(workflow_run_id, workflow_run_id)
         result = self._celery_app.AsyncResult(str(job_id))
         info = result.info
         if result.state != "PROGRESS" or not isinstance(info, dict):

@@ -4,10 +4,23 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Protocol
+from typing import Protocol, cast
+from uuid import uuid4
 
-from app.jobs.contracts import DocumentProcessingCommand, WorkflowJobQueue
+from app.jobs.contracts import (
+    DocumentProcessingCommand,
+    JobPriority,
+    JobRef,
+    JobStatus,
+)
+from app.models.base import utc_now
 from app.models.document import DocumentType
+from app.models.jobs import (
+    OutboxEvent,
+    OutboxEventStatus,
+    WorkflowJob,
+    WorkflowJobStatus,
+)
 from app.services.bank_statement_import import BankStatementImportResult
 from app.services.document_events import DocumentIngested, WorkflowJobSubmission
 from app.services.workflow_outputs import (
@@ -38,6 +51,16 @@ class BankStatementImporter(Protocol):
         event: DocumentIngested,
     ) -> BankStatementImportResult | None:
         """Import one bank statement document."""
+
+
+class WorkflowSubmissionPersistence(WorkflowRuntimePersistence, Protocol):
+    """Stage a workflow run, durable job, and outbox event in one transaction."""
+
+    def add_workflow_job(self, job: WorkflowJob) -> WorkflowJob:
+        """Stage one durable workflow job."""
+
+    def add_outbox_event(self, event: OutboxEvent) -> OutboxEvent:
+        """Stage one transactional outbox event."""
 
 
 def workflow_state_from_document_ingested(event: DocumentIngested) -> WorkflowState:
@@ -138,24 +161,23 @@ class DocumentIngestedWorkflowPublisher:
 
 
 class QueuedDocumentWorkflowPublisher:
-    """Publish document work through the application queue boundary."""
+    """Stage durable document work for transactional outbox delivery."""
 
     def __init__(
         self,
         *,
-        persistence: WorkflowRuntimePersistence,
-        queue: WorkflowJobQueue,
-        commit: Callable[[], Awaitable[None]],
+        persistence: WorkflowSubmissionPersistence,
+        max_attempts: int = 4,
     ) -> None:
         self.runtime = WorkflowRuntimeService(persistence)
-        self.queue = queue
-        self.commit = commit
+        self.persistence = persistence
+        self.max_attempts = max_attempts
 
     async def publish_document_ingested(
         self,
         event: DocumentIngested,
     ) -> WorkflowJobSubmission | None:
-        """Persist a queued run, then hand its portable command to the queue."""
+        """Stage a queued run, job, and outbox event without external I/O."""
 
         if event.document_type not in {
             DocumentType.INVOICE.value,
@@ -175,26 +197,57 @@ class QueuedDocumentWorkflowPublisher:
             workflow_version=WORKFLOW_REPLAY_VERSION,
             correlation_id=correlation_id,
         )
-        await self.commit()
-
-        job = await self.queue.enqueue(
-            DocumentProcessingCommand(
-                workflow_run_id=workflow_run.id,
-                event_id=event.event_id,
+        command = DocumentProcessingCommand(
+            job_id=workflow_run.id,
+            workflow_run_id=workflow_run.id,
+            event_id=event.event_id,
+            tenant_id=event.tenant_id,
+            document_id=event.document_id,
+            document_type=event.document_type,
+            storage_uri=event.storage_uri,
+            content_hash=event.content_hash,
+            malware_scan_status=event.malware_scan_status,
+            local_path=event.local_path,
+            correlation_id=correlation_id,
+            priority=JobPriority.HIGH,
+        )
+        command_payload = cast(dict[str, object], command.model_dump(mode="json"))
+        durable_job = WorkflowJob(
+            id=workflow_run.id,
+            tenant_id=event.tenant_id,
+            workflow_run_id=workflow_run.id,
+            document_id=event.document_id,
+            idempotency_key=str(workflow_run.id),
+            status=WorkflowJobStatus.QUEUED.value,
+            priority=command.priority.value,
+            command=command_payload,
+            max_attempts=self.max_attempts,
+            available_at=utc_now(),
+        )
+        self.persistence.add_workflow_job(durable_job)
+        self.persistence.add_outbox_event(
+            OutboxEvent(
+                id=uuid4(),
                 tenant_id=event.tenant_id,
-                document_id=event.document_id,
-                document_type=event.document_type,
-                storage_uri=event.storage_uri,
-                content_hash=event.content_hash,
-                malware_scan_status=event.malware_scan_status,
-                local_path=event.local_path,
-                correlation_id=correlation_id,
+                workflow_job_id=durable_job.id,
+                aggregate_type="workflow_run",
+                aggregate_id=workflow_run.id,
+                event_type="DocumentProcessingRequested",
+                payload={"command": command_payload},
+                status=OutboxEventStatus.PENDING.value,
+                available_at=utc_now(),
             )
         )
+        job = JobRef(
+            job_id=durable_job.id,
+            workflow_run_id=workflow_run.id,
+            status=JobStatus.QUEUED,
+            priority=command.priority,
+        )
         logger.info(
-            "workflow.job.enqueued",
+            "workflow.job.staged",
             extra={
-                "event": "workflow.job.enqueued",
+                "event": "workflow.job.staged",
                 "job_id": str(job.job_id),
                 "workflow_run_id": str(workflow_run.id),
                 "tenant_id": str(event.tenant_id),

@@ -120,8 +120,13 @@ async def score_workflow_replay() -> EvaluationScore:
         ),
         check_exact(
             "workflow_replay[failed_validation].state_status",
-            WorkflowStateStatus.RUNNING.value,
+            WorkflowStateStatus.RETRYING.value,
             failed_validation.state.status.value,
+        ),
+        check_exact(
+            "workflow_replay[failed_validation].workflow_status",
+            WorkflowRunStatus.RETRYING.value,
+            failed_validation.workflow_run.status,
         ),
         check_exact(
             "workflow_replay[failed_validation].stage",

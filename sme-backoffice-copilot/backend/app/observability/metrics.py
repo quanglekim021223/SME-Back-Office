@@ -70,6 +70,10 @@ class InMemoryMetricsRegistry:
         self._failure_counts: dict[str, int] = {}
         self._review_queue_size: dict[str, int] = {}
         self._review_actions: dict[str, int] = {}
+        self._queue_events: dict[str, int] = {}
+        self._queue_latency = AggregateMetric()
+        self._outbox_cycles = AggregateMetric()
+        self._running_jobs = 0
 
     def reset(self) -> None:
         """Clear all metrics, primarily for tests."""
@@ -82,6 +86,10 @@ class InMemoryMetricsRegistry:
             self._failure_counts.clear()
             self._review_queue_size.clear()
             self._review_actions.clear()
+            self._queue_events.clear()
+            self._queue_latency = AggregateMetric()
+            self._outbox_cycles = AggregateMetric()
+            self._running_jobs = 0
 
     def record_endpoint(
         self,
@@ -211,6 +219,65 @@ class InMemoryMetricsRegistry:
         with self._lock:
             self._review_actions[key] = self._review_actions.get(key, 0) + 1
 
+    def record_queue_enqueued(self) -> None:
+        """Record one successful outbox-to-broker delivery."""
+
+        self._increment_queue_event("enqueued")
+
+    def record_queue_publish_failure(self) -> None:
+        """Record one broker publish failure retained by the outbox."""
+
+        self._increment_queue_event("publish_failed")
+
+    def record_queue_started(self, *, queue_latency_ms: float | None) -> None:
+        """Record one durable worker claim and its queue wait time."""
+
+        with self._lock:
+            self._queue_events["started"] = self._queue_events.get("started", 0) + 1
+            self._running_jobs += 1
+            self._queue_latency.record(duration_ms=queue_latency_ms)
+
+    def record_queue_retry(self) -> None:
+        """Record one released worker attempt scheduled for retry."""
+
+        with self._lock:
+            self._queue_events["retried"] = self._queue_events.get("retried", 0) + 1
+            self._running_jobs = max(self._running_jobs - 1, 0)
+
+    def record_queue_succeeded(self) -> None:
+        """Record one terminal successful job."""
+
+        with self._lock:
+            self._queue_events["succeeded"] = (
+                self._queue_events.get("succeeded", 0) + 1
+            )
+            self._running_jobs = max(self._running_jobs - 1, 0)
+
+    def record_queue_failed(self, *, dead_lettered: bool) -> None:
+        """Record one terminal failed or dead-lettered job."""
+
+        key = "dead_lettered" if dead_lettered else "failed"
+        with self._lock:
+            self._queue_events[key] = self._queue_events.get(key, 0) + 1
+            self._running_jobs = max(self._running_jobs - 1, 0)
+
+    def record_queue_lost(self) -> None:
+        """Record one job whose worker lease expired."""
+
+        with self._lock:
+            self._queue_events["lost"] = self._queue_events.get("lost", 0) + 1
+            self._running_jobs = max(self._running_jobs - 1, 0)
+
+    def record_outbox_cycle(self, *, duration_ms: float) -> None:
+        """Record one dispatcher polling cycle."""
+
+        with self._lock:
+            self._outbox_cycles.record(duration_ms=duration_ms)
+
+    def _increment_queue_event(self, event: str) -> None:
+        with self._lock:
+            self._queue_events[event] = self._queue_events.get(event, 0) + 1
+
     def snapshot(self) -> dict[str, object]:
         """Return a stable snapshot of local metrics."""
 
@@ -245,6 +312,12 @@ class InMemoryMetricsRegistry:
                     "correction_count": correction_count,
                     "review_action_count": review_action_count,
                     "rate": round(correction_rate, 4),
+                },
+                "workflow_queue": {
+                    "events": dict(sorted(self._queue_events.items())),
+                    "running_jobs": self._running_jobs,
+                    "queue_latency": self._queue_latency.as_dict(),
+                    "outbox_cycles": self._outbox_cycles.as_dict(),
                 },
             }
 

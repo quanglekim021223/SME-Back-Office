@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from app.core.config import LLMProviderType, OCRProviderType, Settings
+from app.providers.azure_di import AzureDIOCRProvider
 from app.providers.base import ProviderDeploymentMode
 from app.providers.image_preprocessing import (
     ImagePreprocessingConfig,
     PreprocessingOCRProvider,
 )
-from app.providers.azure_di import AzureDIOCRProvider
 from app.providers.llm import LLMProvider
 from app.providers.local_ocr import (
     ChandraOCRProvider,
@@ -22,6 +22,11 @@ from app.providers.openai import OpenAIResponsesLLMProvider
 from app.providers.privacy import (
     ProviderPrivacyGate,
     build_provider_privacy_policy,
+)
+from app.providers.rate_limit import (
+    NoopProviderRateLimiter,
+    ProviderRateLimiter,
+    RedisFixedWindowProviderRateLimiter,
 )
 from app.providers.routing import (
     ProviderRoutingConfig,
@@ -137,6 +142,21 @@ def build_provider_privacy_gate_from_settings(
             ),
             max_provider_text_chars=settings.provider_redaction_max_chars,
         )
+    )
+
+
+def build_provider_rate_limiter_from_settings(
+    settings: Settings,
+) -> ProviderRateLimiter:
+    """Build a worker-wide Redis limiter or a zero-overhead local fallback."""
+
+    if not settings.provider_rate_limit_enabled:
+        return NoopProviderRateLimiter()
+    return RedisFixedWindowProviderRateLimiter.from_url(
+        redis_url=settings.provider_rate_limit_redis_url,
+        ocr_requests_per_second=settings.provider_ocr_requests_per_second,
+        llm_requests_per_second=settings.provider_llm_requests_per_second,
+        wait_timeout_seconds=settings.provider_rate_limit_wait_timeout_seconds,
     )
 
 

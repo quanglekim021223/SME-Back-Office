@@ -24,12 +24,15 @@ services:
       WORKFLOW_QUEUE_MODE: celery
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+      OUTBOX_DISPATCHER_ENABLED: "false"
+      PROVIDER_RATE_LIMIT_REDIS_URL: redis://redis:6379/2
+      PROVIDER_RATE_LIMIT_ENABLED: "true"
     ports:
       - "8000:8000"
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     volumes:
@@ -70,14 +73,53 @@ services:
       WORKFLOW_QUEUE_MODE: celery
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+      OUTBOX_DISPATCHER_ENABLED: "false"
+      PROVIDER_RATE_LIMIT_REDIS_URL: redis://redis:6379/2
+      PROVIDER_RATE_LIMIT_ENABLED: "true"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     volumes:
       - ../backend/app:/app/app
       - uploads_data:/data/uploads
+
+  outbox:
+    build:
+      context: ../backend
+    command: ["python", "-m", "app.workers.outbox_dispatcher"]
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+asyncpg://sme:sme@postgres:5432/sme_backoffice
+      WORKFLOW_QUEUE_MODE: celery
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      OUTBOX_DISPATCHER_ENABLED: "true"
+      PROVIDER_RATE_LIMIT_REDIS_URL: redis://redis:6379/2
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../backend/app:/app/app
+
+  migrate:
+    build:
+      context: ../backend
+    command: ["alembic", "upgrade", "head"]
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+asyncpg://sme:sme@postgres:5432/sme_backoffice
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   redis:
     image: redis:7-alpine

@@ -72,6 +72,7 @@ class InProcessWorkflowJobQueue:
         """Store a queued job and preserve its command for a local worker."""
 
         job = JobRef(
+            job_id=command.job_id,
             workflow_run_id=command.workflow_run_id,
             priority=command.priority,
         )

@@ -7,18 +7,23 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
-from app.jobs.contracts import DocumentProcessingCommand
+from app.jobs.contracts import DocumentProcessingCommand, WorkflowJobLeaseLostError
+from app.models.base import utc_now
 from app.models.document import DocumentType
+from app.models.jobs import WorkflowJobStatus
 from app.models.workflow import WorkflowRun
+from app.observability.metrics import metrics_registry
 from app.observability.tracing import build_trace_provider_from_settings
 from app.providers import ProviderPrivacyContext
 from app.providers.factory import (
     build_llm_provider_from_settings,
     build_ocr_provider_from_settings,
     build_provider_privacy_gate_from_settings,
+    build_provider_rate_limiter_from_settings,
     build_provider_routing_config_from_settings,
 )
 from app.providers.routing import ProviderRuntime
+from app.repositories.jobs import WorkflowJobRepository
 from app.repositories.workflows import WorkflowRuntimeRepository
 from app.services.bank_statement_import import BankStatementCsvImportService
 from app.services.document_events import DocumentIngested
@@ -52,6 +57,7 @@ class DocumentProcessingWorkflowExecutor:
         command: DocumentProcessingCommand,
         *,
         mark_failed: bool = True,
+        worker_id: str | None = None,
     ) -> None:
         """Load the durable run and execute it outside the original HTTP request."""
 
@@ -93,7 +99,15 @@ class DocumentProcessingWorkflowExecutor:
                         state=state,
                         command=command,
                     )
+                if worker_id is not None:
+                    await self._complete_job_with_output(
+                        session=session,
+                        command=command,
+                        worker_id=worker_id,
+                    )
                 await session.commit()
+                if worker_id is not None:
+                    metrics_registry.record_queue_succeeded()
             except Exception as exc:
                 await session.rollback()
                 if mark_failed:
@@ -104,46 +118,34 @@ class DocumentProcessingWorkflowExecutor:
                     )
                 raise
 
-    async def record_retry(
-        self,
-        command: DocumentProcessingCommand,
+    @staticmethod
+    async def _complete_job_with_output(
         *,
-        error: Exception,
-    ) -> None:
-        """Persist queue retry state before Celery schedules the next attempt."""
-
-        async with self.session_factory() as session:
-            repository = WorkflowRuntimeRepository(session)
-            workflow_run = await repository.get_for_tenant(
-                tenant_id=command.tenant_id,
-                object_id=command.workflow_run_id,
-            )
-            if workflow_run is None:
-                return
-            state = WorkflowState.model_validate(workflow_run.state or {})
-            state.max_retries = self.settings.celery_task_max_retries
-            WorkflowRuntimeService(
-                repository,
-                progress_observer=self.progress_observer,
-            ).request_retry(
-                workflow_run=workflow_run,
-                state=state,
-                agent_name="workflow_queue",
-                error_code="ERR_WORKFLOW_JOB_RETRY",
-                error_message=str(error),
-            )
-            await session.commit()
-
-    async def mark_failed_from_exception(
-        self,
+        session: AsyncSession,
         command: DocumentProcessingCommand,
-        *,
-        error: Exception,
+        worker_id: str,
     ) -> None:
-        """Persist terminal failure after the worker has exhausted retries."""
+        """Fence stale workers and atomically complete their durable job."""
 
-        async with self.session_factory() as session:
-            await self._mark_failed(session=session, command=command, error=error)
+        job = await WorkflowJobRepository(session).get_job(
+            command.job_id,
+            for_update=True,
+        )
+        now = utc_now()
+        if (
+            job is None
+            or job.status != WorkflowJobStatus.RUNNING.value
+            or job.worker_id != worker_id
+            or job.lease_expires_at is None
+            or job.lease_expires_at <= now
+        ):
+            raise WorkflowJobLeaseLostError(
+                f"Worker {worker_id} no longer owns job {command.job_id}."
+            )
+        job.status = WorkflowJobStatus.SUCCEEDED.value
+        job.finished_at = now
+        job.heartbeat_at = None
+        job.lease_expires_at = None
 
     async def _run_invoice(
         self,
@@ -154,9 +156,11 @@ class DocumentProcessingWorkflowExecutor:
         command: DocumentProcessingCommand,
     ) -> None:
         trace_provider = build_trace_provider_from_settings(self.settings)
+        rate_limiter = build_provider_rate_limiter_from_settings(self.settings)
         provider_runtime = ProviderRuntime(
             build_provider_routing_config_from_settings(self.settings),
             privacy_gate=build_provider_privacy_gate_from_settings(self.settings),
+            rate_limiter=rate_limiter,
         )
         runner = WorkflowReplayRunner(
             persistence=WorkflowRuntimeRepository(session),
@@ -167,16 +171,19 @@ class DocumentProcessingWorkflowExecutor:
             trace_provider=trace_provider,
             progress_observer=self.progress_observer,
         )
-        result = await runner.run(
-            state=state,
-            scenario=ReplayScenario.HAPPY_PATH,
-            correlation_id=command.correlation_id,
-            workflow_run=workflow_run,
-        )
-        await WorkflowOutputPersistenceService(
-            SqlAlchemyWorkflowOutputPersistence(session),
-            trace_provider=trace_provider,
-        ).persist_invoice_review_from_workflow_result(result)
+        try:
+            result = await runner.run(
+                state=state,
+                scenario=ReplayScenario.HAPPY_PATH,
+                correlation_id=command.correlation_id,
+                workflow_run=workflow_run,
+            )
+            await WorkflowOutputPersistenceService(
+                SqlAlchemyWorkflowOutputPersistence(session),
+                trace_provider=trace_provider,
+            ).persist_invoice_review_from_workflow_result(result)
+        finally:
+            await rate_limiter.aclose()
 
     async def _run_bank_statement(
         self,

@@ -18,7 +18,7 @@ from app.core.config import Settings
 from app.core.db import get_db_session
 from app.core.tenant import TenantContext
 from app.models.document import DocumentType
-from app.repositories import DocumentRepository, WorkflowRuntimeRepository
+from app.repositories import DocumentRepository, WorkflowJobRepository
 from app.schemas.document import (
     DocumentUploadResponse,
     DocumentWorkflowTriggerResponse,
@@ -50,11 +50,11 @@ def get_document_workflow_publisher(
 ) -> DocumentEventPublisher:
     """Return queue-backed publisher for accepted document events."""
 
-    workflow_repository = WorkflowRuntimeRepository(session)
+    settings = cast(Settings, request.app.state.settings)
+    workflow_repository = WorkflowJobRepository(session)
     return QueuedDocumentWorkflowPublisher(
         persistence=workflow_repository,
-        queue=request.app.state.workflow_job_queue,
-        commit=workflow_repository.commit,
+        max_attempts=settings.celery_task_max_retries + 1,
     )
 
 

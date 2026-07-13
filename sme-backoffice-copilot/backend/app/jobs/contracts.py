@@ -28,6 +28,7 @@ class JobStatus(StrEnum):
     RETRYING = "retrying"
     CANCELLED = "cancelled"
     LOST = "lost"
+    DEAD_LETTERED = "dead_lettered"
 
 
 class JobPriority(StrEnum):
@@ -38,12 +39,17 @@ class JobPriority(StrEnum):
     LOW = "low"
 
 
+class WorkflowJobLeaseLostError(RuntimeError):
+    """Raised when a stale worker no longer owns the durable execution lease."""
+
+
 class DocumentProcessingCommand(BaseModel):
     """Portable payload used to execute one document processing workflow."""
 
     model_config = ConfigDict(extra="forbid")
 
     schema_version: str = "document-processing-command.v1"
+    job_id: UUID = Field(default_factory=uuid4)
     workflow_run_id: UUID
     event_id: UUID
     tenant_id: UUID

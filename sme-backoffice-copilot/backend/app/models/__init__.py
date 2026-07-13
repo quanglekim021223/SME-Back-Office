@@ -38,6 +38,12 @@ from app.models.invoice import (
     InvoiceLineItem,
     InvoiceStatus,
 )
+from app.models.jobs import (
+    OutboxEvent,
+    OutboxEventStatus,
+    WorkflowJob,
+    WorkflowJobStatus,
+)
 from app.models.operations import (
     AuditActorType,
     AuditEvent,
@@ -95,6 +101,8 @@ __all__ = [
     "InvoiceFieldEvidence",
     "InvoiceLineItem",
     "InvoiceStatus",
+    "OutboxEvent",
+    "OutboxEventStatus",
     "Membership",
     "Organization",
     "ProcessingRun",
@@ -117,4 +125,6 @@ __all__ = [
     "User",
     "WorkflowRun",
     "WorkflowRunStatus",
+    "WorkflowJob",
+    "WorkflowJobStatus",
 ]

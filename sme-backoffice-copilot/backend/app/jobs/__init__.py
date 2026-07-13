@@ -7,6 +7,7 @@ from app.jobs.contracts import (
     JobRef,
     JobStatus,
     WorkflowJobHandler,
+    WorkflowJobLeaseLostError,
     WorkflowJobQueue,
 )
 from app.jobs.in_process import InProcessWorkflowJobQueue
@@ -20,4 +21,5 @@ __all__ = [
     "JobStatus",
     "WorkflowJobQueue",
     "WorkflowJobHandler",
+    "WorkflowJobLeaseLostError",
 ]
