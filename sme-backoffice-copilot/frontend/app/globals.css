@@ -2241,6 +2241,49 @@ textarea:focus-visible {
   font-size: 0.85rem;
 }
 
+.workflow-progress {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.7rem;
+  border: 1px solid rgb(15 118 110 / 18%);
+  border-radius: var(--radius-sm);
+  background: rgb(255 255 255 / 72%);
+}
+
+.workflow-progress-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.workflow-progress small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.workflow-progress-track {
+  height: 0.4rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(15 118 110 / 14%);
+}
+
+.workflow-progress-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 220ms ease;
+}
+
+.workflow-cancel-button {
+  justify-self: start;
+}
+
 .upload-status-card dl {
   display: grid;
   gap: 1px;

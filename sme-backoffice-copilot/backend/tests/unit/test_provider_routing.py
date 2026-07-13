@@ -23,6 +23,17 @@ from app.providers import (
 )
 
 
+class SpyRateLimiter:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    async def acquire(self, *, provider_name: str, route_kind: str) -> None:
+        self.calls.append((provider_name, route_kind))
+
+    async def aclose(self) -> None:
+        return None
+
+
 class FlakyMockLLMProvider(MockLLMProvider):
     def __init__(self, *, failures_before_success: int) -> None:
         super().__init__()
@@ -121,7 +132,8 @@ async def test_provider_runtime_routes_mock_ocr() -> None:
 @pytest.mark.asyncio
 async def test_provider_runtime_retries_transient_provider_failure() -> None:
     routing_config = build_default_provider_routing_config(max_retries=2)
-    runtime = ProviderRuntime(routing_config)
+    limiter = SpyRateLimiter()
+    runtime = ProviderRuntime(routing_config, rate_limiter=limiter)
     provider = FlakyMockLLMProvider(failures_before_success=1)
 
     invocation = await runtime.generate_llm(
@@ -140,6 +152,7 @@ async def test_provider_runtime_retries_transient_provider_failure() -> None:
     )
 
     assert provider.calls == 2
+    assert limiter.calls == [("mock_llm", "llm"), ("mock_llm", "llm")]
     assert invocation.attempts == 2
     assert invocation.result.structured_output is not None
     assert invocation.result.structured_output["total_amount"] == "110.00"

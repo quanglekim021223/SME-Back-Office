@@ -18,22 +18,13 @@ from app.core.config import Settings
 from app.core.db import get_db_session
 from app.core.tenant import TenantContext
 from app.models.document import DocumentType
-from app.observability.tracing import build_trace_provider_from_settings
-from app.providers.factory import (
-    build_llm_provider_from_settings,
-    build_ocr_provider_from_settings,
-    build_provider_privacy_gate_from_settings,
-    build_provider_routing_config_from_settings,
-)
-from app.providers.routing import ProviderRuntime
-from app.repositories import DocumentRepository, WorkflowRuntimeRepository
+from app.repositories import DocumentRepository, WorkflowJobRepository
 from app.schemas.document import (
     DocumentUploadResponse,
     DocumentWorkflowTriggerResponse,
     MalwareScanResponse,
 )
 from app.services.audit import AuditService
-from app.services.bank_statement_import import BankStatementCsvImportService
 from app.services.document_events import DocumentEventPublisher
 from app.services.document_ingestion import (
     DocumentIngestionService,
@@ -41,12 +32,7 @@ from app.services.document_ingestion import (
     SqlAlchemyDocumentPersistence,
 )
 from app.services.document_storage import FileValidationError, LocalDocumentStorage
-from app.services.workflow_outputs import (
-    SqlAlchemyWorkflowOutputPersistence,
-    WorkflowOutputPersistenceService,
-)
-from app.workflows.replay import WorkflowReplayRunner
-from app.workflows.triggers import DocumentIngestedWorkflowPublisher
+from app.workflows.triggers import QueuedDocumentWorkflowPublisher
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -62,36 +48,13 @@ def get_document_workflow_publisher(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> DocumentEventPublisher:
-    """Return local publisher that triggers document workflow after ingestion."""
+    """Return queue-backed publisher for accepted document events."""
 
     settings = cast(Settings, request.app.state.settings)
-    workflow_repository = WorkflowRuntimeRepository(session)
-    routing_config = build_provider_routing_config_from_settings(settings)
-    privacy_gate = build_provider_privacy_gate_from_settings(settings)
-    provider_runtime = ProviderRuntime(
-        routing_config,
-        privacy_gate=privacy_gate,
-    )
-    trace_provider = build_trace_provider_from_settings(settings)
-    from app.providers import ProviderPrivacyContext
-    runner = WorkflowReplayRunner(
+    workflow_repository = WorkflowJobRepository(session)
+    return QueuedDocumentWorkflowPublisher(
         persistence=workflow_repository,
-        provider_runtime=provider_runtime,
-        llm_provider=build_llm_provider_from_settings(settings),
-        ocr_provider=build_ocr_provider_from_settings(settings),
-        provider_privacy_context=ProviderPrivacyContext(
-            tenant_allows_cloud=True,
-        ),
-        trace_provider=trace_provider,
-    )
-    return DocumentIngestedWorkflowPublisher(
-        runner=runner,
-        bank_statement_importer=BankStatementCsvImportService(session),
-        output_persistence_service=WorkflowOutputPersistenceService(
-            SqlAlchemyWorkflowOutputPersistence(session),
-            trace_provider=trace_provider,
-        ),
-        commit=workflow_repository.commit,
+        max_attempts=settings.celery_task_max_retries + 1,
     )
 
 
@@ -179,6 +142,7 @@ async def upload_document(
     document = result.document
     malware_scan_result = result.malware_scan_result
     document_ingested_event = result.document_ingested_event
+    workflow_job_submission = result.workflow_job_submission
 
     AuditService().log_document_uploaded(
         tenant_id=tenant_id,
@@ -213,6 +177,21 @@ async def upload_document(
             event_id=document_ingested_event.event_id,
             event_name=document_ingested_event.event_name,
             document_id=document_ingested_event.document_id,
+            status=(
+                workflow_job_submission.job.status.value
+                if workflow_job_submission is not None
+                else "published"
+            ),
+            workflow_run_id=(
+                workflow_job_submission.workflow_run_id
+                if workflow_job_submission is not None
+                else None
+            ),
+            job_id=(
+                workflow_job_submission.job.job_id
+                if workflow_job_submission is not None
+                else None
+            ),
         ),
     )
 
@@ -288,9 +267,7 @@ async def download_document(
             event="document.downloaded",
             tenant_id=str(tenant_id),
             actor_id=(
-                tenant_context.principal.user_id
-                if tenant_context.principal
-                else None
+                tenant_context.principal.user_id if tenant_context.principal else None
             ),
             resource_type="document",
             resource_id=str(document_id),

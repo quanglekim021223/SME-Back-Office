@@ -16,6 +16,7 @@ from app.core.tenant import TenantContext
 from app.observability.metrics import metrics_registry
 from app.schemas.dashboard import DashboardFinancialSummaryResponse
 from app.services.dashboard_financial_summary import DashboardFinancialSummaryService
+from app.services.workflow_jobs import WorkflowJobMetricsService
 
 router = APIRouter(prefix="/ops", tags=["ops"])
 
@@ -31,6 +32,22 @@ async def get_local_metrics(
 
     del principal
     return metrics_registry.snapshot()
+
+
+@router.get("/workflow-jobs")
+async def get_workflow_job_metrics(
+    tenant_context: Annotated[TenantContext, Depends(get_tenant_context)],
+    principal: Annotated[
+        Principal,
+        Depends(require_permission(Permission.READ_TENANT)),
+    ],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> dict[str, object]:
+    """Return durable queue metrics aggregated across API and worker processes."""
+
+    del principal
+    tenant_id = resolve_tenant_uuid(tenant_context)
+    return await WorkflowJobMetricsService(session).build(tenant_id=tenant_id)
 
 
 @router.get("/financial-summary", response_model=DashboardFinancialSummaryResponse)

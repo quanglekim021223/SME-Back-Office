@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, cast
 from uuid import UUID, uuid4
@@ -23,6 +24,7 @@ from app.workflows.contracts import (
     WorkflowState,
     WorkflowStateStatus,
 )
+from app.workflows.progress import workflow_stage_for_agent
 
 logger = logging.getLogger("app.workflow")
 
@@ -41,6 +43,9 @@ class WorkflowRuntimePersistence(Protocol):
 
     def add_handoff(self, handoff: AgentHandoff) -> AgentHandoff:
         """Stage an agent handoff for insertion."""
+
+
+WorkflowProgressObserver = Callable[[WorkflowRun, WorkflowState], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,10 +73,12 @@ def workflow_status_to_model_status(status: WorkflowStateStatus) -> WorkflowRunS
     status_map = {
         WorkflowStateStatus.QUEUED: WorkflowRunStatus.QUEUED,
         WorkflowStateStatus.RUNNING: WorkflowRunStatus.RUNNING,
+        WorkflowStateStatus.RETRYING: WorkflowRunStatus.RETRYING,
         WorkflowStateStatus.REVIEW_REQUIRED: WorkflowRunStatus.REVIEW_REQUIRED,
         WorkflowStateStatus.COMPLETED: WorkflowRunStatus.COMPLETED,
         WorkflowStateStatus.FAILED: WorkflowRunStatus.FAILED,
         WorkflowStateStatus.CANCELLED: WorkflowRunStatus.CANCELLED,
+        WorkflowStateStatus.LOST: WorkflowRunStatus.LOST,
         WorkflowStateStatus.DEAD_LETTERED: WorkflowRunStatus.DEAD_LETTERED,
     }
     return status_map[status]
@@ -101,8 +108,14 @@ def metric_float(value: object) -> float | None:
 class WorkflowRuntimeService:
     """Small runtime service for durable workflow bookkeeping."""
 
-    def __init__(self, persistence: WorkflowRuntimePersistence) -> None:
+    def __init__(
+        self,
+        persistence: WorkflowRuntimePersistence,
+        *,
+        progress_observer: WorkflowProgressObserver | None = None,
+    ) -> None:
         self.persistence = persistence
+        self.progress_observer = progress_observer
 
     def start_workflow(
         self,
@@ -143,7 +156,80 @@ class WorkflowRuntimeService:
                 "correlation_id": correlation_id,
             },
         )
-        return self.persistence.add_workflow_run(workflow_run)
+        persisted_run = self.persistence.add_workflow_run(workflow_run)
+        self._notify_progress(persisted_run, state)
+        return persisted_run
+
+    def queue_workflow(
+        self,
+        *,
+        state: WorkflowState,
+        workflow_name: str,
+        workflow_version: str,
+        correlation_id: str | None = None,
+    ) -> WorkflowRun:
+        """Persist a workflow that has been accepted but not yet started."""
+
+        workflow_run_id = state.workflow_run_id or uuid4()
+        state.workflow_run_id = workflow_run_id
+        state.status = WorkflowStateStatus.QUEUED
+        workflow_run = WorkflowRun(
+            id=workflow_run_id,
+            tenant_id=state.tenant_id,
+            document_id=state.document_id,
+            processing_run_id=state.processing_run_id,
+            workflow_name=workflow_name,
+            workflow_version=workflow_version,
+            status=WorkflowRunStatus.QUEUED.value,
+            current_agent=state.current_agent,
+            retry_count=sum(state.retry_counts.values()),
+            correlation_id=correlation_id,
+            state=serialize_workflow_state(state),
+        )
+        logger.info(
+            "workflow.queued",
+            extra={
+                "event": "workflow.queued",
+                "workflow_run_id": str(workflow_run.id),
+                "tenant_id": str(state.tenant_id),
+                "document_id": str(state.document_id),
+                "workflow_name": workflow_name,
+                "workflow_version": workflow_version,
+                "correlation_id": correlation_id,
+            },
+        )
+        persisted_run = self.persistence.add_workflow_run(workflow_run)
+        self._notify_progress(persisted_run, state)
+        return persisted_run
+
+    def resume_workflow(
+        self,
+        *,
+        workflow_run: WorkflowRun,
+        state: WorkflowState,
+        correlation_id: str | None = None,
+    ) -> WorkflowRun:
+        """Move a previously queued workflow into the running state."""
+
+        state.workflow_run_id = workflow_run.id
+        state.status = WorkflowStateStatus.RUNNING
+        workflow_run.status = WorkflowRunStatus.RUNNING.value
+        workflow_run.current_agent = state.current_agent
+        if correlation_id is not None:
+            workflow_run.correlation_id = correlation_id
+        workflow_run.state = serialize_workflow_state(state)
+        logger.info(
+            "workflow.resumed",
+            extra={
+                "event": "workflow.resumed",
+                "workflow_run_id": str(workflow_run.id),
+                "tenant_id": str(state.tenant_id),
+                "document_id": str(state.document_id),
+                "correlation_id": workflow_run.correlation_id,
+            },
+        )
+        self._notify_progress(workflow_run, state)
+        return workflow_run
 
     def record_agent_step(
         self,
@@ -180,6 +266,9 @@ class WorkflowRuntimeService:
 
         state.current_agent = agent_name
         workflow_run.current_agent = agent_name
+        agent_stage = workflow_stage_for_agent(agent_name)
+        if agent_stage is not None:
+            state.stage = agent_stage
 
         if result.status == AgentRunStatus.SUCCEEDED:
             if agent_name not in state.completed_agents:
@@ -214,7 +303,9 @@ class WorkflowRuntimeService:
                 "correlation_id": workflow_run.correlation_id,
             },
         )
-        return self.persistence.add_step_execution(step_execution)
+        persisted_step = self.persistence.add_step_execution(step_execution)
+        self._notify_progress(workflow_run, state)
+        return persisted_step
 
     def record_handoff(
         self,
@@ -281,7 +372,11 @@ class WorkflowRuntimeService:
             state.stage = stage
         elif status == WorkflowStateStatus.COMPLETED:
             state.stage = WorkflowStage.COMPLETED
-        elif status in {WorkflowStateStatus.FAILED, WorkflowStateStatus.DEAD_LETTERED}:
+        elif status in {
+            WorkflowStateStatus.FAILED,
+            WorkflowStateStatus.LOST,
+            WorkflowStateStatus.DEAD_LETTERED,
+        }:
             state.stage = WorkflowStage.FAILED
 
         if current_agent is not None:
@@ -306,6 +401,7 @@ class WorkflowRuntimeService:
                 "correlation_id": workflow_run.correlation_id,
             },
         )
+        self._notify_progress(workflow_run, state)
         return workflow_run
 
     def request_retry(
@@ -352,7 +448,7 @@ class WorkflowRuntimeService:
         self.update_workflow_status(
             workflow_run=workflow_run,
             state=state,
-            status=WorkflowStateStatus.RUNNING,
+            status=WorkflowStateStatus.RETRYING,
             current_agent=agent_name,
         )
         decision = RetryDecision(
@@ -360,7 +456,7 @@ class WorkflowRuntimeService:
             retry_count=retry_count,
             max_retries=state.max_retries,
             retry_allowed=True,
-            workflow_status=WorkflowStateStatus.RUNNING,
+            workflow_status=WorkflowStateStatus.RETRYING,
         )
         metrics_registry.record_workflow_retry(
             agent_name=agent_name,
@@ -392,3 +488,13 @@ class WorkflowRuntimeService:
             error_code=error_code,
             error_message=error_message,
         )
+
+    def _notify_progress(
+        self,
+        workflow_run: WorkflowRun,
+        state: WorkflowState,
+    ) -> None:
+        """Publish an in-process snapshot without coupling runtime to a queue."""
+
+        if self.progress_observer is not None:
+            self.progress_observer(workflow_run, state)

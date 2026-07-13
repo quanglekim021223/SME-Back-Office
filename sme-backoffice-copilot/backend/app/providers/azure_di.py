@@ -251,9 +251,7 @@ class AzureDIOCRProvider:
             if isinstance(p, dict) and isinstance(p.get("confidence"), (int, float))
         ]
         avg_confidence = (
-            sum(page_confidences) / len(page_confidences)
-            if page_confidences
-            else None
+            sum(page_confidences) / len(page_confidences) if page_confidences else None
         )
 
         prebuilt_extraction: dict[str, object] | None = None
@@ -446,7 +444,11 @@ class AzureDIOCRProvider:
                         f = item_fields.get(name)
                         if not isinstance(f, dict):
                             return None
-                        v = f.get("valueNumber") or f.get("valueString") or f.get("content")
+                        v = (
+                            f.get("valueNumber")
+                            or f.get("valueString")
+                            or f.get("content")
+                        )
                         if isinstance(v, int | float):
                             return str(v)
                         if isinstance(v, str) and v.strip():

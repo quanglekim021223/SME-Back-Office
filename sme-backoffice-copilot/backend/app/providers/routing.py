@@ -30,6 +30,7 @@ from app.providers.privacy import (
     ProviderPrivacyDecision,
     ProviderPrivacyGate,
 )
+from app.providers.rate_limit import NoopProviderRateLimiter, ProviderRateLimiter
 
 
 class ProviderTaskType(StrEnum):
@@ -165,9 +166,11 @@ class ProviderRuntime:
         self,
         routing_config: ProviderRoutingConfig,
         privacy_gate: ProviderPrivacyGate | None = None,
+        rate_limiter: ProviderRateLimiter | None = None,
     ) -> None:
         self.routing_config = routing_config
         self.privacy_gate = privacy_gate or ProviderPrivacyGate()
+        self.rate_limiter = rate_limiter or NoopProviderRateLimiter()
 
     async def generate_llm(
         self,
@@ -202,11 +205,19 @@ class ProviderRuntime:
         )
         started_at = perf_counter()
         try:
-            result, attempts = await call_with_policy(
-                lambda: provider.generate(
+
+            async def generate_with_limit() -> LLMGenerationResult:
+                await self.rate_limiter.acquire(
+                    provider_name=provider.name,
+                    route_kind=route.route_kind.value,
+                )
+                return await provider.generate(
                     request=sanitized_request,
                     context=context,
-                ),
+                )
+
+            result, attempts = await call_with_policy(
+                generate_with_limit,
                 policy=policy,
                 provider_name=provider.name,
             )
@@ -272,11 +283,19 @@ class ProviderRuntime:
         )
         started_at = perf_counter()
         try:
-            result, attempts = await call_with_policy(
-                lambda: provider.extract_text(
+
+            async def extract_with_limit() -> OCRResult:
+                await self.rate_limiter.acquire(
+                    provider_name=provider.name,
+                    route_kind=route.route_kind.value,
+                )
+                return await provider.extract_text(
                     input_data=sanitized_input,
                     context=context,
-                ),
+                )
+
+            result, attempts = await call_with_policy(
+                extract_with_limit,
                 policy=policy,
                 provider_name=provider.name,
             )

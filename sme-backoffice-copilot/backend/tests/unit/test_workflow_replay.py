@@ -75,8 +75,8 @@ async def test_workflow_replay_failed_validation_routes_self_correction() -> Non
         scenario=ReplayScenario.FAILED_VALIDATION,
     )
 
-    assert result.workflow_run.status == WorkflowRunStatus.RUNNING.value
-    assert result.state.status == WorkflowStateStatus.RUNNING
+    assert result.workflow_run.status == WorkflowRunStatus.RETRYING.value
+    assert result.state.status == WorkflowStateStatus.RETRYING
     assert result.state.stage == WorkflowStage.TOTALS_EXTRACTION
     assert result.state.current_agent == TOTALS_EXTRACTOR_AGENT
     assert result.state.retry_counts == {TOTALS_EXTRACTOR_AGENT: 1}

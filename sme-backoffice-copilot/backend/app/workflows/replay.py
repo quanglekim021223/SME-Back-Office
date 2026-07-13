@@ -56,6 +56,7 @@ from app.workflows.invoice_extraction import (
 )
 from app.workflows.runtime import (
     RetryDecision,
+    WorkflowProgressObserver,
     WorkflowRuntimePersistence,
     WorkflowRuntimeService,
 )
@@ -169,9 +170,13 @@ class WorkflowReplayRunner:
         ocr_provider: Any | None = None,
         provider_privacy_context: Any | None = None,
         trace_provider: Any | None = None,
+        progress_observer: WorkflowProgressObserver | None = None,
     ) -> None:
         self.persistence = persistence or InMemoryWorkflowRuntimePersistence()
-        self.runtime = WorkflowRuntimeService(self.persistence)
+        self.runtime = WorkflowRuntimeService(
+            self.persistence,
+            progress_observer=progress_observer,
+        )
         self.step_executions: list[AgentStepExecution] = []
         self.handoffs: list[AgentHandoff] = []
 
@@ -215,17 +220,25 @@ class WorkflowReplayRunner:
         state: WorkflowState,
         scenario: ReplayScenario = ReplayScenario.HAPPY_PATH,
         correlation_id: str | None = None,
+        workflow_run: WorkflowRun | None = None,
     ) -> WorkflowReplayResult:
         """Replay the controlled multi-agent workflow for one scenario."""
 
         self.step_executions = []
         self.handoffs = []
-        workflow_run = self.runtime.start_workflow(
-            state=state,
-            workflow_name=WORKFLOW_REPLAY_NAME,
-            workflow_version=WORKFLOW_REPLAY_VERSION,
-            correlation_id=correlation_id,
-        )
+        if workflow_run is None:
+            workflow_run = self.runtime.start_workflow(
+                state=state,
+                workflow_name=WORKFLOW_REPLAY_NAME,
+                workflow_version=WORKFLOW_REPLAY_VERSION,
+                correlation_id=correlation_id,
+            )
+        else:
+            self.runtime.resume_workflow(
+                workflow_run=workflow_run,
+                state=state,
+                correlation_id=correlation_id,
+            )
         context = AgentExecutionContext(
             tenant_id=state.tenant_id,
             document_id=state.document_id,

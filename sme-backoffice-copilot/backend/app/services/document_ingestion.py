@@ -20,6 +20,7 @@ from app.services.document_events import (
     DocumentEventPublisher,
     DocumentIngested,
     NoopDocumentEventPublisher,
+    WorkflowJobSubmission,
 )
 from app.services.document_storage import (
     LocalDocumentStorage,
@@ -101,6 +102,7 @@ class DocumentUploadResult:
     stored_file: StoredFile
     malware_scan_result: MalwareScanResult
     document_ingested_event: DocumentIngested
+    workflow_job_submission: WorkflowJobSubmission | None = None
 
 
 class DuplicateDocumentError(Exception):
@@ -197,7 +199,6 @@ class DocumentIngestionService:
 
         self.persistence.add_document(document)
         self.persistence.add_artifact(artifact)
-        await self.persistence.commit()
 
         document_ingested_event = DocumentIngested(
             tenant_id=tenant_id,
@@ -209,7 +210,12 @@ class DocumentIngestionService:
             local_path=str(stored_file.path),
             correlation_id=correlation_id,
         )
-        await self.event_publisher.publish_document_ingested(document_ingested_event)
+        workflow_job_submission = await self.event_publisher.publish_document_ingested(
+            document_ingested_event
+        )
+        # Document metadata, WorkflowRun, WorkflowJob, and OutboxEvent share the
+        # request session and are committed atomically here.
+        await self.persistence.commit()
 
         return DocumentUploadResult(
             document=document,
@@ -217,4 +223,5 @@ class DocumentIngestionService:
             stored_file=stored_file,
             malware_scan_result=malware_scan_result,
             document_ingested_event=document_ingested_event,
+            workflow_job_submission=workflow_job_submission,
         )

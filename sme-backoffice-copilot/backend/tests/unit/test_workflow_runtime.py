@@ -73,6 +73,26 @@ def test_start_workflow_persists_running_workflow_state() -> None:
     assert workflow_run.state["status"] == WorkflowStateStatus.RUNNING.value
 
 
+def test_queue_workflow_persists_a_queued_workflow_state() -> None:
+    persistence = FakeWorkflowRuntimePersistence()
+    runtime = WorkflowRuntimeService(persistence)
+    state = create_state()
+
+    workflow_run = runtime.queue_workflow(
+        state=state,
+        workflow_name="document_processing",
+        workflow_version="0.1.0",
+        correlation_id="corr-queued",
+    )
+
+    assert workflow_run in persistence.workflow_runs
+    assert state.workflow_run_id == workflow_run.id
+    assert state.status == WorkflowStateStatus.QUEUED
+    assert workflow_run.status == WorkflowRunStatus.QUEUED.value
+    assert workflow_run.state is not None
+    assert workflow_run.state["status"] == WorkflowStateStatus.QUEUED.value
+
+
 def test_record_agent_step_persists_step_execution_and_updates_state() -> None:
     metrics_registry.reset()
     persistence = FakeWorkflowRuntimePersistence()
@@ -113,6 +133,7 @@ def test_record_agent_step_persists_step_execution_and_updates_state() -> None:
     metric = snapshot["agent_steps"]["document_intake:succeeded"]
     assert metric["count"] == 1
     assert metric["avg_duration_ms"] == 12.0
+    assert state.stage == WorkflowStage.DOCUMENT_INTAKE
 
 
 def test_record_handoff_persists_envelope_and_updates_routing_state() -> None:
@@ -163,7 +184,7 @@ def test_record_handoff_persists_envelope_and_updates_routing_state() -> None:
     assert workflow_run.current_agent == "qa_validator"
 
 
-def test_request_retry_tracks_counts_and_keeps_workflow_running() -> None:
+def test_request_retry_tracks_counts_and_marks_workflow_retrying() -> None:
     metrics_registry.reset()
     persistence = FakeWorkflowRuntimePersistence()
     runtime = WorkflowRuntimeService(persistence)
@@ -189,8 +210,8 @@ def test_request_retry_tracks_counts_and_keeps_workflow_running() -> None:
     assert second_retry.retry_allowed is True
     assert state.retry_counts == {"totals_extractor": 2}
     assert workflow_run.retry_count == 2
-    assert workflow_run.status == WorkflowRunStatus.RUNNING.value
-    assert state.status == WorkflowStateStatus.RUNNING
+    assert workflow_run.status == WorkflowRunStatus.RETRYING.value
+    assert state.status == WorkflowStateStatus.RETRYING
     assert workflow_run.current_agent == "totals_extractor"
     snapshot = metrics_registry.snapshot()
     assert snapshot["retry_counts"]["agent:totals_extractor"] == 2

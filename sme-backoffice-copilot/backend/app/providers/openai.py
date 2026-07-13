@@ -149,8 +149,7 @@ class OpenAIResponsesLLMProvider:
             error_details = response_payload.get("error")
             if error_details is not None:
                 raise ProviderExecutionError(
-                    "OpenAI Chat Completions returned an error: "
-                    f"{error_details}"
+                    f"OpenAI Chat Completions returned an error: {error_details}"
                 )
             choices_list = response_payload.get("choices")
             if not isinstance(choices_list, list) or not choices_list:

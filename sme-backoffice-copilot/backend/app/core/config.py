@@ -5,6 +5,7 @@ from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -51,6 +52,13 @@ class LogFormat(StrEnum):
     JSON = "json"
 
 
+class WorkflowQueueMode(StrEnum):
+    """Runtime used to execute accepted document workflow jobs."""
+
+    IN_PROCESS = "in_process"
+    CELERY = "celery"
+
+
 class Settings(BaseSettings):
     """Environment-backed settings shared by backend infrastructure."""
 
@@ -61,6 +69,23 @@ class Settings(BaseSettings):
     log_format: LogFormat = LogFormat.PRETTY
     database_url: str = "postgresql+asyncpg://sme:sme@localhost:5433/sme_backoffice"
     database_echo: bool = False
+    workflow_queue_mode: WorkflowQueueMode = WorkflowQueueMode.IN_PROCESS
+    celery_broker_url: str = "redis://localhost:6379/0"
+    celery_result_backend: str = "redis://localhost:6379/1"
+    celery_worker_concurrency: int = Field(default=2, ge=1)
+    celery_task_max_retries: int = Field(default=3, ge=0)
+    celery_retry_backoff_seconds: float = Field(default=1.0, ge=0)
+    outbox_dispatcher_enabled: bool = True
+    outbox_poll_interval_seconds: float = Field(default=0.5, gt=0)
+    outbox_batch_size: int = Field(default=50, ge=1)
+    outbox_retry_backoff_seconds: float = Field(default=1.0, ge=0)
+    workflow_job_heartbeat_seconds: float = Field(default=10.0, gt=0)
+    workflow_job_lease_seconds: float = Field(default=45.0, gt=0)
+    provider_rate_limit_enabled: bool = False
+    provider_rate_limit_redis_url: str = "redis://localhost:6379/2"
+    provider_ocr_requests_per_second: int = Field(default=5, ge=1)
+    provider_llm_requests_per_second: int = Field(default=5, ge=1)
+    provider_rate_limit_wait_timeout_seconds: float = Field(default=30.0, gt=0)
     upload_storage_root: str = "../data/uploads"
     upload_max_size_bytes: int = 20 * 1024 * 1024
     upload_allowed_mime_types: list[str] = [

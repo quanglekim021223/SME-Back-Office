@@ -19,6 +19,11 @@ docker compose -f infra/docker-compose.yml up --build
 - API health check: `http://localhost:8000/health`
 - API documentation: `http://localhost:8000/docs`
 
+The Docker stack runs document processing through Redis and a separate Celery
+worker. Native Uvicorn development remains on the lightweight in-process queue
+unless `WORKFLOW_QUEUE_MODE=celery` is configured. See
+[worker runtime](docs/worker_runtime.md) for queue modes and worker scaling.
+
 ## Development commands
 
 Install local development dependencies:

@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from typing import Protocol
 from uuid import UUID, uuid4
 
+from app.jobs.contracts import JobRef
+
 
 @dataclass(frozen=True, slots=True)
 class DocumentIngested:
@@ -42,17 +44,32 @@ class DocumentIngested:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class WorkflowJobSubmission:
+    """Queue reference created after an ingested document is scheduled."""
+
+    workflow_run_id: UUID
+    job: JobRef
+
+
 class DocumentEventPublisher(Protocol):
     """Boundary for future workflow/event publishing infrastructure."""
 
-    async def publish_document_ingested(self, event: DocumentIngested) -> None:
+    async def publish_document_ingested(
+        self,
+        event: DocumentIngested,
+    ) -> WorkflowJobSubmission | None:
         """Publish a document-ingested event or trigger a workflow."""
 
 
 class NoopDocumentEventPublisher:
     """No-op publisher used until queue/outbox infrastructure is introduced."""
 
-    async def publish_document_ingested(self, event: DocumentIngested) -> None:
+    async def publish_document_ingested(
+        self,
+        event: DocumentIngested,
+    ) -> WorkflowJobSubmission | None:
         """Acknowledge the trigger without sending it to external infrastructure."""
 
         del event
+        return None
