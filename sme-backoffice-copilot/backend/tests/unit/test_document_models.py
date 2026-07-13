@@ -8,6 +8,7 @@ from app.models import (
     ProcessingRunStatus,
 )
 from app.models.base import Base
+from sqlalchemy import LargeBinary
 
 
 def test_document_tables_are_registered_in_metadata() -> None:
@@ -53,6 +54,22 @@ def test_document_artifact_links_to_document() -> None:
     } == {"documents"}
     assert "storage_uri" in columns
     assert "metadata" in columns
+
+
+def test_document_tables_store_metadata_and_object_references_not_file_bytes() -> None:
+    """Original bytes belong in document storage, never PostgreSQL rows."""
+
+    persisted_columns = (
+        *Document.__table__.columns,
+        *DocumentArtifact.__table__.columns,
+    )
+
+    assert all(
+        not isinstance(column.type, LargeBinary) for column in persisted_columns
+    )
+    assert {"storage_uri", "content_hash", "size_bytes"} <= set(
+        DocumentArtifact.__table__.c.keys()
+    )
 
 
 def test_processing_run_links_to_document() -> None:

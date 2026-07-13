@@ -521,10 +521,10 @@ Goal: define the public environments and prepare deployment-safe configuration.
 - [ ] Create a dedicated Azure service principal or managed identity for deployment automation.
 - [x] Create Azure Blob Storage with a private container for original documents and derived artifacts.
 - [x] Add an `AzureBlobStorage` adapter behind the existing document-storage boundary.
-- [ ] Store only document metadata, content hashes, and Blob object keys in PostgreSQL; do not store file bytes in database rows.
+- [x] Store only document metadata, content hashes, and Blob object keys in PostgreSQL; do not store file bytes in database rows.
 - [ ] Configure lifecycle rules for document retention and deletion according to `docs/security_privacy.md`.
-- [ ] Decide initial managed-service split: Neon PostgreSQL, Upstash Redis, Azure Blob Storage, Azure Document Intelligence, and Azure Container Apps.
-- [ ] Document all required environment variables in `.env.example` without committing any secret values.
+- [x] Decide initial managed-service split: Neon PostgreSQL, Upstash Redis, Azure Blob Storage, Azure Document Intelligence, and Azure Container Apps.
+- [x] Document all required environment variables in `.env.example` without committing any secret values.
 
 ### Phase 14.2 — Container workloads
 
