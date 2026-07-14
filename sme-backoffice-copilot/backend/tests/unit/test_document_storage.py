@@ -4,6 +4,7 @@ from uuid import uuid4
 import pytest
 
 from app.services.document_storage import (
+    AzureBlobDocumentStorage,
     FileValidationError,
     LocalDocumentStorage,
     compute_content_hash,
@@ -58,7 +59,9 @@ def test_sanitize_filename_removes_paths_and_unsafe_characters() -> None:
     )
 
 
-def test_local_document_storage_persists_file_and_returns_metadata(tmp_path) -> None:
+async def test_local_document_storage_persists_file_and_returns_metadata(
+    tmp_path,
+) -> None:
     storage = LocalDocumentStorage(
         root_path=tmp_path,
         max_size_bytes=1024,
@@ -68,7 +71,7 @@ def test_local_document_storage_persists_file_and_returns_metadata(tmp_path) -> 
     document_id = uuid4()
     content = b"%PDF-1.4 sample"
 
-    stored_file = storage.store(
+    stored_file = await storage.store(
         tenant_id=tenant_id,
         document_id=document_id,
         filename="invoice.pdf",
@@ -85,3 +88,62 @@ def test_local_document_storage_persists_file_and_returns_metadata(tmp_path) -> 
         f"tenants/{tenant_id}/documents/{document_id}/original/invoice.pdf"
     )
     assert stored_file.storage_uri == f"local://{stored_file.object_key}"
+
+
+class FakeBlobClient:
+    def __init__(self, content_by_key: dict[str, bytes], object_key: str) -> None:
+        self.content_by_key = content_by_key
+        self.object_key = object_key
+
+    def upload_blob(self, content: bytes, **_kwargs: object) -> None:
+        self.content_by_key[self.object_key] = content
+
+    def download_blob(self) -> "FakeBlobClient":
+        return self
+
+    def readall(self) -> bytes:
+        return self.content_by_key[self.object_key]
+
+
+class FakeBlobServiceClient:
+    def __init__(self) -> None:
+        self.content_by_key: dict[str, bytes] = {}
+
+    def get_blob_client(self, *, container: str, blob: str) -> FakeBlobClient:
+        assert container == "documents"
+        return FakeBlobClient(self.content_by_key, blob)
+
+
+async def test_azure_blob_storage_materializes_private_blob_for_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeBlobServiceClient()
+    storage = AzureBlobDocumentStorage(
+        account_url="https://example.blob.core.windows.net",
+        container="documents",
+        max_size_bytes=1024,
+        allowed_mime_types={"application/pdf"},
+        blob_service_client=client,
+    )
+    monkeypatch.setattr(storage, "_content_settings", lambda _media_type: object())
+    tenant_id = uuid4()
+    document_id = uuid4()
+    content = b"%PDF-1.4 stored in Azure Blob"
+
+    stored_file = await storage.store(
+        tenant_id=tenant_id,
+        document_id=document_id,
+        filename="invoice.pdf",
+        content=content,
+        media_type="application/pdf",
+    )
+
+    assert stored_file.path is None
+    assert stored_file.storage_uri == (
+        f"azureblob://documents/{stored_file.object_key}"
+    )
+    assert await storage.read(stored_file.storage_uri) == content
+
+    async with storage.materialize(stored_file.storage_uri) as temporary_path:
+        assert temporary_path.read_bytes() == content
+    assert not temporary_path.exists()

@@ -17,6 +17,7 @@ class Permission(StrEnum):
     READ_REVIEW_TASKS = "read:review_tasks"
     WRITE_DOCUMENTS = "write:documents"
     WRITE_REVIEW_TASKS = "write:review_tasks"
+    MANAGE_WORKFLOWS = "manage:workflows"
 
 
 @dataclass(frozen=True)

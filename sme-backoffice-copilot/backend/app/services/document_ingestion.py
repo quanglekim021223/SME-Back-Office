@@ -23,7 +23,7 @@ from app.services.document_events import (
     WorkflowJobSubmission,
 )
 from app.services.document_storage import (
-    LocalDocumentStorage,
+    DocumentStorage,
     StoredFile,
     compute_content_hash,
     validate_file_size,
@@ -120,7 +120,7 @@ class DocumentIngestionService:
         self,
         *,
         persistence: DocumentPersistence,
-        storage: LocalDocumentStorage,
+        storage: DocumentStorage,
         malware_scanner: MalwareScanner | None = None,
         event_publisher: DocumentEventPublisher | None = None,
     ) -> None:
@@ -163,7 +163,7 @@ class DocumentIngestionService:
         )
 
         document_id = uuid4()
-        stored_file = self.storage.store(
+        stored_file = await self.storage.store(
             tenant_id=tenant_id,
             document_id=document_id,
             filename=filename,
@@ -207,7 +207,7 @@ class DocumentIngestionService:
             content_hash=document.content_hash,
             storage_uri=artifact.storage_uri,
             malware_scan_status=malware_scan_result.status.value,
-            local_path=str(stored_file.path),
+            local_path=str(stored_file.path) if stored_file.path is not None else None,
             correlation_id=correlation_id,
         )
         workflow_job_submission = await self.event_publisher.publish_document_ingested(

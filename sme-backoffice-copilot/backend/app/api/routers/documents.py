@@ -4,7 +4,7 @@ from typing import Annotated, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
@@ -31,17 +31,25 @@ from app.services.document_ingestion import (
     DuplicateDocumentError,
     SqlAlchemyDocumentPersistence,
 )
-from app.services.document_storage import FileValidationError, LocalDocumentStorage
+from app.services.document_storage import (
+    DocumentStorage,
+    FileValidationError,
+    build_document_storage,
+)
 from app.workflows.triggers import QueuedDocumentWorkflowPublisher
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
-def get_document_storage(request: Request) -> LocalDocumentStorage:
-    """Return the configured local document storage adapter."""
+def get_document_storage(request: Request) -> DocumentStorage:
+    """Return the configured durable document storage adapter."""
 
     settings = cast(Settings, request.app.state.settings)
-    return LocalDocumentStorage.from_settings(settings)
+    storage = getattr(request.app.state, "document_storage", None)
+    if storage is None:
+        storage = build_document_storage(settings)
+        request.app.state.document_storage = storage
+    return cast(DocumentStorage, storage)
 
 
 def get_document_workflow_publisher(
@@ -60,7 +68,7 @@ def get_document_workflow_publisher(
 
 def get_document_ingestion_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
-    storage: Annotated[LocalDocumentStorage, Depends(get_document_storage)],
+    storage: Annotated[DocumentStorage, Depends(get_document_storage)],
     event_publisher: Annotated[
         DocumentEventPublisher,
         Depends(get_document_workflow_publisher),
@@ -198,7 +206,6 @@ async def upload_document(
 
 @router.get(
     "/{document_id}/download",
-    response_class=FileResponse,
 )
 async def download_document(
     document_id: UUID,
@@ -208,8 +215,8 @@ async def download_document(
         Depends(require_permission(Permission.READ_INVOICES)),
     ],
     session: Annotated[AsyncSession, Depends(get_db_session)],
-    storage: Annotated[LocalDocumentStorage, Depends(get_document_storage)],
-) -> FileResponse:
+    storage: Annotated[DocumentStorage, Depends(get_document_storage)],
+) -> Response:
     """Download the original uploaded file for a tenant-scoped document."""
 
     from app.services.audit import AuditEvent
@@ -243,23 +250,20 @@ async def download_document(
             details={"document_id": str(document_id)},
         )
 
-    # Parse local:// storage URI to get the filesystem path
-    if not original_artifact.storage_uri.startswith("local://"):
-        raise APIError(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            code="unsupported_storage",
-            message="Document is not stored locally.",
-        )
-
-    object_key = original_artifact.storage_uri[8:]  # strip local://
-    file_path = storage.root_path / object_key
-
-    if not file_path.exists():
+    try:
+        content = await storage.read(original_artifact.storage_uri)
+    except FileNotFoundError as exc:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
             code="file_not_found",
-            message="File does not exist on disk.",
-        )
+            message="Stored document file was not found.",
+        ) from exc
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="unsupported_storage",
+            message="Document storage URI is not supported by this runtime.",
+        ) from exc
 
     # Emit audit log for export/download
     AuditService().log(
@@ -275,8 +279,12 @@ async def download_document(
         )
     )
 
-    return FileResponse(
-        path=file_path,
+    return Response(
+        content=content,
         media_type=document.mime_type,
-        filename=document.original_filename,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{document.original_filename}"'
+            )
+        },
     )

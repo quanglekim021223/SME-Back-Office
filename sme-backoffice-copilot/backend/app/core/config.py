@@ -4,8 +4,10 @@ from decimal import Decimal
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
+from typing import Self
+from urllib.parse import parse_qs, urlsplit
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -59,6 +61,13 @@ class WorkflowQueueMode(StrEnum):
     CELERY = "celery"
 
 
+class DocumentStorageProvider(StrEnum):
+    """Durable storage backends for original uploaded documents."""
+
+    LOCAL = "local"
+    AZURE_BLOB = "azure_blob"
+
+
 class Settings(BaseSettings):
     """Environment-backed settings shared by backend infrastructure."""
 
@@ -69,6 +78,9 @@ class Settings(BaseSettings):
     log_format: LogFormat = LogFormat.PRETTY
     database_url: str = "postgresql+asyncpg://sme:sme@localhost:5433/sme_backoffice"
     database_echo: bool = False
+    database_pool_size: int = Field(default=5, ge=1)
+    database_max_overflow: int = Field(default=2, ge=0)
+    database_pool_timeout_seconds: float = Field(default=30.0, gt=0)
     workflow_queue_mode: WorkflowQueueMode = WorkflowQueueMode.IN_PROCESS
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/1"
@@ -86,6 +98,7 @@ class Settings(BaseSettings):
     provider_ocr_requests_per_second: int = Field(default=5, ge=1)
     provider_llm_requests_per_second: int = Field(default=5, ge=1)
     provider_rate_limit_wait_timeout_seconds: float = Field(default=30.0, gt=0)
+    document_storage_provider: DocumentStorageProvider = DocumentStorageProvider.LOCAL
     upload_storage_root: str = "../data/uploads"
     upload_max_size_bytes: int = 20 * 1024 * 1024
     upload_allowed_mime_types: list[str] = [
@@ -94,6 +107,9 @@ class Settings(BaseSettings):
         "image/jpeg",
         "text/csv",
     ]
+    azure_storage_blob_endpoint: str = ""
+    azure_storage_container: str = "documents"
+    azure_storage_connection_string: str = ""
     ocr_provider: OCRProviderType = OCRProviderType.MOCK
     llm_provider: LLMProviderType = LLMProviderType.MOCK
     workflow_orchestration_mode: WorkflowOrchestrationMode = (
@@ -162,6 +178,38 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def validate_hosted_transport_security(self) -> Self:
+        """Reject plaintext hosted database and Redis connections early."""
+
+        if self.app_env.lower() == "local":
+            return self
+
+        redis_settings = [
+            ("CELERY_BROKER_URL", self.celery_broker_url),
+            ("CELERY_RESULT_BACKEND", self.celery_result_backend),
+        ]
+        if self.provider_rate_limit_enabled:
+            redis_settings.append(
+                ("PROVIDER_RATE_LIMIT_REDIS_URL", self.provider_rate_limit_redis_url)
+            )
+        for setting_name, value in redis_settings:
+            if not value.startswith("rediss://"):
+                raise ValueError(
+                    f"{setting_name} must use a rediss:// URL outside local."
+                )
+
+        query = parse_qs(urlsplit(self.database_url).query)
+        tls_values = query.get("ssl", []) + query.get("sslmode", [])
+        if not any(
+            value.lower() in {"require", "verify-ca", "verify-full", "true"}
+            for value in tls_values
+        ):
+            raise ValueError(
+                "DATABASE_URL must require TLS with ssl=require outside local."
+            )
+        return self
 
 
 @lru_cache

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -27,6 +28,7 @@ from app.repositories.jobs import WorkflowJobRepository
 from app.repositories.workflows import WorkflowRuntimeRepository
 from app.services.bank_statement_import import BankStatementCsvImportService
 from app.services.document_events import DocumentIngested
+from app.services.document_storage import DocumentStorage, build_document_storage
 from app.services.workflow_outputs import (
     SqlAlchemyWorkflowOutputPersistence,
     WorkflowOutputPersistenceService,
@@ -47,10 +49,12 @@ class DocumentProcessingWorkflowExecutor:
         session_factory: async_sessionmaker[AsyncSession],
         settings: Settings,
         progress_observer: WorkflowProgressObserver | None = None,
+        storage: DocumentStorage | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.settings = settings
         self.progress_observer = progress_observer
+        self.storage = storage or build_document_storage(settings)
 
     async def execute(
         self,
@@ -80,34 +84,39 @@ class DocumentProcessingWorkflowExecutor:
                 return
 
             try:
-                state = WorkflowState.model_validate(workflow_run.state or {})
-                if command.document_type == DocumentType.BANK_STATEMENT.value:
-                    await self._run_bank_statement(
-                        session=session,
-                        runtime=WorkflowRuntimeService(
-                            repository,
-                            progress_observer=self.progress_observer,
-                        ),
-                        workflow_run=workflow_run,
-                        state=state,
-                        command=command,
+                async with self.storage.materialize(command.storage_uri) as local_path:
+                    execution_command = command.model_copy(
+                        update={"local_path": str(local_path)}
                     )
-                else:
-                    await self._run_invoice(
-                        session=session,
-                        workflow_run=workflow_run,
-                        state=state,
-                        command=command,
-                    )
-                if worker_id is not None:
-                    await self._complete_job_with_output(
-                        session=session,
-                        command=command,
-                        worker_id=worker_id,
-                    )
-                await session.commit()
-                if worker_id is not None:
-                    metrics_registry.record_queue_succeeded()
+                    state = WorkflowState.model_validate(workflow_run.state or {})
+                    self._set_original_artifact_local_path(state, local_path)
+                    if command.document_type == DocumentType.BANK_STATEMENT.value:
+                        await self._run_bank_statement(
+                            session=session,
+                            runtime=WorkflowRuntimeService(
+                                repository,
+                                progress_observer=self.progress_observer,
+                            ),
+                            workflow_run=workflow_run,
+                            state=state,
+                            command=execution_command,
+                        )
+                    else:
+                        await self._run_invoice(
+                            session=session,
+                            workflow_run=workflow_run,
+                            state=state,
+                            command=execution_command,
+                        )
+                    if worker_id is not None:
+                        await self._complete_job_with_output(
+                            session=session,
+                            command=execution_command,
+                            worker_id=worker_id,
+                        )
+                    await session.commit()
+                    if worker_id is not None:
+                        metrics_registry.record_queue_succeeded()
             except Exception as exc:
                 await session.rollback()
                 if mark_failed:
@@ -146,6 +155,17 @@ class DocumentProcessingWorkflowExecutor:
         job.finished_at = now
         job.heartbeat_at = None
         job.lease_expires_at = None
+
+    @staticmethod
+    def _set_original_artifact_local_path(
+        state: WorkflowState,
+        local_path: Path,
+    ) -> None:
+        """Attach the worker-local materialized path required by OCR/parsers."""
+
+        artifact = state.artifacts.get("original")
+        if artifact is not None:
+            artifact.metadata["local_path"] = str(local_path)
 
     async def _run_invoice(
         self,
