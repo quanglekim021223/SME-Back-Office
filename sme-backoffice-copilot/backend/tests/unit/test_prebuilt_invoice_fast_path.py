@@ -252,6 +252,38 @@ async def test_adaptive_fallback_single_agent_executes() -> None:
 
 
 @pytest.mark.asyncio
+async def test_low_confidence_azure_total_uses_ocr_fallback_with_mock_llm() -> None:
+    """Mock totals must not overwrite a low-confidence Azure DI total."""
+
+    state = _make_state()
+    state.scratchpad["ocr_full_text"] = (
+        "Sub Total : 355.00\n"
+        "S.G.S.T @9% : 31.95\n"
+        "C.G.S.T @9% : 31.95\n"
+        "Food Total : 418.9\n"
+        "Total : .419\n"
+    )
+    state.scratchpad[INVOICE_TOTALS_GROUP_KEY] = {
+        "schema_version": "invoice-totals-group.v1",
+        "extraction_status": "low_confidence",
+        "subtotal_amount": "355.00",
+        "tax_amount": "63.90",
+        "total_amount": "0.42",
+        "confidence": "low",
+        "evidence_refs": ["azure_di:prebuilt-invoice"],
+    }
+    tracking_provider = InvocationsTrackingLLMProvider()
+
+    result = await TotalsExtractorAgent().run(
+        state=state,
+        context=_make_context(state, tracking_provider),
+    )
+
+    assert tracking_provider.calls == []
+    assert result.output["totals"]["total_amount"] == "418.90"
+
+
+@pytest.mark.asyncio
 async def test_qa_correction_bypasses_fast_path() -> None:
     """If a QA correction signal is received, the agent executes LLM despite scratchpad data."""
     state = _make_state()

@@ -33,6 +33,8 @@ def default_placeholder_permissions(roles: frozenset[str]) -> frozenset[Permissi
         permissions.add(Permission.READ_REVIEW_TASKS)
         permissions.add(Permission.WRITE_DOCUMENTS)
         permissions.add(Permission.WRITE_REVIEW_TASKS)
+    if "admin" in roles:
+        permissions.add(Permission.MANAGE_WORKFLOWS)
 
     return frozenset(permissions)
 

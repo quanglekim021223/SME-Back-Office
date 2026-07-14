@@ -24,7 +24,7 @@ class ParsedInvoiceLine:
     line_total: str
 
 
-MONEY_PATTERN = r"[$£]?\s*([0-9][0-9,]*\.\d{2})"
+MONEY_PATTERN = r"[$£]?\s*([0-9][0-9,]*\.\d{1,2})"
 WHOLE_DOLLAR_PATTERN = r"[$£]\s*([0-9][0-9,]*)"
 DATE_PATTERN = r"([0-9]{1,2}[-/][0-9]{1,2}[-/][0-9]{2,4})"
 
@@ -577,6 +577,8 @@ def find_total_amount(text: str) -> str | None:
         lower_line = line.lower()
         if "total" not in lower_line:
             continue
+        if "subtotal" in lower_line or "sub total" in lower_line:
+            continue
         explicit_total_match = re.search(
             r"(?<!sub)\btotal\b(?:\s*\(?[A-Z]{3}\)?)?[^0-9$]{0,24}" + MONEY_PATTERN,
             line,
@@ -584,8 +586,6 @@ def find_total_amount(text: str) -> str | None:
         )
         if explicit_total_match:
             candidates.append(clean_money(explicit_total_match.group(1)))
-            continue
-        if "subtotal" in lower_line:
             continue
         matches = find_money_values(line)
         if matches:

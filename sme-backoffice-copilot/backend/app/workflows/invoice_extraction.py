@@ -1257,6 +1257,21 @@ def is_scratchpad_group_populated(
     return True
 
 
+def should_use_ocr_totals_for_low_confidence_prebuilt_invoice(
+    *,
+    state: WorkflowState,
+    context: AgentExecutionContext,
+) -> bool:
+    """Avoid deterministic mock totals when Azure DI flagged its total as unreliable."""
+
+    existing = state.scratchpad.get(INVOICE_TOTALS_GROUP_KEY)
+    return (
+        isinstance(existing, dict)
+        and existing.get("confidence") == "low"
+        and getattr(context.llm_provider, "name", None) == "mock_llm"
+    )
+
+
 
 class MetadataExtractorAgent:
     """Skeleton agent for invoice metadata extraction."""
@@ -1619,15 +1634,26 @@ class TotalsExtractorAgent:
                 confidence=group.confidence,
             )
 
-        provider_payload = await run_llm_group_extraction_if_available(
+        provider_payload: dict[str, object] | AgentRunResult | None
+        if should_use_ocr_totals_for_low_confidence_prebuilt_invoice(
             state=state,
             context=context,
-            agent_name=TOTALS_EXTRACTOR_AGENT,
-            task_type=provider_task_type("invoice_totals_extraction"),
-            schema_name="invoice-totals-group.v1",
-            instruction="Extract only invoice subtotal, tax, total, and currency.",
-            handoff=handoff,
-        )
+        ):
+            provider_payload = ocr_text_fallback_payload(
+                state=state,
+                schema_name="invoice-totals-group.v1",
+                handoff=handoff,
+            )
+        else:
+            provider_payload = await run_llm_group_extraction_if_available(
+                state=state,
+                context=context,
+                agent_name=TOTALS_EXTRACTOR_AGENT,
+                task_type=provider_task_type("invoice_totals_extraction"),
+                schema_name="invoice-totals-group.v1",
+                instruction="Extract only invoice subtotal, tax, total, and currency.",
+                handoff=handoff,
+            )
         if isinstance(provider_payload, AgentRunResult):
             record_provider_extraction_error(
                 state=state,

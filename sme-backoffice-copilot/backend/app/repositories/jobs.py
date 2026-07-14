@@ -39,6 +39,24 @@ class WorkflowJobRepository(WorkflowRuntimeRepository):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    async def get_job_for_tenant(
+        self,
+        *,
+        job_id: UUID,
+        tenant_id: UUID,
+        for_update: bool = False,
+    ) -> WorkflowJob | None:
+        """Return one durable job only when it belongs to the current tenant."""
+
+        statement = select(WorkflowJob).where(
+            WorkflowJob.id == job_id,
+            WorkflowJob.tenant_id == tenant_id,
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
+
     async def get_job_for_workflow_run(
         self,
         workflow_run_id: UUID,

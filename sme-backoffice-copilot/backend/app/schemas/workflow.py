@@ -35,6 +35,21 @@ class WorkflowProgressResponse(BaseModel):
         )
 
 
+class WorkflowJobRequeueRequest(BaseModel):
+    """Operator confirmation for manually replaying a stranded job."""
+
+    reason: str
+
+
+class WorkflowJobRequeueResponse(BaseModel):
+    """Durable job state after a manual outbox replay request."""
+
+    job_id: UUID
+    workflow_run_id: UUID
+    status: str
+    outbox_event_id: UUID
+
+
 class WorkflowRunStatusResponse(BaseModel):
     """Tenant-scoped workflow state suitable for polling by a client."""
 
