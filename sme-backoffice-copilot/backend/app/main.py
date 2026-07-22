@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.exception_handlers import register_exception_handlers
+from app.api.routers.banking import router as banking_router
 from app.api.routers.documents import router as documents_router
 from app.api.routers.health import router as health_router
 from app.api.routers.invoices import router as invoices_router
@@ -120,6 +121,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_middleware(app)
     register_exception_handlers(app)
     app.include_router(documents_router, prefix=resolved_settings.app_api_prefix)
+    app.include_router(banking_router, prefix=resolved_settings.app_api_prefix)
     app.include_router(invoices_router, prefix=resolved_settings.app_api_prefix)
     app.include_router(review_tasks_router, prefix=resolved_settings.app_api_prefix)
     app.include_router(workflows_router, prefix=resolved_settings.app_api_prefix)

@@ -231,6 +231,52 @@ export type DashboardFinancialSummaryResponse = {
   generated_at: string;
 };
 
+export type BankTransactionDirection = "inflow" | "outflow" | "unknown";
+export type BankTransactionMatchStatus = "matched" | "review" | "unmatched";
+
+export type BankTransactionInvoiceMatchResponse = {
+  reconciliation_id: string;
+  invoice_id: string;
+  invoice_number: string | null;
+  allocated_amount: string;
+  currency: string | null;
+  status: string;
+  confidence: string | null;
+};
+
+export type BankTransactionResponse = {
+  id: string;
+  tenant_id: string;
+  bank_account_id: string;
+  bank_account_name: string | null;
+  institution_name: string;
+  masked_account_number: string | null;
+  statement_import_id: string | null;
+  source_filename: string | null;
+  status: string;
+  direction: BankTransactionDirection;
+  posted_at: string | null;
+  value_at: string | null;
+  description: string | null;
+  counterparty_name: string | null;
+  reference: string | null;
+  amount: string;
+  currency: string | null;
+  running_balance: string | null;
+  confidence: string | null;
+  reconciliation_status: BankTransactionMatchStatus;
+  invoice_matches: BankTransactionInvoiceMatchResponse[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type BankTransactionListResponse = {
+  items: BankTransactionResponse[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 export class ApiClientError extends Error {
   readonly status: number;
   readonly code: string;
@@ -422,6 +468,37 @@ export function getLocalMetrics() {
 
 export function getDashboardFinancialSummary() {
   return apiGet<DashboardFinancialSummaryResponse>("/ops/financial-summary");
+}
+
+export function listBankTransactions({
+  direction,
+  limit = 100,
+  offset = 0,
+  reconciliationStatus,
+  status = "posted",
+}: {
+  direction?: BankTransactionDirection;
+  limit?: number;
+  offset?: number;
+  reconciliationStatus?: BankTransactionMatchStatus;
+  status?: string;
+} = {}) {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+    status,
+  });
+
+  if (direction) {
+    params.set("direction", direction);
+  }
+  if (reconciliationStatus) {
+    params.set("reconciliation_status", reconciliationStatus);
+  }
+
+  return apiGet<BankTransactionListResponse>(
+    `/banking/transactions?${params.toString()}`,
+  );
 }
 
 // ── Invoice types ────────────────────────────────────────────────────────────

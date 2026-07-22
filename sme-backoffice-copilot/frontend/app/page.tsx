@@ -23,6 +23,7 @@ type DashboardMetric = {
   tone: MetricTone;
   caption: string;
   source: string;
+  href?: string;
 };
 
 const pipeline = [
@@ -257,19 +258,39 @@ export default function HomePage() {
       </section>
 
       <section className="metric-grid" aria-label="Dashboard metrics">
-        {metrics.map((metric) => (
-          <article className="metric-card" key={metric.label}>
-            <div className="card-header">
-              <span>{metric.label}</span>
-              <em className={`metric-trend metric-trend-${metric.tone}`}>
-                {metric.trend}
-              </em>
-            </div>
-            <strong>{metric.value}</strong>
-            <p>{metric.caption}</p>
-            <small>{metric.source}</small>
-          </article>
-        ))}
+        {metrics.map((metric) => {
+          const content = (
+            <>
+              <div className="card-header">
+                <span>{metric.label}</span>
+                <em className={`metric-trend metric-trend-${metric.tone}`}>
+                  {metric.trend}
+                </em>
+              </div>
+              <strong>{metric.value}</strong>
+              <p>{metric.caption}</p>
+              <small>{metric.source}</small>
+              {metric.href ? (
+                <span className="metric-card-cta">View transactions</span>
+              ) : null}
+            </>
+          );
+
+          return metric.href ? (
+            <Link
+              aria-label={`View ${metric.label.toLowerCase()} transactions`}
+              className="metric-card metric-card-link"
+              href={metric.href}
+              key={metric.label}
+            >
+              {content}
+            </Link>
+          ) : (
+            <article className="metric-card" key={metric.label}>
+              {content}
+            </article>
+          );
+        })}
       </section>
 
       <section className="content-grid">
@@ -419,6 +440,7 @@ function buildFinancialMetricCards({
     }),
     financialMetricToCard({
       label: "Inflow",
+      href: "/banking?direction=inflow",
       metric: summary?.inflow ?? null,
       isLoading,
       error,
@@ -430,6 +452,7 @@ function buildFinancialMetricCards({
     }),
     financialMetricToCard({
       label: "Outflow",
+      href: "/banking?direction=outflow",
       metric: summary?.outflow ?? null,
       isLoading,
       error,
@@ -450,6 +473,7 @@ function financialMetricToCard({
   positiveLabel,
   emptyTrend,
   emptyCaption,
+  href,
   liveCaption,
   tone,
 }: {
@@ -460,12 +484,14 @@ function financialMetricToCard({
   positiveLabel: string;
   emptyTrend: string;
   emptyCaption: string;
+  href?: string;
   liveCaption: string;
   tone: MetricTone;
 }): DashboardMetric {
   if (isLoading) {
     return {
       label,
+      href,
       value: "…",
       trend: "Loading",
       tone: "neutral",
@@ -477,6 +503,7 @@ function financialMetricToCard({
   if (error !== null) {
     return {
       label,
+      href,
       value: "Unavailable",
       trend: "Metrics issue",
       tone: "warning",
@@ -488,6 +515,7 @@ function financialMetricToCard({
   if (!metric || !metric.available) {
     return {
       label,
+      href,
       value: "No data",
       trend: emptyTrend,
       tone: "neutral",
@@ -498,6 +526,7 @@ function financialMetricToCard({
 
   return {
     label,
+    href,
     value: formatFinancialAmount(metric),
     trend: metricTrend(metric, positiveLabel),
     tone,

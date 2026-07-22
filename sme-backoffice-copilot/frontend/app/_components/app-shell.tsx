@@ -33,6 +33,12 @@ const navigationItems: NavigationItem[] = [
     icon: "IV",
   },
   {
+    href: "/banking",
+    label: "Banking",
+    description: "Cash movement and invoice matching",
+    icon: "BK",
+  },
+  {
     href: "/review",
     label: "Review",
     description: "Human review queue",
