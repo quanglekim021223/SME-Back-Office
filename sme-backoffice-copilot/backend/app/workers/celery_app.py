@@ -25,6 +25,12 @@ def create_celery_app(settings: Settings | None = None) -> Celery:
         task_track_started=True,
         task_acks_late=True,
         worker_prefetch_multiplier=1,
+        # Reduce idle Redis commands while BRPOP waits for new work.
+        broker_transport_options={
+            "polling_interval": (
+                resolved_settings.celery_broker_polling_interval_seconds
+            ),
+        },
         task_default_queue=CELERY_QUEUE_BY_PRIORITY[
             next(iter(CELERY_QUEUE_BY_PRIORITY))
         ],

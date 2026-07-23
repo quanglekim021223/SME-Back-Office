@@ -87,8 +87,9 @@ class Settings(BaseSettings):
     celery_worker_concurrency: int = Field(default=2, ge=1)
     celery_task_max_retries: int = Field(default=3, ge=0)
     celery_retry_backoff_seconds: float = Field(default=1.0, ge=0)
+    celery_broker_polling_interval_seconds: float = Field(default=30.0, gt=0)
     outbox_dispatcher_enabled: bool = True
-    outbox_poll_interval_seconds: float = Field(default=0.5, gt=0)
+    outbox_poll_interval_seconds: float = Field(default=5.0, gt=0)
     outbox_batch_size: int = Field(default=50, ge=1)
     outbox_retry_backoff_seconds: float = Field(default=1.0, ge=0)
     workflow_job_heartbeat_seconds: float = Field(default=10.0, gt=0)
