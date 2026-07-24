@@ -12,7 +12,8 @@ COPY pyproject.toml ./
 COPY app ./app
 COPY alembic.ini ./
 COPY alembic ./alembic
-RUN pip install .
+# The worker can enable OpenCV preprocessing before Azure DI OCR.
+RUN pip install ".[local-ocr]"
 RUN mkdir -p /data/uploads && chown -R app:app /data/uploads
 
 USER app
