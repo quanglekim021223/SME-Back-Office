@@ -87,15 +87,15 @@ class RedisFixedWindowProviderRateLimiter:
                 parsed_url.fragment,
             )
         )
-        return cls(
-            # Upstash exposes TLS-only Redis endpoints.  Pass the stdlib SSL
+        redis_options: dict[str, object] = {"decode_responses": True}
+        if parsed_url.scheme == "rediss":
+            # Upstash exposes TLS-only Redis endpoints. Pass the stdlib SSL
             # constant explicitly so this async client does not depend on the
             # URL query-string spelling accepted by Celery/Kombu.
-            redis_client=Redis.from_url(
-                sanitized_redis_url,
-                decode_responses=True,
-                ssl_cert_reqs=CERT_REQUIRED,
-            ),
+            redis_options["ssl_cert_reqs"] = CERT_REQUIRED
+
+        return cls(
+            redis_client=Redis.from_url(sanitized_redis_url, **redis_options),
             ocr_requests_per_second=ocr_requests_per_second,
             llm_requests_per_second=llm_requests_per_second,
             wait_timeout_seconds=wait_timeout_seconds,

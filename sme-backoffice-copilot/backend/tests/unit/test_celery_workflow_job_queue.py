@@ -134,3 +134,18 @@ def test_celery_uses_required_tls_for_hosted_redis() -> None:
 
     assert celery_app.conf.broker_use_ssl == {"ssl_cert_reqs": CERT_REQUIRED}
     assert celery_app.backend.connparams["ssl_cert_reqs"] == CERT_REQUIRED
+
+
+def test_celery_keeps_local_redis_plaintext() -> None:
+    settings = Settings(
+        _env_file=None,
+        app_env="local",
+        workflow_queue_mode=WorkflowQueueMode.CELERY,
+        celery_broker_url="redis://localhost:6379/0",
+        celery_result_backend="redis://localhost:6379/1",
+    )
+
+    celery_app = create_celery_app(settings)
+
+    assert celery_app.conf.broker_use_ssl is False
+    assert "ssl_cert_reqs" not in celery_app.backend.connparams

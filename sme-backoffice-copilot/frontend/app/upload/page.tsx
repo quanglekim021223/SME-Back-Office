@@ -83,9 +83,19 @@ type UploadStatus =
   | "unsupported"
   | "error";
 
+type BatchUploadItem = {
+  file: File;
+  id: string;
+  message: string;
+  result?: DocumentUploadResponse;
+  status: UploadStatus;
+  workflowRun?: WorkflowRunStatusResponse;
+};
+
 export default function UploadPage() {
   const [documentType, setDocumentType] = useState<DocumentType>("invoice");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [batchItems, setBatchItems] = useState<BatchUploadItem[]>([]);
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle");
   const [statusMessage, setStatusMessage] = useState(
     "Choose a file to start the local upload flow.",
@@ -100,11 +110,25 @@ export default function UploadPage() {
   );
   const [isDragging, setIsDragging] = useState(false);
 
+  const selectedFile = selectedFiles.at(0) ?? null;
   const fileValidationError = selectedFile
     ? validateSelectedFile(selectedFile)
     : null;
   const isUploading = uploadStatus === "uploading";
+  const readyFileCount = batchItems.filter(
+    (item) => item.status === "selected",
+  ).length;
   const workflowRunId = uploadResult?.workflow_trigger.workflow_run_id;
+  const batchWorkflowRunIds = useMemo(
+    () =>
+      batchItems
+        .map((item) => item.result?.workflow_trigger.workflow_run_id)
+        .filter((workflowRunId): workflowRunId is string =>
+          Boolean(workflowRunId),
+        )
+        .join(","),
+    [batchItems],
+  );
   const activityItems =
     uploadActivities.length > 0 ? uploadActivities : sampleUploads;
 
@@ -114,7 +138,7 @@ export default function UploadPage() {
   );
 
   useEffect(() => {
-    if (!workflowRunId) {
+    if (!workflowRunId || batchItems.length > 1) {
       return;
     }
 
@@ -149,105 +173,175 @@ export default function UploadPage() {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [workflowRunId]);
+  }, [batchItems.length, workflowRunId]);
 
-  function handleFileSelection(file: File | null) {
+  useEffect(() => {
+    let isCurrent = true;
+    let timeoutId: number | undefined;
+    let pendingWorkflowRunIds = batchWorkflowRunIds
+      ? batchWorkflowRunIds.split(",")
+      : [];
+
+    const pollBatchWorkflows = async () => {
+      const progressUpdates = await Promise.all(
+        pendingWorkflowRunIds.map(async (workflowRunId) => {
+          try {
+            return await getWorkflowRun(workflowRunId);
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      if (!isCurrent) {
+        return;
+      }
+
+      const completedIds = new Set<string>();
+      const updatesById = new Map<string, WorkflowRunStatusResponse>();
+      for (const progress of progressUpdates) {
+        if (!progress) {
+          continue;
+        }
+        updatesById.set(progress.id, progress);
+        if (progress.progress.is_terminal) {
+          completedIds.add(progress.id);
+        }
+      }
+
+      if (updatesById.size > 0) {
+        setBatchItems((items) =>
+          items.map((item) => {
+            const workflowRunId = item.result?.workflow_trigger.workflow_run_id;
+            const nextWorkflowRun = workflowRunId
+              ? updatesById.get(workflowRunId)
+              : undefined;
+            return nextWorkflowRun
+              ? { ...item, workflowRun: nextWorkflowRun }
+              : item;
+          }),
+        );
+      }
+
+      pendingWorkflowRunIds = pendingWorkflowRunIds.filter(
+        (workflowRunId) => !completedIds.has(workflowRunId),
+      );
+      if (pendingWorkflowRunIds.length > 0) {
+        timeoutId = window.setTimeout(() => {
+          void pollBatchWorkflows();
+        }, 1250);
+      }
+    };
+
+    if (batchItems.length > 1 && pendingWorkflowRunIds.length > 0) {
+      void pollBatchWorkflows();
+    }
+    return () => {
+      isCurrent = false;
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [batchItems.length, batchWorkflowRunIds]);
+
+  function handleFileSelection(files: File[]) {
     if (isUploading) {
       return;
     }
 
-    setSelectedFile(file);
+    setSelectedFiles(files);
     setUploadResult(null);
     setWorkflowRun(null);
 
-    if (!file) {
+    if (files.length === 0) {
+      setBatchItems([]);
       setUploadStatus("idle");
       setStatusMessage("Choose a file to start the local upload flow.");
       return;
     }
 
-    const validationError = validateSelectedFile(file);
-    if (validationError) {
-      setUploadStatus(validationError.status);
-      setStatusMessage(validationError.message);
-      return;
-    }
+    const nextItems = files.map((file, index) => {
+      const validationError = validateSelectedFile(file);
+      return {
+        file,
+        id: `${file.name}-${file.size}-${file.lastModified}-${index}`,
+        message: validationError?.message ?? "Ready to upload.",
+        status: validationError?.status ?? "selected",
+      } satisfies BatchUploadItem;
+    });
+    const validFileCount = nextItems.filter(
+      (item) => item.status === "selected",
+    ).length;
 
-    setUploadStatus("selected");
+    setBatchItems(nextItems);
+    setUploadStatus(validFileCount > 0 ? "selected" : nextItems[0].status);
     setStatusMessage(
-      `${file.name} is ready to upload as ${formatDocumentType(documentType)}.`,
+      `${validFileCount} of ${files.length} file${files.length === 1 ? "" : "s"} ready to upload as ${formatDocumentType(documentType)}.`,
     );
   }
 
   async function handleUpload() {
-    if (!selectedFile) {
-      setStatusMessage("Choose a file before uploading.");
-      return;
-    }
-
-    const validationError = validateSelectedFile(selectedFile);
-    if (validationError) {
-      setUploadStatus(validationError.status);
-      setStatusMessage(validationError.message);
+    const queuedItems = batchItems.filter((item) => item.status === "selected");
+    if (queuedItems.length === 0) {
+      setStatusMessage("Choose at least one valid file before uploading.");
       return;
     }
 
     setUploadStatus("uploading");
     setWorkflowRun(null);
-    setStatusMessage("Uploading document to the backend...");
+    setStatusMessage(
+      `Uploading ${queuedItems.length} document${queuedItems.length === 1 ? "" : "s"}...`,
+    );
 
-    try {
-      const result = await uploadDocument({
-        documentType,
-        file: selectedFile,
-      });
+    let acceptedCount = 0;
+    for (const item of queuedItems) {
+      setBatchItems((items) =>
+        updateBatchItem(items, item.id, {
+          message: "Sending file to the backend...",
+          status: "uploading",
+        }),
+      );
 
-      setUploadResult(result);
-      setUploadStatus("uploaded");
-      setStatusMessage(
-        result.workflow_trigger.workflow_run_id
-          ? "Upload accepted. OCR and extraction are now running in the background."
-          : "Upload accepted. The DocumentIngested trigger was published.",
-      );
-      setUploadActivities((items) =>
-        [buildUploadActivity(result), ...items].slice(0, 5),
-      );
-    } catch (error) {
-      if (
-        error instanceof ApiClientError &&
-        error.code === "duplicate_document"
-      ) {
-        setUploadStatus("duplicate");
-        setStatusMessage(
-          `Duplicate document detected. Existing document: ${String(
-            error.details?.document_id ?? "unknown",
-          )}.`,
+      try {
+        const result = await uploadDocument({ documentType, file: item.file });
+        acceptedCount += 1;
+        setUploadResult(result);
+        setBatchItems((items) =>
+          updateBatchItem(items, item.id, {
+            message: "Accepted and queued for background processing.",
+            result,
+            status: "uploaded",
+          }),
         );
-        const duplicateActivity: UploadActivity = {
-          id: `${selectedFile.name}-duplicate-${Date.now()}`,
-          meta: "Rejected by tenant-scoped content hash",
-          name: selectedFile.name,
-          status: "Duplicate",
-          tone: "neutral",
-        };
         setUploadActivities((items) =>
-          [duplicateActivity, ...items].slice(0, 5),
+          [buildUploadActivity(result), ...items].slice(0, 5),
         );
-        return;
+      } catch (error) {
+        const outcome = formatBatchUploadError(error);
+        setBatchItems((items) => updateBatchItem(items, item.id, outcome));
+        if (outcome.status === "duplicate") {
+          setUploadActivities((items) =>
+            [
+              {
+                id: `${item.file.name}-duplicate-${Date.now()}`,
+                meta: "Rejected by tenant-scoped content hash",
+                name: item.file.name,
+                status: "Duplicate",
+                tone: "neutral",
+              } satisfies UploadActivity,
+              ...items,
+            ].slice(0, 5),
+          );
+        }
       }
-
-      if (
-        error instanceof ApiClientError &&
-        error.code === "unsupported_mime_type"
-      ) {
-        setUploadStatus("unsupported");
-        setStatusMessage(error.message);
-        return;
-      }
-
-      setUploadStatus("error");
-      setStatusMessage(formatApiError(error));
     }
+
+    setUploadStatus(acceptedCount > 0 ? "uploaded" : "error");
+    setStatusMessage(
+      acceptedCount > 0
+        ? `${acceptedCount} document${acceptedCount === 1 ? "" : "s"} accepted. OCR, CSV parsing, and review workflows continue in the background.`
+        : "No documents were accepted. Review the per-file errors below.",
+    );
   }
 
   async function handleCancelWorkflow() {
@@ -275,7 +369,7 @@ export default function UploadPage() {
     if (isUploading) {
       return;
     }
-    handleFileSelection(event.dataTransfer.files.item(0));
+    handleFileSelection(Array.from(event.dataTransfer.files));
   }
 
   return (
@@ -325,9 +419,9 @@ export default function UploadPage() {
                 key={mode.value}
                 onClick={() => {
                   setDocumentType(mode.value);
-                  if (selectedFile && !fileValidationError) {
+                  if (selectedFiles.length > 0) {
                     setStatusMessage(
-                      `${selectedFile.name} is ready to upload as ${formatDocumentType(
+                      `${selectedFiles.length} file${selectedFiles.length === 1 ? "" : "s"} selected as ${formatDocumentType(
                         mode.value,
                       )}.`,
                     );
@@ -354,10 +448,13 @@ export default function UploadPage() {
             className="visually-hidden"
             disabled={isUploading}
             id="document-upload-input"
-            onChange={(event) =>
-              handleFileSelection(event.currentTarget.files?.item(0) ?? null)
-            }
+            onChange={(event) => {
+              handleFileSelection(Array.from(event.currentTarget.files ?? []));
+              // Permit selecting the same file or batch again after a previous run.
+              event.currentTarget.value = "";
+            }}
             type="file"
+            multiple
           />
 
           <div className="upload-action-row">
@@ -370,16 +467,18 @@ export default function UploadPage() {
               }
               htmlFor={isUploading ? undefined : "document-upload-input"}
             >
-              Choose file
+              Choose files
             </label>
             <button
               className="button button-primary"
-              disabled={
-                !selectedFile || Boolean(fileValidationError) || isUploading
-              }
+              disabled={readyFileCount === 0 || isUploading}
               type="submit"
             >
-              {isUploading ? "Processing..." : "Upload file"}
+              {isUploading
+                ? "Uploading..."
+                : readyFileCount > 0
+                  ? `Upload ${readyFileCount} file${readyFileCount === 1 ? "" : "s"}`
+                  : "Upload files"}
             </button>
           </div>
 
@@ -417,6 +516,10 @@ export default function UploadPage() {
             status={uploadStatus}
             workflowRun={workflowRun}
           />
+
+          {batchItems.length > 1 ? (
+            <BatchUploadList items={batchItems} />
+          ) : null}
         </form>
 
         <aside className="panel-card">
@@ -613,6 +716,60 @@ function UploadStatusCard({
   );
 }
 
+function BatchUploadList({ items }: { items: BatchUploadItem[] }) {
+  return (
+    <div className="batch-upload-list" aria-label="Selected upload files">
+      <div className="batch-upload-heading">
+        <strong>Batch upload</strong>
+        <span>{items.length} files</span>
+      </div>
+      {items.map((item) => (
+        <div className="batch-upload-row" key={item.id}>
+          <div className="batch-upload-copy">
+            <strong>{item.file.name}</strong>
+            <span>{item.message}</span>
+            {item.workflowRun ? (
+              <>
+                <div className="batch-workflow-heading">
+                  <span>{item.workflowRun.progress.label}</span>
+                  <span>{item.workflowRun.progress.percent}%</span>
+                </div>
+                <div
+                  aria-label={`Workflow progress for ${item.file.name}`}
+                  aria-valuemax={100}
+                  aria-valuemin={0}
+                  aria-valuenow={item.workflowRun.progress.percent}
+                  className={`batch-workflow-progress batch-workflow-progress-${workflowLifecycleState(
+                    item.workflowRun.status,
+                  )}`}
+                  role="progressbar"
+                >
+                  <span
+                    style={{ width: `${item.workflowRun.progress.percent}%` }}
+                  />
+                </div>
+                <small>
+                  {formatStatus(item.workflowRun.status)}
+                  {item.workflowRun.current_agent
+                    ? ` - ${item.workflowRun.current_agent}`
+                    : ""}
+                </small>
+              </>
+            ) : item.status === "uploaded" ? (
+              <small>Waiting for the first workflow update.</small>
+            ) : null}
+          </div>
+          <em
+            className={`activity-status activity-status-${batchItemTone(item)}`}
+          >
+            {batchItemStatusLabel(item)}
+          </em>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function validateSelectedFile(file: File): {
   message: string;
   status: Extract<UploadStatus, "unsupported" | "error">;
@@ -641,6 +798,72 @@ function validateSelectedFile(file: File): {
   }
 
   return null;
+}
+
+function updateBatchItem(
+  items: BatchUploadItem[],
+  id: string,
+  update: Partial<BatchUploadItem>,
+) {
+  return items.map((item) => (item.id === id ? { ...item, ...update } : item));
+}
+
+function formatBatchUploadError(
+  error: unknown,
+): Pick<BatchUploadItem, "message" | "status"> {
+  if (error instanceof ApiClientError && error.code === "duplicate_document") {
+    return {
+      message: `Duplicate document. Existing document: ${String(
+        error.details?.document_id ?? "unknown",
+      )}.`,
+      status: "duplicate",
+    };
+  }
+
+  if (
+    error instanceof ApiClientError &&
+    error.code === "unsupported_mime_type"
+  ) {
+    return { message: error.message, status: "unsupported" };
+  }
+
+  return { message: formatApiError(error), status: "error" };
+}
+
+function batchStatusTone(status: UploadStatus): UploadActivity["tone"] {
+  if (status === "uploaded") {
+    return "positive";
+  }
+  if (status === "duplicate" || status === "unsupported") {
+    return "warning";
+  }
+  if (status === "error") {
+    return "danger";
+  }
+  return "neutral";
+}
+
+function batchItemTone(item: BatchUploadItem): UploadActivity["tone"] {
+  if (!item.workflowRun) {
+    return batchStatusTone(item.status);
+  }
+
+  const state = workflowLifecycleState(item.workflowRun.status);
+  if (state === "error") {
+    return "danger";
+  }
+  if (state === "done") {
+    return "positive";
+  }
+  return "neutral";
+}
+
+function batchItemStatusLabel(item: BatchUploadItem) {
+  if (!item.workflowRun) {
+    return formatUploadStatus(item.status);
+  }
+
+  return `${formatStatus(item.workflowRun.status)} ${item.workflowRun.progress.percent}%`;
 }
 
 function buildLifecycleSteps(

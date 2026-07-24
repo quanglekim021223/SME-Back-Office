@@ -351,8 +351,10 @@ async def call_with_policy[ProviderOperationResult](
         if attempt < policy.max_attempts and policy.retry_backoff_seconds > 0:
             await asyncio.sleep(policy.retry_backoff_seconds)
 
+    error_detail = str(last_error) if last_error else "Unknown provider error."
     raise ProviderExecutionError(
-        f"Provider {provider_name} failed after {policy.max_attempts} attempt(s)."
+        f"Provider {provider_name} failed after {policy.max_attempts} attempt(s): "
+        f"{error_detail}"
     ) from last_error
 
 

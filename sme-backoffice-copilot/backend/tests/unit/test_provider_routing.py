@@ -165,7 +165,10 @@ async def test_provider_runtime_raises_after_retry_exhaustion() -> None:
     runtime = ProviderRuntime(routing_config)
     provider = FlakyMockLLMProvider(failures_before_success=3)
 
-    with pytest.raises(ProviderExecutionError, match="failed after 2 attempt"):
+    with pytest.raises(
+        ProviderExecutionError,
+        match="failed after 2 attempt.*Temporary mock provider failure",
+    ):
         await runtime.generate_llm(
             provider=provider,
             task_type=ProviderTaskType.INVOICE_TABLE_EXTRACTION,

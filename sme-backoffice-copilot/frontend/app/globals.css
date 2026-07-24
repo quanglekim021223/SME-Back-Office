@@ -2502,6 +2502,109 @@ textarea:focus-visible {
   background: var(--danger-soft);
 }
 
+.batch-upload-list {
+  display: grid;
+  width: min(100%, 34rem);
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--border);
+  text-align: left;
+}
+
+.batch-upload-heading,
+.batch-upload-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.62rem 0.72rem;
+  background: var(--surface);
+}
+
+.batch-upload-heading {
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.batch-upload-heading span {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.batch-upload-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.batch-upload-row strong,
+.batch-upload-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-upload-row strong {
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.batch-upload-row span {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.batch-workflow-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+}
+
+.batch-workflow-heading span {
+  color: var(--text);
+  font-size: 0.67rem;
+}
+
+.batch-workflow-progress {
+  width: 100%;
+  height: 0.34rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.batch-workflow-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+
+.batch-workflow-progress-done span {
+  background: var(--success);
+}
+
+.batch-workflow-progress-error span {
+  background: var(--danger);
+}
+
+.batch-upload-copy small {
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+.batch-upload-row .activity-status {
+  flex: 0 0 auto;
+}
+
 .activity-row,
 .evidence-preview {
   border-radius: var(--radius-md);
