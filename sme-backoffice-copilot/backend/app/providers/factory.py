@@ -93,9 +93,9 @@ def build_ocr_provider_from_settings(settings: Settings) -> OCRProvider:
                 timeout_seconds=settings.provider_timeout_seconds,
             )
         case OCRProviderType.AZURE_DI:
-            # Azure DI is a cloud service — it handles image preprocessing internally,
-            # so we return it directly without wrapping in PreprocessingOCRProvider.
-            return AzureDIOCRProvider(
+            # Azure DI performs its own normalization, but optional local
+            # preprocessing helps with scanned or photographed documents.
+            inner = AzureDIOCRProvider(
                 endpoint=settings.azure_di_endpoint,
                 key=settings.azure_di_key,
                 model_id=settings.azure_di_model_id,

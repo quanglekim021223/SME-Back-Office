@@ -19,6 +19,7 @@ from app.providers import (
     build_provider_privacy_gate_from_settings,
     build_provider_routing_config_from_settings,
 )
+from app.providers.azure_di import AzureDIOCRProvider
 from app.providers.image_preprocessing import PreprocessingOCRProvider
 
 
@@ -71,6 +72,35 @@ def test_provider_factories_tesseract_unwrapped_when_preprocessing_disabled(
     # Without preprocessing the raw provider is returned directly
     assert isinstance(ocr_provider, TesseractOCRProvider)
     assert ocr_provider.name == "tesseract"
+
+
+def test_provider_factories_wrap_azure_di_when_preprocessing_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OCR_PROVIDER", "azure_di")
+    monkeypatch.setenv("AZURE_DI_ENDPOINT", "https://example.cognitiveservices.azure.com/")
+    monkeypatch.setenv("AZURE_DI_KEY", "test-key")
+    monkeypatch.setenv("OCR_PREPROCESSING_ENABLED", "true")
+    settings = Settings(_env_file=None)
+
+    provider = build_ocr_provider_from_settings(settings)
+
+    assert isinstance(provider, PreprocessingOCRProvider)
+    assert isinstance(provider._inner, AzureDIOCRProvider)
+
+
+def test_provider_factories_leave_azure_di_unwrapped_when_preprocessing_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OCR_PROVIDER", "azure_di")
+    monkeypatch.setenv("AZURE_DI_ENDPOINT", "https://example.cognitiveservices.azure.com/")
+    monkeypatch.setenv("AZURE_DI_KEY", "test-key")
+    monkeypatch.setenv("OCR_PREPROCESSING_ENABLED", "false")
+    settings = Settings(_env_file=None)
+
+    provider = build_ocr_provider_from_settings(settings)
+
+    assert isinstance(provider, AzureDIOCRProvider)
 
 
 def test_provider_factories_build_local_optional_ocr_adapters(
