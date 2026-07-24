@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ssl import CERT_REQUIRED
+
 from celery import Celery  # type: ignore[import-untyped]
 from kombu import Queue  # type: ignore[import-untyped]
 
@@ -31,6 +33,10 @@ def create_celery_app(settings: Settings | None = None) -> Celery:
                 resolved_settings.celery_broker_polling_interval_seconds
             ),
         },
+        # Upstash uses TLS-only Redis endpoints. Configure both Celery paths
+        # explicitly so standard rediss:// URLs work without query parameters.
+        broker_use_ssl={"ssl_cert_reqs": CERT_REQUIRED},
+        redis_backend_use_ssl={"ssl_cert_reqs": CERT_REQUIRED},
         task_default_queue=CELERY_QUEUE_BY_PRIORITY[
             next(iter(CELERY_QUEUE_BY_PRIORITY))
         ],

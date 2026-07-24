@@ -1,9 +1,11 @@
+from ssl import CERT_REQUIRED
 from uuid import uuid4
 
 from app.core.config import Settings, WorkflowQueueMode
 from app.jobs import DocumentProcessingCommand, JobPriority, JobStatus
 from app.jobs.celery import CeleryWorkflowJobQueue
 from app.jobs.factory import create_workflow_job_queue
+from app.workers.celery_app import create_celery_app
 
 
 class FakeAsyncResult:
@@ -116,3 +118,19 @@ def test_queue_factory_selects_celery_without_connecting_to_redis() -> None:
     )
 
     assert isinstance(queue, CeleryWorkflowJobQueue)
+
+
+def test_celery_uses_required_tls_for_hosted_redis() -> None:
+    settings = Settings(
+        _env_file=None,
+        app_env="staging",
+        workflow_queue_mode=WorkflowQueueMode.CELERY,
+        database_url="postgresql+asyncpg://user:pass@example.com/db?ssl=require",
+        celery_broker_url="rediss://:token@example.upstash.io:6379/0",
+        celery_result_backend="rediss://:token@example.upstash.io:6379/0",
+    )
+
+    celery_app = create_celery_app(settings)
+
+    assert celery_app.conf.broker_use_ssl == {"ssl_cert_reqs": CERT_REQUIRED}
+    assert celery_app.backend.connparams["ssl_cert_reqs"] == CERT_REQUIRED
