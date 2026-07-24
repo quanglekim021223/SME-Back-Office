@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable
+from ssl import CERT_REQUIRED
 from time import monotonic, time
 from typing import Protocol, cast
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from redis.asyncio import Redis
 
@@ -65,8 +67,35 @@ class RedisFixedWindowProviderRateLimiter:
         llm_requests_per_second: int,
         wait_timeout_seconds: float,
     ) -> RedisFixedWindowProviderRateLimiter:
+        # ``redis.asyncio`` accepts ``required`` in a URL but not Celery's
+        # ``CERT_REQUIRED`` spelling. Remove a URL-provided setting so the
+        # explicit stdlib value below is the single TLS source of truth.
+        parsed_url = urlsplit(redis_url)
+        sanitized_query = urlencode(
+            [
+                (key, value)
+                for key, value in parse_qsl(parsed_url.query, keep_blank_values=True)
+                if key != "ssl_cert_reqs"
+            ]
+        )
+        sanitized_redis_url = urlunsplit(
+            (
+                parsed_url.scheme,
+                parsed_url.netloc,
+                parsed_url.path,
+                sanitized_query,
+                parsed_url.fragment,
+            )
+        )
         return cls(
-            redis_client=Redis.from_url(redis_url, decode_responses=True),
+            # Upstash exposes TLS-only Redis endpoints.  Pass the stdlib SSL
+            # constant explicitly so this async client does not depend on the
+            # URL query-string spelling accepted by Celery/Kombu.
+            redis_client=Redis.from_url(
+                sanitized_redis_url,
+                decode_responses=True,
+                ssl_cert_reqs=CERT_REQUIRED,
+            ),
             ocr_requests_per_second=ocr_requests_per_second,
             llm_requests_per_second=llm_requests_per_second,
             wait_timeout_seconds=wait_timeout_seconds,
