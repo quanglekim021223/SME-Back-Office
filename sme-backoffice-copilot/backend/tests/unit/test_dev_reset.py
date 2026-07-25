@@ -17,7 +17,9 @@ def test_dev_reset_allows_local_environment() -> None:
 
 def test_dev_reset_rejects_non_local_environment() -> None:
     with pytest.raises(RuntimeError, match="Refusing to reset data"):
-        ensure_dev_reset_allowed(settings=Settings.model_construct(app_env="production"))
+        ensure_dev_reset_allowed(
+            settings=Settings.model_construct(app_env="production")
+        )
 
 
 def test_dev_reset_delete_order_keeps_documents_last() -> None:
