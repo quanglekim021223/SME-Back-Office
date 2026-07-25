@@ -178,9 +178,9 @@ def summarize_cash_position(
     for statement in statement_imports:
         if statement.closing_balance is None:
             continue
-        current = latest_statement_by_account.get(statement.bank_account_id)
-        if current is None or statement_sort_key(statement) > statement_sort_key(
-            current
+        current_stmt = latest_statement_by_account.get(statement.bank_account_id)
+        if current_stmt is None or statement_sort_key(statement) > statement_sort_key(
+            current_stmt
         ):
             latest_statement_by_account[statement.bank_account_id] = statement
 
@@ -237,15 +237,15 @@ def summarize_amounts(
             source=source,
         )
 
-    currency: str | None = None
-    amount: Decimal | None = None
+    single_currency: str | None = None
+    single_amount: Decimal | None = None
     if len(by_currency) == 1:
-        currency, amount = next(iter(by_currency.items()))
+        single_currency, single_amount = next(iter(by_currency.items()))
 
     return FinancialMetricResponse(
         available=True,
-        amount=amount,
-        currency=currency,
+        amount=single_amount,
+        currency=single_currency,
         by_currency=by_currency,
         transaction_count=transaction_count,
         account_count=account_count,

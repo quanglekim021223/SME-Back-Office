@@ -95,7 +95,7 @@ class RedisFixedWindowProviderRateLimiter:
             redis_options["ssl_cert_reqs"] = CERT_REQUIRED
 
         return cls(
-            redis_client=Redis.from_url(sanitized_redis_url, **redis_options),
+            redis_client=Redis.from_url(sanitized_redis_url, **redis_options),  # type: ignore[arg-type]
             ocr_requests_per_second=ocr_requests_per_second,
             llm_requests_per_second=llm_requests_per_second,
             wait_timeout_seconds=wait_timeout_seconds,

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from ssl import CERT_REQUIRED
 
-from celery import Celery  # type: ignore[import-untyped]
-from kombu import Queue  # type: ignore[import-untyped]
+from celery import Celery
+from kombu import Queue
 
 from app.core.config import Settings, get_settings
 from app.jobs.celery_routing import CELERY_QUEUE_BY_PRIORITY

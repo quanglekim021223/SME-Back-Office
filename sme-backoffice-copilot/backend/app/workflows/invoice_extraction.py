@@ -1399,7 +1399,7 @@ class MetadataExtractorAgent:
 
         group_payload = model_to_payload(group)
         state.scratchpad[INVOICE_METADATA_GROUP_KEY] = group_payload
-        output: dict[str, object] = {
+        output = {
             "group_name": "metadata",
             "metadata": group_payload,
         }

@@ -106,7 +106,7 @@ class OpenAIResponsesLLMProvider:
             )
         else:
             endpoint = f"{self.base_url}/chat/completions"
-            payload: dict[str, object] = {
+            payload = {
                 "model": self.model_name,
                 "messages": [
                     {"role": message.role.value, "content": message.content}

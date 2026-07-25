@@ -55,3 +55,18 @@ select = ["E", "F", "I", "UP", "B", "ASYNC"]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# These packages ship without PEP 561 stubs and are not on typeshed.
+# Suppress import errors globally instead of scattering inline type: ignore
+# comments that become stale when stubs are later installed.
+module = [
+  "celery",
+  "celery.*",
+  "kombu",
+  "kombu.*",
+  "cv2",
+  "numpy",
+  "redis",
+]
+ignore_missing_imports = true

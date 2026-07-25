@@ -377,7 +377,7 @@ class WorkflowReplayRunner:
                 ReplayScenario.RETRY_EXHAUSTION,
             },
         )
-        retry_decisions: list[RetryDecision] = []
+        retry_decisions = []
         if is_terminal_agent_result(qa_result):
             return self._build_result(
                 scenario=scenario,

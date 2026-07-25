@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from celery import Celery, states  # type: ignore[import-untyped]
+from celery import Celery, states
 
 from app.jobs.celery_routing import DOCUMENT_PROCESSING_TASK_NAME, celery_queue_name
 from app.jobs.contracts import DocumentProcessingCommand, JobRef, JobStatus

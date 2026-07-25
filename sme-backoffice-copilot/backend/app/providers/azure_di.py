@@ -415,10 +415,12 @@ class AzureDIOCRProvider:
                     item_fields = item_entry.get("valueObject")
                     if not isinstance(item_fields, dict):
                         continue
+                    # Typed alias so mypy can infer correct default-arg types below.
+                    _typed_fields: dict[str, object] = item_fields
 
                     def _item_str(
                         name: str,
-                        _fields: dict = item_fields,  # type: ignore[assignment]  # noqa: B023
+                        _fields: dict[str, object] = _typed_fields,  # noqa: B023
                     ) -> str | None:
                         f = _fields.get(name)
                         if not isinstance(f, dict):
@@ -428,7 +430,7 @@ class AzureDIOCRProvider:
 
                     def _item_currency(
                         name: str,
-                        _fields: dict = item_fields,  # type: ignore[assignment]  # noqa: B023
+                        _fields: dict[str, object] = _typed_fields,  # noqa: B023
                     ) -> str | None:
                         f = _fields.get(name)
                         if not isinstance(f, dict):
@@ -449,7 +451,7 @@ class AzureDIOCRProvider:
 
                     def _item_number(
                         name: str,
-                        _fields: dict = item_fields,  # type: ignore[assignment]  # noqa: B023
+                        _fields: dict[str, object] = _typed_fields,  # noqa: B023
                     ) -> str | None:
                         f = _fields.get(name)
                         if not isinstance(f, dict):

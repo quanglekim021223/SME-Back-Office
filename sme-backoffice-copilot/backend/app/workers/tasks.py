@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Any
 
-from celery import Task  # type: ignore[import-untyped]
+from celery import Task
 
 from app.core.config import get_settings
 from app.core.db import async_session_factory, dispose_engine
