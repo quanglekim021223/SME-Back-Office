@@ -84,12 +84,12 @@ class AzureDIOCRProvider:
             )
 
         file_path = Path(input_data.local_path)
-        if not file_path.exists():
+        if not file_path.exists():  # noqa: ASYNC240
             raise ProviderConfigurationError(
                 f"Document file not found: {input_data.local_path}"
             )
 
-        file_bytes = file_path.read_bytes()
+        file_bytes = file_path.read_bytes()  # noqa: ASYNC240
 
         analyze_url = (
             f"{self.endpoint}/documentintelligence/documentModels"
@@ -301,7 +301,8 @@ class AzureDIOCRProvider:
         ``totals_group`` — all ready to be written into the workflow scratchpad.
         Returns an empty dict if no documents were found in the response.
         """
-        # Safely handle if result_payload contains "analyzeResult" (for tests / nested inputs)
+        # Safely handle if result_payload contains "analyzeResult"
+        # (for tests / nested inputs)
         inner_payload = result_payload.get("analyzeResult")
         if isinstance(inner_payload, dict):
             payload = inner_payload
@@ -415,15 +416,21 @@ class AzureDIOCRProvider:
                     if not isinstance(item_fields, dict):
                         continue
 
-                    def _item_str(name: str) -> str | None:
-                        f = item_fields.get(name)
+                    def _item_str(
+                        name: str,
+                        _fields: dict = item_fields,  # type: ignore[assignment]  # noqa: B023
+                    ) -> str | None:
+                        f = _fields.get(name)
                         if not isinstance(f, dict):
                             return None
                         v = f.get("valueString") or f.get("content")
                         return v.strip() if isinstance(v, str) and v.strip() else None
 
-                    def _item_currency(name: str) -> str | None:
-                        f = item_fields.get(name)
+                    def _item_currency(
+                        name: str,
+                        _fields: dict = item_fields,  # type: ignore[assignment]  # noqa: B023
+                    ) -> str | None:
+                        f = _fields.get(name)
                         if not isinstance(f, dict):
                             return None
                         obj = f.get("valueCurrency")
@@ -440,8 +447,11 @@ class AzureDIOCRProvider:
                                 return content.strip()
                         return None
 
-                    def _item_number(name: str) -> str | None:
-                        f = item_fields.get(name)
+                    def _item_number(
+                        name: str,
+                        _fields: dict = item_fields,  # type: ignore[assignment]  # noqa: B023
+                    ) -> str | None:
+                        f = _fields.get(name)
                         if not isinstance(f, dict):
                             return None
                         v = (

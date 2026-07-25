@@ -1,4 +1,5 @@
-"""Tests proving that sensitive financial fields are always redacted from trace payloads.
+"""Tests proving that sensitive financial fields are always redacted
+from trace payloads.
 
 Covers:
 - Every key in SENSITIVE_TRACE_KEYS is redacted.
@@ -26,11 +27,12 @@ from app.observability.tracing import (
     redact_trace_value,
 )
 
-
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 
-def _make_redacting(max_chars: int = 4000) -> tuple[InMemoryTraceProvider, RedactingTraceProvider]:
+def _make_redacting(
+    max_chars: int = 4000,
+) -> tuple[InMemoryTraceProvider, RedactingTraceProvider]:
     sink = InMemoryTraceProvider()
     return sink, RedactingTraceProvider(sink, max_payload_chars=max_chars)
 
@@ -66,7 +68,8 @@ def test_all_sensitive_key_parts_trigger_redaction() -> None:
         compound_key = f"supplier_{part}_field"
         result = redact_trace_value(key=compound_key, value="data")
         assert result == "[REDACTED]", (
-            f"Expected '[REDACTED]' for key '{compound_key}' (part='{part}'), got {result!r}"
+            f"Expected '[REDACTED]' for key '{compound_key}' "
+            f"(part='{part}'), got {result!r}"
         )
 
 
@@ -223,7 +226,11 @@ def test_redacting_provider_redacts_supplier_name_in_event() -> None:
     sink, provider = _make_redacting()
     provider.record_event(
         "llm.call.finished",
-        {"agent_name": "metadata_extractor", "supplier_name": "Acme Corp", "attempts": 1},
+        {
+            "agent_name": "metadata_extractor",
+            "supplier_name": "Acme Corp",
+            "attempts": 1,
+        },
     )
     event = sink.events[0]
     assert event.payload["supplier_name"] == "[REDACTED]"

@@ -49,14 +49,14 @@ def create_state() -> WorkflowState:
                 "customer_name": "ACME Corp",
                 "issue_date": "2026-07-01",
                 "due_date": "2026-07-31",
-                "currency": "USD"
+                "currency": "USD",
             },
             "invoice_totals_group": {
                 "schema_version": "invoice-totals-group.v1",
                 "extraction_status": "extracted",
                 "total_amount": "1250.00",
-                "currency": "USD"
-            }
+                "currency": "USD",
+            },
         },
     )
 

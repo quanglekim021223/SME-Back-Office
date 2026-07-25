@@ -21,7 +21,7 @@ from app.schemas.invoice import (
     InvoiceListResponse,
     InvoiceSummaryResponse,
 )
-from app.services.audit import AuditService, AuditEvent
+from app.services.audit import AuditEvent, AuditService
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
@@ -47,8 +47,7 @@ async def list_invoices(
         Query(
             alias="status",
             description=(
-                "Filter by invoice status "
-                "(e.g. extracted, superseded, approved)"
+                "Filter by invoice status (e.g. extracted, superseded, approved)"
             ),
         ),
     ] = None,

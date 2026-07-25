@@ -265,6 +265,7 @@ class ReconciliationAgent:
             build_invoice_match_input,
             generate_reconciliation_candidates,
         )
+
         groups = collect_invoice_groups(state)
         invoice_input = build_invoice_match_input(groups)
 
@@ -305,10 +306,12 @@ class ReconciliationAgent:
         if not db_transactions:
             # Local replay can synthesize a match to complete the happy path.
             from app.core.config import get_settings
+
             settings = get_settings()
             if settings.app_env in {"test", "local"}:
                 import uuid
                 from datetime import date
+
                 invoice_amount = invoice_input.total_amount or Decimal("100.00")
                 issue_date = invoice_input.issue_date or date.today()
                 synth_tx = Transaction(

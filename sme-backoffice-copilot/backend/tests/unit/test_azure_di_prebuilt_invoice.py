@@ -11,11 +11,11 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
 from uuid import uuid4
 
-from app.providers.azure_di import AzureDIOCRProvider
+import pytest
 
+from app.providers.azure_di import AzureDIOCRProvider
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -303,9 +303,9 @@ class TestPrebuiltLayoutBackwardCompatibility:
         monkeypatch.setattr(provider, "_parse_prebuilt_invoice_fields", tracking_parse)
 
         # Simulate calling _parse_result with a minimal layout response
-        from unittest.mock import MagicMock
-        from app.providers.ocr import OCRInput, OCRProviderRunContext
         from uuid import uuid4
+
+        from app.providers.ocr import OCRInput, OCRProviderRunContext
 
         dummy_input = OCRInput(
             artifact_uri="local://test",
@@ -334,8 +334,9 @@ class TestPrebuiltLayoutBackwardCompatibility:
     ) -> None:
         """prebuilt-invoice model stores extraction in OCRResult.metadata."""
         provider = _make_provider(model_id="prebuilt-invoice")
-        from app.providers.ocr import OCRInput, OCRProviderRunContext
         from uuid import uuid4
+
+        from app.providers.ocr import OCRInput, OCRProviderRunContext
 
         dummy_input = OCRInput(
             artifact_uri="local://test",
@@ -377,8 +378,9 @@ class TestPrebuiltLayoutBackwardCompatibility:
     def test_layout_model_metadata_has_no_prebuilt_extraction(self) -> None:
         """prebuilt-layout model must never add prebuilt_invoice_extraction."""
         provider = _make_provider(model_id="prebuilt-layout")
-        from app.providers.ocr import OCRInput, OCRProviderRunContext
         from uuid import uuid4
+
+        from app.providers.ocr import OCRInput, OCRProviderRunContext
 
         dummy_input = OCRInput(
             artifact_uri="local://test",
@@ -426,7 +428,7 @@ class TestFinancialPlausibilityCheck:
         totals = result["totals_group"]
         assert totals["confidence"] == "low"
         assert totals["extraction_status"] == "low_confidence"
-        assert totals["total_amount"] == "0.42"   # value stored as-is; LLM corrects
+        assert totals["total_amount"] == "0.42"  # value stored as-is; LLM corrects
         assert totals["subtotal_amount"] == "355.00"
 
     def test_total_equal_to_subtotal_no_downgrade(self) -> None:
@@ -503,4 +505,3 @@ class TestFinancialPlausibilityCheck:
             handoff=None,
         )
         assert result is True, "High-confidence group must be treated as populated"
-

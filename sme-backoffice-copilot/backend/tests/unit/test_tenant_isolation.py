@@ -15,7 +15,6 @@ from app.repositories.base import TenantScopedRepository
 from app.repositories.documents import DocumentRepository
 from app.repositories.invoices import InvoiceRepository
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -127,9 +126,7 @@ class TestInvoiceRepositoryTenantIsolation:
         mock_count_result.scalar_one.return_value = 0
 
         session = MagicMock()
-        session.execute = AsyncMock(
-            side_effect=[mock_count_result, mock_items_result]
-        )
+        session.execute = AsyncMock(side_effect=[mock_count_result, mock_items_result])
         repo = InvoiceRepository(session)
 
         invoices, total = await repo.list_for_tenant(tenant_id=uuid4())
@@ -160,8 +157,12 @@ class TestCrossTenantGuard:
         repo_a = DocumentRepository(session_a)
         repo_b = DocumentRepository(session_b)
 
-        result_a = await repo_a.get_for_tenant(tenant_id=tenant_a, object_id=shared_doc_id)
-        result_b = await repo_b.get_for_tenant(tenant_id=tenant_b, object_id=shared_doc_id)
+        result_a = await repo_a.get_for_tenant(
+            tenant_id=tenant_a, object_id=shared_doc_id
+        )
+        result_b = await repo_b.get_for_tenant(
+            tenant_id=tenant_b, object_id=shared_doc_id
+        )
 
         assert result_a is not None, "Tenant A should see their own document"
         assert result_b is None, "Tenant B must not see Tenant A's document"

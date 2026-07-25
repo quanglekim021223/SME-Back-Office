@@ -85,9 +85,7 @@ class TestAuditServiceLog:
         service = AuditService()
         event = AuditEvent(event="test.event", tenant_id="t1", actor_id="u1")
 
-        with patch.object(
-            logging.getLogger("audit"), "info"
-        ) as mock_info:
+        with patch.object(logging.getLogger("audit"), "info") as mock_info:
             service.log(event)
 
         mock_info.assert_called_once()
@@ -202,8 +200,13 @@ class TestAuditLogPIIGuard:
 
         # Ensure no suspicious keys leak financial/PII data
         forbidden_keys = {
-            "total_amount", "subtotal", "tax", "vendor_address",
-            "raw_text", "ocr_output", "bank_account",
+            "total_amount",
+            "subtotal",
+            "tax",
+            "vendor_address",
+            "raw_text",
+            "ocr_output",
+            "bank_account",
         }
         for key in forbidden_keys:
             assert key not in d, f"Sensitive key '{key}' found in audit dict"

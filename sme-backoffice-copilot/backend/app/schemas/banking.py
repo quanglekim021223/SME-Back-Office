@@ -104,11 +104,7 @@ class BankTransactionResponse(BaseModel):
             for allocation in active_allocations
         )
         match_status: BankTransactionMatchStatus = (
-            "matched"
-            if is_matched
-            else "review"
-            if active_allocations
-            else "unmatched"
+            "matched" if is_matched else "review" if active_allocations else "unmatched"
         )
         account = transaction.bank_account
         statement_import = transaction.statement_import

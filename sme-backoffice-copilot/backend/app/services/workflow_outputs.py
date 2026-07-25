@@ -651,6 +651,7 @@ async def build_classification_proposal(
 
     try:
         from app.workflows.downstream_agents import ClassificationDraft
+
         draft = ClassificationDraft.model_validate(raw_payload)
     except Exception:
         return None
@@ -707,6 +708,7 @@ async def build_reconciliation_and_allocations(
 
     try:
         from app.workflows.downstream_agents import ReconciliationDraft
+
         draft = ReconciliationDraft.model_validate(raw_payload)
     except Exception:
         return None, []

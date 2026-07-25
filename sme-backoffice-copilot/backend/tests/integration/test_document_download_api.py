@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -10,10 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_tenant_context, require_permission
-from app.core.auth import Permission, Principal
 from app.core.db import get_db_session
-from app.core.tenant import TenantContext
 from app.models.document import Document, DocumentArtifact
 from app.repositories.documents import DocumentRepository
 from app.services.document_storage import LocalDocumentStorage
@@ -37,7 +33,9 @@ def auth_headers(tenant_id: str | None = None) -> dict[str, str]:
     return headers
 
 
-def test_download_document_success(download_app: FastAPI, client: TestClient, tmp_path) -> None:
+def test_download_document_success(
+    download_app: FastAPI, client: TestClient, tmp_path
+) -> None:
     """Download endpoint streams file and logs audit event when authorized."""
 
     tenant_id = uuid4()
@@ -53,7 +51,9 @@ def test_download_document_success(download_app: FastAPI, client: TestClient, tm
     # Mock Document and DocumentArtifact
     mock_artifact = MagicMock(spec=DocumentArtifact)
     mock_artifact.artifact_type = "original"
-    mock_artifact.storage_uri = f"local://tenants/{tenant_id}/documents/{document_id}/original/invoice.pdf"
+    mock_artifact.storage_uri = (
+        f"local://tenants/{tenant_id}/documents/{document_id}/original/invoice.pdf"
+    )
 
     mock_doc = MagicMock(spec=Document)
     mock_doc.id = document_id
@@ -75,6 +75,7 @@ def test_download_document_success(download_app: FastAPI, client: TestClient, tm
 
     # Override dependencies
     from app.api.routers.documents import get_document_storage
+
     download_app.dependency_overrides[get_db_session] = lambda: MagicMock()
     download_app.dependency_overrides[get_document_storage] = lambda: mock_storage
 
@@ -104,8 +105,11 @@ def test_download_document_success(download_app: FastAPI, client: TestClient, tm
             assert audit_event.extra == {"filename": "invoice.pdf"}
 
 
-def test_download_document_cross_tenant_returns_404(download_app: FastAPI, client: TestClient) -> None:
-    """Requesting document download with a tenant ID that does not own it returns 404."""
+def test_download_document_cross_tenant_returns_404(
+    download_app: FastAPI, client: TestClient
+) -> None:
+    """Requesting document download with a tenant ID that does not own it
+    returns 404."""
 
     tenant_id = uuid4()
     document_id = uuid4()

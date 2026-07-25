@@ -248,9 +248,7 @@ class InMemoryMetricsRegistry:
         """Record one terminal successful job."""
 
         with self._lock:
-            self._queue_events["succeeded"] = (
-                self._queue_events.get("succeeded", 0) + 1
-            )
+            self._queue_events["succeeded"] = self._queue_events.get("succeeded", 0) + 1
             self._running_jobs = max(self._running_jobs - 1, 0)
 
     def record_queue_failed(self, *, dead_lettered: bool) -> None:

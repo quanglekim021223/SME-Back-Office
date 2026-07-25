@@ -84,8 +84,7 @@ def test_invoice_arithmetic_validator_detects_subtotal_line_item_mismatch() -> N
 
     assert result.passed is False
     assert any(
-        issue.code == "ERR_SUBTOTAL_LINE_ITEMS_MISMATCH"
-        for issue in result.issues
+        issue.code == "ERR_SUBTOTAL_LINE_ITEMS_MISMATCH" for issue in result.issues
     )
 
 

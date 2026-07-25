@@ -59,9 +59,10 @@ async def test_list_review_tasks_records_queue_size_metrics() -> None:
     assert result.total == 3
     assert repository.count_kwargs["status_filter"] == ReviewTaskStatus.OPEN
     snapshot = metrics_registry.snapshot()
-    assert snapshot["review_queue_size"][
-        f"tenant:{tenant_id}:status:open:type:all"
-    ] == 2
-    assert snapshot["review_queue_size"][
-        f"tenant:{tenant_id}:status:open:type:extraction"
-    ] == 3
+    assert (
+        snapshot["review_queue_size"][f"tenant:{tenant_id}:status:open:type:all"] == 2
+    )
+    assert (
+        snapshot["review_queue_size"][f"tenant:{tenant_id}:status:open:type:extraction"]
+        == 3
+    )

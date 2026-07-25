@@ -42,9 +42,7 @@ class TransactionRepository(TenantScopedRepository[Transaction]):
 
         base_query = select(Transaction).where(Transaction.tenant_id == tenant_id)
         if direction_filter is not None:
-            base_query = base_query.where(
-                Transaction.direction == direction_filter
-            )
+            base_query = base_query.where(Transaction.direction == direction_filter)
         if status_filter is not None:
             base_query = base_query.where(Transaction.status == status_filter)
 

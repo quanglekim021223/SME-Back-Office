@@ -242,8 +242,7 @@ def minimize_trace_payload(
     """Redact sensitive fields and cap payload size before export."""
 
     redacted = {
-        key: redact_trace_value(key=key, value=value)
-        for key, value in payload.items()
+        key: redact_trace_value(key=key, value=value) for key, value in payload.items()
     }
     encoded = json.dumps(redacted, default=str, sort_keys=True)
     if len(encoded) <= max_payload_chars:
@@ -272,10 +271,7 @@ def redact_trace_value(*, key: str, value: object) -> object:
             for child_key, child_value in value.items()
         }
     if isinstance(value, list):
-        return [
-            redact_trace_value(key=key, value=item)
-            for item in value[:20]
-        ]
+        return [redact_trace_value(key=key, value=item) for item in value[:20]]
     if isinstance(value, tuple):
         return tuple(redact_trace_value(key=key, value=item) for item in value[:20])
     if isinstance(value, str) and len(value) > 256:

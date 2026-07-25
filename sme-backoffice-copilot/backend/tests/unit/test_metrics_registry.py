@@ -74,9 +74,7 @@ def test_metrics_registry_records_review_queue_size_and_correction_rate() -> Non
     )
 
     snapshot = registry.snapshot()
-    assert snapshot["review_queue_size"][
-        "tenant:tenant-1:status:open:type:all"
-    ] == 7
+    assert snapshot["review_queue_size"]["tenant:tenant-1:status:open:type:all"] == 7
     assert snapshot["review_actions"] == {
         "classification:correct_classification": 1,
         "extraction:approve_proposal": 1,

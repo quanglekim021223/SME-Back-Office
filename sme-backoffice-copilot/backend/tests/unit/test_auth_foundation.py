@@ -23,7 +23,6 @@ def test_default_placeholder_permissions_for_member_role() -> None:
     )
 
 
-
 def test_principal_permission_check() -> None:
     principal = Principal(
         user_id="user_123",

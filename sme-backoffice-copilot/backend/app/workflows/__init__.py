@@ -148,8 +148,10 @@ __all__ = [
     "OCR_LAYOUT_DIAGNOSTICS_KEY",
     "OCR_LAYOUT_REGIONS_KEY",
     "OCR_RESULT_KEY",
+    "PREBUILT_INVOICE_EXTRACTION_KEY",
     "PRIVACY_POLICY_GATE_AGENT",
     "PrivacyPolicyGateAgent",
+    "populate_scratchpad_from_prebuilt_extraction",
     "QA_VALIDATION_AGENT",
     "QACorrectionTarget",
     "QAErrorSeverity",
@@ -185,6 +187,7 @@ __all__ = [
     "collect_invoice_groups",
     "create_total_amount_correction_signal",
     "is_langgraph_available",
+    "is_scratchpad_group_populated",
     "serialize_workflow_state",
     "workflow_status_to_model_status",
 ]

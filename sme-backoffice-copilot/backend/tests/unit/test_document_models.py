@@ -1,3 +1,5 @@
+from sqlalchemy import LargeBinary
+
 from app.models import (
     ArtifactType,
     Document,
@@ -8,7 +10,6 @@ from app.models import (
     ProcessingRunStatus,
 )
 from app.models.base import Base
-from sqlalchemy import LargeBinary
 
 
 def test_document_tables_are_registered_in_metadata() -> None:
@@ -64,9 +65,7 @@ def test_document_tables_store_metadata_and_object_references_not_file_bytes() -
         *DocumentArtifact.__table__.columns,
     )
 
-    assert all(
-        not isinstance(column.type, LargeBinary) for column in persisted_columns
-    )
+    assert all(not isinstance(column.type, LargeBinary) for column in persisted_columns)
     assert {"storage_uri", "content_hash", "size_bytes"} <= set(
         DocumentArtifact.__table__.c.keys()
     )

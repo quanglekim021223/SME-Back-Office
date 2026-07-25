@@ -166,9 +166,7 @@ async def test_workflow_output_service_traces_review_task_creation() -> None:
 
     assert materialized is not None
     event = next(
-        event
-        for event in trace_provider.events
-        if event.name == "review_task.created"
+        event for event in trace_provider.events if event.name == "review_task.created"
     )
     assert event.payload["source"] == "invoice_proposal"
     assert event.payload["task_type"] == ReviewTaskType.EXTRACTION.value
@@ -257,6 +255,7 @@ async def test_output_service_creates_review_task_for_review_required() -> None:
 
 async def test_workflow_output_service_materializes_downstream_records() -> None:
     import uuid
+
     state = create_replay_state()
 
     result = await WorkflowReplayRunner(

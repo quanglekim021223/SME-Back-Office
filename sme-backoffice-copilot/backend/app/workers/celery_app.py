@@ -42,10 +42,9 @@ def create_celery_app(settings: Settings | None = None) -> Celery:
     # Upstash uses TLS-only endpoints, while local Docker Redis is plaintext.
     # Celery rejects SSL options paired with a redis:// URL, so configure TLS
     # only when both broker and result backend explicitly use rediss://.
-    if (
-        resolved_settings.celery_broker_url.startswith("rediss://")
-        and resolved_settings.celery_result_backend.startswith("rediss://")
-    ):
+    if resolved_settings.celery_broker_url.startswith(
+        "rediss://"
+    ) and resolved_settings.celery_result_backend.startswith("rediss://"):
         celery_config["broker_use_ssl"] = {"ssl_cert_reqs": CERT_REQUIRED}
         celery_config["redis_backend_use_ssl"] = {"ssl_cert_reqs": CERT_REQUIRED}
 

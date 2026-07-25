@@ -226,7 +226,8 @@ class PrivacyPolicyGateAgent:
         context: AgentExecutionContext,
         handoff: AgentHandoffEnvelope | None = None,
     ) -> AgentRunResult:
-        """Allow local processing, de-identify sensitive data, and route to extraction."""
+        """Allow local processing, de-identify sensitive data,
+        and route to extraction."""
 
         context_error = validate_agent_context(
             state=state,
@@ -424,8 +425,7 @@ async def run_ocr_provider_if_available(
                 "provider_name": getattr(context.ocr_provider, "name", None),
                 "task_type": ProviderTaskType.DOCUMENT_OCR.value,
                 "media_type": getattr(input_data, "media_type", None),
-                "has_local_path": getattr(input_data, "local_path", None)
-                is not None,
+                "has_local_path": getattr(input_data, "local_path", None) is not None,
                 "workflow_run_id": str(context.workflow_run_id)
                 if context.workflow_run_id is not None
                 else None,

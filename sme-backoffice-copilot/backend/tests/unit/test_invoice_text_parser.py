@@ -88,6 +88,7 @@ Payment is due in 14 days
 Please make checks payable to: Your Company Inc.
 """
 
+
 def test_invoice_text_parser_extracts_metadata_from_common_invoice_ocr() -> None:
     payload = parse_invoice_metadata_group_payload(
         ocr_text=SAMPLE_INVOICE_OCR_TEXT,

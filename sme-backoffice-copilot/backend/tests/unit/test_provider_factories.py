@@ -78,7 +78,9 @@ def test_provider_factories_wrap_azure_di_when_preprocessing_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OCR_PROVIDER", "azure_di")
-    monkeypatch.setenv("AZURE_DI_ENDPOINT", "https://example.cognitiveservices.azure.com/")
+    monkeypatch.setenv(
+        "AZURE_DI_ENDPOINT", "https://example.cognitiveservices.azure.com/"
+    )
     monkeypatch.setenv("AZURE_DI_KEY", "test-key")
     monkeypatch.setenv("OCR_PREPROCESSING_ENABLED", "true")
     settings = Settings(_env_file=None)
@@ -93,7 +95,9 @@ def test_provider_factories_leave_azure_di_unwrapped_when_preprocessing_disabled
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OCR_PROVIDER", "azure_di")
-    monkeypatch.setenv("AZURE_DI_ENDPOINT", "https://example.cognitiveservices.azure.com/")
+    monkeypatch.setenv(
+        "AZURE_DI_ENDPOINT", "https://example.cognitiveservices.azure.com/"
+    )
     monkeypatch.setenv("AZURE_DI_KEY", "test-key")
     monkeypatch.setenv("OCR_PREPROCESSING_ENABLED", "false")
     settings = Settings(_env_file=None)

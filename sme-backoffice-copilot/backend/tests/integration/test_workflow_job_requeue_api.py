@@ -15,11 +15,7 @@ class FakeWorkflowJobRepository:
 
     async def get_job_for_tenant(self, *, job_id, tenant_id, for_update=False):
         del for_update
-        if (
-            self.job is None
-            or self.job.id != job_id
-            or self.job.tenant_id != tenant_id
-        ):
+        if self.job is None or self.job.id != job_id or self.job.tenant_id != tenant_id:
             return None
         return self.job
 

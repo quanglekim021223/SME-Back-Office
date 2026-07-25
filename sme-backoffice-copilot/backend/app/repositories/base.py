@@ -80,4 +80,3 @@ class TenantScopedRepository[ModelT: Base](BaseRepository[ModelT]):
         )
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
-

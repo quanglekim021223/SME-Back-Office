@@ -49,9 +49,7 @@ class InvoiceRepository(TenantScopedRepository[Invoice]):
         total = count_result.scalar_one()
 
         items_query = (
-            base_query.order_by(Invoice.created_at.desc())
-            .offset(offset)
-            .limit(limit)
+            base_query.order_by(Invoice.created_at.desc()).offset(offset).limit(limit)
         )
         result = await self.session.execute(items_query)
         return list(result.scalars().all()), total

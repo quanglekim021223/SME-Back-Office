@@ -12,7 +12,6 @@ from app.repositories.base import TenantScopedRepository
 
 
 class WorkflowRuntimeRepository(TenantScopedRepository[WorkflowRun]):
-
     """Repository for durable workflow runtime records."""
 
     def __init__(self, session: AsyncSession) -> None:
@@ -32,7 +31,6 @@ class WorkflowRuntimeRepository(TenantScopedRepository[WorkflowRun]):
         )
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
-
 
     def add_workflow_run(self, workflow_run: WorkflowRun) -> WorkflowRun:
         """Stage a workflow run for insertion."""

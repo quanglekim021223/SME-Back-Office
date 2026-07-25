@@ -1,4 +1,5 @@
-"""Unit tests for the prebuilt-invoice fast-path skip and fallback logic in the workflows.
+"""Unit tests for the prebuilt-invoice fast-path skip and fallback logic
+in the workflows.
 
 Covers:
 - Fast-path skip: if a group is already in scratchpad, Metadata/Table/Totals
@@ -12,9 +13,13 @@ Covers:
 from __future__ import annotations
 
 from uuid import uuid4
-import pytest
-from pydantic import ValidationError
 
+import pytest
+
+from app.providers import (
+    ProviderRuntime,
+    build_default_provider_routing_config,
+)
 from app.workflows import (
     INVOICE_METADATA_GROUP_KEY,
     INVOICE_TABLE_GROUP_KEY,
@@ -22,7 +27,6 @@ from app.workflows import (
     AgentExecutionContext,
     AgentHandoffEnvelope,
     AgentRunStatus,
-    ConfidenceLevel,
     HandoffType,
     MetadataExtractorAgent,
     TableExtractorAgent,
@@ -32,8 +36,6 @@ from app.workflows import (
     create_total_amount_correction_signal,
 )
 from app.workflows.invoice_extraction import is_scratchpad_group_populated
-from app.providers import MockLLMProvider, ProviderRuntime, build_default_provider_routing_config
-
 
 # ─── Mock LLM Provider that tracks invocations ────────────────────────────────
 
@@ -90,6 +92,7 @@ class InvocationsTrackingLLMProvider:
                 "confidence": "high",
             }
         from app.providers.llm import LLMGenerationResult
+
         return LLMGenerationResult(
             provider_name=self.name,
             model_name="mock-model",
@@ -118,7 +121,8 @@ def _make_state() -> WorkflowState:
         document_id=uuid4(),
         document_type="invoice",
     )
-    # Ensure some fallback OCR text is present to prevent layout analytical fallbacks from crashing
+    # Ensure some fallback OCR text is present to prevent layout analytical
+    # fallbacks from crashing
     state.scratchpad["ocr_full_text"] = "Invoice # INV-123\nTotal $100.00"
     return state
 
@@ -166,7 +170,8 @@ def test_is_scratchpad_group_populated_conditions() -> None:
 
 @pytest.mark.asyncio
 async def test_fast_path_skip_all_agents() -> None:
-    """If all three groups are already populated in scratchpad, no LLM calls are made."""
+    """If all three groups are already populated in scratchpad,
+    no LLM calls are made."""
     state = _make_state()
     # Pre-populate scratchpad
     state.scratchpad[INVOICE_METADATA_GROUP_KEY] = {
@@ -214,7 +219,8 @@ async def test_fast_path_skip_all_agents() -> None:
 
 @pytest.mark.asyncio
 async def test_adaptive_fallback_single_agent_executes() -> None:
-    """If metadata is missing but table and totals are present, only MetadataExtractorAgent runs LLM."""
+    """If metadata is missing but table and totals are present,
+    only MetadataExtractorAgent runs LLM."""
     state = _make_state()
     # Pre-populate table and totals, leave metadata empty
     state.scratchpad[INVOICE_TABLE_GROUP_KEY] = {
@@ -285,7 +291,8 @@ async def test_low_confidence_azure_total_uses_ocr_fallback_with_mock_llm() -> N
 
 @pytest.mark.asyncio
 async def test_qa_correction_bypasses_fast_path() -> None:
-    """If a QA correction signal is received, the agent executes LLM despite scratchpad data."""
+    """If a QA correction signal is received, the agent executes LLM
+    despite scratchpad data."""
     state = _make_state()
     state.scratchpad[INVOICE_TOTALS_GROUP_KEY] = {
         "schema_version": "invoice-totals-group.v1",
@@ -314,7 +321,9 @@ async def test_qa_correction_bypasses_fast_path() -> None:
         qa_error_signal=correction_signal,
     )
 
-    res_tot = await TotalsExtractorAgent().run(state=state, context=context, handoff=handoff_envelope)
+    res_tot = await TotalsExtractorAgent().run(
+        state=state, context=context, handoff=handoff_envelope
+    )
 
     # Totals agent must invoke LLM because of the correction signal
     assert tracking_provider.calls == ["invoice-totals-group.v1"]

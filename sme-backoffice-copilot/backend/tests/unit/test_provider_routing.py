@@ -94,9 +94,7 @@ async def test_provider_runtime_routes_mock_llm_with_cost_tracking() -> None:
     assert invocation.cost.total_cost > Decimal("0")
     assert invocation.cost.currency == "USD"
     snapshot = metrics_registry.snapshot()
-    metric = snapshot["provider_calls"][
-        "invoice_metadata_extraction:mock_llm:mock-llm"
-    ]
+    metric = snapshot["provider_calls"]["invoice_metadata_extraction:mock_llm:mock-llm"]
     assert metric["count"] == 1
     assert metric["input_tokens"] == invocation.cost.input_tokens
     assert metric["output_tokens"] == invocation.cost.output_tokens

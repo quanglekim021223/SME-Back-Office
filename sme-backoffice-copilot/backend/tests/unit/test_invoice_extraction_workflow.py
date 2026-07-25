@@ -806,8 +806,7 @@ async def test_qa_validation_agent_flags_party_role_confusion() -> None:
 
     assert result.status == AgentRunStatus.REVIEW_REQUIRED
     assert any(
-        signal.code == "ERR_PARTY_ROLE_CONFUSION"
-        for signal in result.qa_error_signals
+        signal.code == "ERR_PARTY_ROLE_CONFUSION" for signal in result.qa_error_signals
     )
 
 

@@ -629,10 +629,9 @@ def merge_provider_payload_with_ocr_fallback(
             fallback_value = fallback_payload.get(key)
             if isinstance(fallback_value, str) and fallback_value.strip():
                 merged[key] = fallback_value
-        if (
-            fallback_payload.get("due_date") is None
-            and merged.get("due_date") == merged.get("issue_date")
-        ):
+        if fallback_payload.get("due_date") is None and merged.get(
+            "due_date"
+        ) == merged.get("issue_date"):
             merged["due_date"] = None
         merge_evidence_refs(merged, fallback_payload)
         return merged
@@ -656,8 +655,7 @@ def merge_provider_payload_with_ocr_fallback(
             keys=("subtotal_amount", "tax_amount", "total_amount", "currency"),
         )
         if any(
-            merged.get(key)
-            for key in ("subtotal_amount", "tax_amount", "total_amount")
+            merged.get(key) for key in ("subtotal_amount", "tax_amount", "total_amount")
         ):
             merged["extraction_status"] = "extracted"
         merge_evidence_refs(merged, fallback_payload)
@@ -1270,7 +1268,6 @@ def should_use_ocr_totals_for_low_confidence_prebuilt_invoice(
         and existing.get("confidence") == "low"
         and getattr(context.llm_provider, "name", None) == "mock_llm"
     )
-
 
 
 class MetadataExtractorAgent:

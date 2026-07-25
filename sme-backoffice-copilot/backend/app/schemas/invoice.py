@@ -201,9 +201,7 @@ class InvoiceDetailResponse(InvoiceSummaryResponse):
     classification_proposals: list[ClassificationProposalResponse] = Field(
         default_factory=list
     )
-    reconciliations: list[InvoiceReconciliationResponse] = Field(
-        default_factory=list
-    )
+    reconciliations: list[InvoiceReconciliationResponse] = Field(default_factory=list)
 
     @classmethod
     def from_model(cls, invoice: Invoice) -> InvoiceDetailResponse:
@@ -217,8 +215,7 @@ class InvoiceDetailResponse(InvoiceSummaryResponse):
             notes=invoice.notes,
             source_processing_run_id=invoice.source_processing_run_id,
             line_items=[
-                InvoiceLineItemResponse.from_model(item)
-                for item in invoice.line_items
+                InvoiceLineItemResponse.from_model(item) for item in invoice.line_items
             ],
             classification_proposals=[
                 ClassificationProposalResponse.from_model(proposal)

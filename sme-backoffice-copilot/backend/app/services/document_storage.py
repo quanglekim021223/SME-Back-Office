@@ -334,10 +334,15 @@ class AzureBlobDocumentStorage:
         )
 
     def _download(self, object_key: str) -> bytes:
-        content = self._client().get_blob_client(
-            container=self.container,
-            blob=object_key,
-        ).download_blob().readall()
+        content = (
+            self._client()
+            .get_blob_client(
+                container=self.container,
+                blob=object_key,
+            )
+            .download_blob()
+            .readall()
+        )
         return bytes(content)
 
     def _client(self) -> Any:

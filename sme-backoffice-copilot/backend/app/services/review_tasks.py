@@ -385,8 +385,7 @@ class ReviewTaskDecisionService:
     ) -> None:
         self.persistence = persistence
         self.invoice_approved_publisher = (
-            invoice_approved_publisher
-            or InProcessInvoiceApprovedPublisher(persistence)
+            invoice_approved_publisher or InProcessInvoiceApprovedPublisher(persistence)
         )
 
     @classmethod

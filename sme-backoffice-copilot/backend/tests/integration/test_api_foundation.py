@@ -284,9 +284,7 @@ def test_ops_metrics_endpoint_returns_local_metrics(client: TestClient) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["review_queue_size"][
-        "tenant:tenant-1:status:open:type:all"
-    ] == 4
+    assert payload["review_queue_size"]["tenant:tenant-1:status:open:type:all"] == 4
     assert payload["correction_rate"] == {
         "correction_count": 1,
         "review_action_count": 1,

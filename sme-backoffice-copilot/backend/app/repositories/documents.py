@@ -84,4 +84,3 @@ class DocumentRepository(TenantScopedRepository[Document]):
         )
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
-
