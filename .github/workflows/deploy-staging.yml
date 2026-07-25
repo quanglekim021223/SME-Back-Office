@@ -7,6 +7,7 @@ on:
       - main
     paths:
       - "sme-backoffice-copilot/backend/**"
+      - ".github/workflows/deploy-staging.yml"
 
 permissions:
   contents: read
@@ -26,8 +27,33 @@ env:
   DISPATCHER_APP: ca-sme-backoffice-dispatcher-stg
 
 jobs:
+  test:
+    name: Lint and test backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sme-backoffice-copilot/backend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: make install
+
+      - name: Run formatting, lint, and type checks
+        run: make lint
+
+      - name: Run unit tests
+        run: make test-unit
+
   deploy:
     name: Build and deploy staging backend
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -82,3 +108,17 @@ jobs:
           az containerapp show --name "$API_APP" --resource-group "$RESOURCE_GROUP" --query '{name:name,revision:properties.latestRevisionName,image:properties.template.containers[0].image}' --output table
           az containerapp show --name "$WORKER_APP" --resource-group "$RESOURCE_GROUP" --query '{name:name,revision:properties.latestRevisionName,image:properties.template.containers[0].image}' --output table
           az containerapp show --name "$DISPATCHER_APP" --resource-group "$RESOURCE_GROUP" --query '{name:name,revision:properties.latestRevisionName,image:properties.template.containers[0].image}' --output table
+
+      - name: Smoke test staging API health
+        shell: bash
+        run: |
+          FQDN=$(az containerapp show \
+            --name "$API_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query 'properties.configuration.ingress.fqdn' \
+            --output tsv)
+
+          test -n "$FQDN"
+          curl --fail --show-error --silent \
+            --retry 12 --retry-all-errors --retry-delay 5 \
+            "https://${FQDN}/health"
