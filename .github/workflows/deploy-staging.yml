@@ -1,0 +1,84 @@
+name: Deploy Staging Backend
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "sme-backoffice-copilot/backend/**"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-staging-backend
+  cancel-in-progress: false
+
+env:
+  RESOURCE_GROUP: rg-sme-backoffice-staging
+  ACR_NAME: acrsmebackofficestg
+  ACR_LOGIN_SERVER: acrsmebackofficestg-cdhpa5ftchfgbbbe.azurecr.io
+  IMAGE_REPOSITORY: sme-backoffice-api
+  API_APP: ca-sme-backoffice-api-stg
+  WORKER_APP: ca-sme-backoffice-worker-stg
+  DISPATCHER_APP: ca-sme-backoffice-dispatcher-stg
+
+jobs:
+  deploy:
+    name: Build and deploy staging backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Container Apps Azure CLI extension
+        run: az extension add --name containerapp --upgrade --yes
+
+      - name: Build and push backend image
+        id: image
+        shell: bash
+        run: |
+          IMAGE_TAG="sha-${GITHUB_SHA}"
+          IMAGE="${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${IMAGE_TAG}"
+
+          az acr login --name "$ACR_NAME"
+          docker build \
+            --file sme-backoffice-copilot/backend/Dockerfile \
+            --tag "$IMAGE" \
+            sme-backoffice-copilot/backend
+          docker push "$IMAGE"
+
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Roll out image to API, worker, and dispatcher
+        shell: bash
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          az containerapp update \
+            --name "$API_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$IMAGE"
+          az containerapp update \
+            --name "$WORKER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$IMAGE"
+          az containerapp update \
+            --name "$DISPATCHER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$IMAGE"
+
+      - name: Verify active revisions
+        run: |
+          az containerapp show --name "$API_APP" --resource-group "$RESOURCE_GROUP" --query '{name:name,revision:properties.latestRevisionName,image:properties.template.containers[0].image}' --output table
+          az containerapp show --name "$WORKER_APP" --resource-group "$RESOURCE_GROUP" --query '{name:name,revision:properties.latestRevisionName,image:properties.template.containers[0].image}' --output table
+          az containerapp show --name "$DISPATCHER_APP" --resource-group "$RESOURCE_GROUP" --query '{name:name,revision:properties.latestRevisionName,image:properties.template.containers[0].image}' --output table
