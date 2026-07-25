@@ -17,7 +17,7 @@ def test_dev_reset_allows_local_environment() -> None:
 
 def test_dev_reset_rejects_non_local_environment() -> None:
     with pytest.raises(RuntimeError, match="Refusing to reset data"):
-        ensure_dev_reset_allowed(settings=Settings(app_env="production"))
+        ensure_dev_reset_allowed(settings=Settings.model_construct(app_env="production"))
 
 
 def test_dev_reset_delete_order_keeps_documents_last() -> None:
@@ -31,8 +31,8 @@ def test_dev_reset_delete_order_keeps_documents_last() -> None:
 def test_dev_reset_path_guard_rejects_path_outside_upload_root() -> None:
     with pytest.raises(RuntimeError, match="outside upload root"):
         assert_safe_upload_reset_path(
-            root_path=Path("/tmp/sme/uploads"),
-            target_path=Path("/tmp/other"),
+            root_path=Path("/tmp/sme/uploads/data"),
+            target_path=Path("/tmp/other/nested/path"),
         )
 
 

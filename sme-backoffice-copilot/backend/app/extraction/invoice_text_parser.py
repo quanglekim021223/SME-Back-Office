@@ -577,7 +577,9 @@ def find_total_amount(text: str) -> str | None:
         lower_line = line.lower()
         if "total" not in lower_line:
             continue
-        if "subtotal" in lower_line or "sub total" in lower_line:
+        if ("subtotal" in lower_line or "sub total" in lower_line) and not re.search(
+            r"(?<!sub)\btotal\b", lower_line
+        ):
             continue
         explicit_total_match = re.search(
             r"(?<!sub)\btotal\b(?:\s*\(?[A-Z]{3}\)?)?[^0-9$]{0,24}" + MONEY_PATTERN,
