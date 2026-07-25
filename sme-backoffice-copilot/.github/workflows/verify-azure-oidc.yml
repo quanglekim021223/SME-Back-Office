@@ -1,0 +1,40 @@
+name: Verify Azure OIDC
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify:
+    name: Verify Azure access
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Verify subscription and staging apps
+        shell: bash
+        run: |
+          az account show --output table
+          az containerapp show \
+            --name ca-sme-backoffice-api-stg \
+            --resource-group rg-sme-backoffice-staging \
+            --query '{name:name,latestRevision:properties.latestRevisionName}' \
+            --output table
+          az containerapp show \
+            --name ca-sme-backoffice-worker-stg \
+            --resource-group rg-sme-backoffice-staging \
+            --query '{name:name,latestRevision:properties.latestRevisionName}' \
+            --output table
+          az containerapp show \
+            --name ca-sme-backoffice-dispatcher-stg \
+            --resource-group rg-sme-backoffice-staging \
+            --query '{name:name,latestRevision:properties.latestRevisionName}' \
+            --output table
