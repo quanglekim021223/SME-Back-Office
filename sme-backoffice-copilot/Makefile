@@ -20,6 +20,8 @@ backend-lint:
 backend-test:
 	$(MAKE) -C backend test
 
+test-unit: backend-test-unit
+
 backend-test-unit:
 	$(MAKE) -C backend test-unit
 

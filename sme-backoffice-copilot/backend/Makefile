@@ -1,4 +1,5 @@
-PYTHON ?= python3
+VENV_PYTHON := $(shell if [ -f ../.venv/bin/python ]; then echo "../.venv/bin/python"; elif [ -n "$$VIRTUAL_ENV" ]; then echo "$$VIRTUAL_ENV/bin/python"; else echo "python3"; fi)
+PYTHON ?= $(VENV_PYTHON)
 
 .PHONY: install format lint test test-unit test-integration db-upgrade db-downgrade seed-dev dev-reset
 
