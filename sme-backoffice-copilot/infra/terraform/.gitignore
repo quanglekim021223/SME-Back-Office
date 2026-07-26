@@ -1,0 +1,9 @@
+# Local Terraform state and inputs can contain infrastructure metadata or secrets.
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+terraform.tfvars.json
+crash.log
+crash.*.log

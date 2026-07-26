@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars. It is ignored by Git.
+# First apply: leave enable_container_apps=false to provision Azure foundation.
+project             = "smebackoffice"
+environment         = "staging"
+location            = "southeastasia"
+resource_group_name = "rg-sme-backoffice-staging-recreated"
+frontend_origin     = "https://sme-back-office.vercel.app"
+
+enable_container_apps = false
+
+# Runtime apply only. Do not paste real values into a committed file.
+# container_image                 = "<acr-login-server>/sme-backoffice-api:<immutable-tag>"
+# database_url                    = "postgresql+asyncpg://<user>:<password>@<neon-host>/<database>?ssl=require"
+# celery_broker_url               = "rediss://:<token>@<upstash-host>:6379/0?ssl_cert_reqs=CERT_REQUIRED"
+# celery_result_backend_url       = "rediss://:<token>@<upstash-host>:6379/1?ssl_cert_reqs=CERT_REQUIRED"
+# provider_rate_limit_redis_url   = "rediss://:<token>@<upstash-host>:6379/2?ssl_cert_reqs=CERT_REQUIRED"
