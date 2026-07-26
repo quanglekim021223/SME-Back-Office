@@ -68,5 +68,9 @@ module = [
   "cv2",
   "numpy",
   "redis",
+  "redis.*",
+  "azure.*",
+  "langgraph",
+  "langgraph.*",
 ]
 ignore_missing_imports = true
