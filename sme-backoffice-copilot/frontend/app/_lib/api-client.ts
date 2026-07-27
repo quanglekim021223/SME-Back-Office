@@ -371,6 +371,39 @@ export function uploadDocument({
   );
 }
 
+export type DownloadedDocument = {
+  blob: Blob;
+  contentType: string | null;
+  fileName: string | null;
+};
+
+export async function downloadDocument(
+  documentId: string,
+): Promise<DownloadedDocument> {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(getDevAuthHeaders())) {
+    headers.set(key, value);
+  }
+
+  const response = await fetch(
+    buildApiUrl(`/documents/${documentId}/download`),
+    {
+      headers,
+      method: "GET",
+    },
+  );
+
+  if (!response.ok) {
+    throw await buildApiClientError(response);
+  }
+
+  return {
+    blob: await response.blob(),
+    contentType: response.headers.get("content-type"),
+    fileName: getDownloadFileName(response.headers.get("content-disposition")),
+  };
+}
+
 export function getWorkflowRun(workflowRunId: string) {
   return apiGet<WorkflowRunStatusResponse>(`/workflow-runs/${workflowRunId}`);
 }
@@ -661,6 +694,11 @@ function inferUploadMediaType(file: File) {
   }
 
   return file.type || "application/octet-stream";
+}
+
+function getDownloadFileName(contentDisposition: string | null) {
+  const match = contentDisposition?.match(/filename="([^"]+)"/i);
+  return match?.[1] ?? null;
 }
 
 function getDevAuthHeaders() {

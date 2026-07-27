@@ -598,6 +598,7 @@ def build_review_task_for_invoice(
     provider_errors = result.state.scratchpad.get(PROVIDER_EXTRACTION_ERRORS_KEY, [])
     ocr_text_preview = ocr_text_preview_from_state(result)
     ocr_layout_diagnostics = ocr_layout_diagnostics_from_state(result)
+    ocr_layout_blocks = ocr_layout_blocks_from_state(result)
     invoice_label = invoice.invoice_number or str(invoice.id)
     return ReviewTask(
         id=uuid4(),
@@ -632,6 +633,7 @@ def build_review_task_for_invoice(
             else [],
             "ocr_text_preview": ocr_text_preview,
             "ocr_layout_diagnostics": ocr_layout_diagnostics,
+            "ocr_layout_blocks": ocr_layout_blocks,
         },
     )
 
@@ -837,6 +839,18 @@ def ocr_layout_diagnostics_from_state(
 
     diagnostics = result.state.scratchpad.get("ocr_layout_diagnostics")
     return diagnostics if isinstance(diagnostics, dict) else None
+
+
+def ocr_layout_blocks_from_state(
+    result: WorkflowReplayResult,
+) -> list[dict[str, object]]:
+    """Return bounded OCR regions for the human evidence viewer."""
+
+    blocks = result.state.scratchpad.get("ocr_layout_blocks")
+    if not isinstance(blocks, list):
+        return []
+
+    return [dict(block) for block in blocks[:250] if isinstance(block, dict)]
 
 
 def resolve_invoice_currency(

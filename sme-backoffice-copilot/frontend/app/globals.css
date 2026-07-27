@@ -1049,10 +1049,26 @@ textarea:focus-visible {
   gap: 1rem;
 }
 
+.review-side-stack {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+}
+
 .review-evidence-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(22rem, 0.75fr);
   gap: 1rem;
+}
+
+.review-evidence-layout-single {
+  grid-template-columns: minmax(22rem, 0.75fr);
+  justify-content: end;
+}
+
+.review-evidence-layout > .panel-card-large {
+  align-self: start;
+  align-content: start;
 }
 
 .card-header-compact {
@@ -1070,6 +1086,10 @@ textarea:focus-visible {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.65rem;
+}
+
+.review-proposal-fields {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .proposal-field {
@@ -1105,6 +1125,25 @@ textarea:focus-visible {
 
 .proposal-field-emphasis strong {
   color: var(--primary-dark);
+}
+
+.proposal-field-selectable {
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.proposal-field-selectable:hover,
+.proposal-field-selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgb(20 184 166 / 14%);
+}
+
+.proposal-field small {
+  color: var(--primary-dark);
+  font-size: 0.74rem;
+  font-weight: 800;
 }
 
 .proposal-section {
@@ -1502,8 +1541,166 @@ textarea:focus-visible {
   mask-image: linear-gradient(135deg, transparent 10%, black 70%);
 }
 
+.source-evidence-viewer {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.evidence-viewer-toolbar,
+.evidence-viewer-metadata {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.evidence-viewer-toolbar {
+  justify-content: space-between;
+}
+
+.evidence-viewer-metadata {
+  min-width: 0;
+}
+
+.evidence-viewer-metadata span,
+.evidence-viewer-confidence {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.evidence-viewer-metadata strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.evidence-viewer-stage {
+  position: relative;
+  min-height: 17rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+}
+
+.evidence-viewer-message {
+  display: grid;
+  min-height: 17rem;
+  place-items: center;
+  margin: 0;
+  padding: 1rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.evidence-viewer-error {
+  color: #b42318;
+}
+
+.evidence-viewer-image-canvas {
+  position: relative;
+  width: 100%;
+}
+
+.evidence-viewer-image {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.evidence-viewer-overlay {
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  border: 2px solid #0f766e;
+  background: rgb(45 212 191 / 22%);
+  box-shadow: 0 0 0 999px rgb(15 23 42 / 9%);
+  pointer-events: none;
+}
+
+.evidence-viewer-document {
+  display: block;
+  width: 100%;
+  min-width: 100%;
+  min-height: 34rem;
+  border: 0;
+  background: white;
+}
+
+.evidence-viewer-inspection {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.evidence-viewer-inspection > p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+
+.evidence-viewer-region-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.evidence-viewer-region {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem;
+  align-items: center;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.evidence-viewer-region:hover,
+.evidence-viewer-region-selected {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.evidence-viewer-region span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.evidence-viewer-region small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
 .action-panel {
   align-content: start;
+}
+
+.source-evidence-panel {
+  display: grid;
+  align-content: start;
+  gap: 0.8rem;
+}
+
+.source-evidence-panel .evidence-viewer-region-list {
+  max-height: 11rem;
+  overflow-y: auto;
+  padding-right: 0.2rem;
 }
 
 .form-field {

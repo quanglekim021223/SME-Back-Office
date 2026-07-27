@@ -143,6 +143,10 @@ async def test_workflow_output_service_materializes_invoice_review_task() -> Non
     assert isinstance(diagnostics, dict)
     assert diagnostics["provider_name"] == "mock_ocr"
     assert diagnostics["text_block_count"] > 0
+    layout_blocks = materialized.review_task.metadata_["ocr_layout_blocks"]
+    assert isinstance(layout_blocks, list)
+    assert layout_blocks
+    assert isinstance(layout_blocks[0], dict)
     assert persistence.document_status_updates == [
         (state.tenant_id, state.document_id, DocumentStatus.REVIEW_REQUIRED)
     ]

@@ -23,6 +23,13 @@ import {
   type ReviewTaskStatus,
   type ReviewTaskType,
 } from "../../_lib/api-client";
+import {
+  type EvidenceFieldKind,
+  findMatchingBlock,
+  SourceEvidencePreview,
+  SourceEvidenceRegions,
+  type OcrLayoutBlock,
+} from "./source-evidence-viewer";
 
 type ReviewTaskDetailClientProps = {
   taskId: string;
@@ -43,6 +50,14 @@ export function ReviewTaskDetailClient({
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [comment, setComment] = useState("");
   const [correctionJson, setCorrectionJson] = useState("");
+  const [selectedEvidenceValue, setSelectedEvidenceValue] = useState<
+    string | null
+  >(null);
+  const [selectedEvidenceField, setSelectedEvidenceField] =
+    useState<EvidenceFieldKind | null>(null);
+  const [selectedEvidenceBlockId, setSelectedEvidenceBlockId] = useState<
+    string | null
+  >(null);
 
   async function refreshTask() {
     setLoadState("loading");
@@ -51,7 +66,15 @@ export function ReviewTaskDetailClient({
     try {
       const response = await getReviewTask(taskId);
       setTask(response);
-      setCorrectionJson(defaultCorrectionJson(response.task_type));
+      setCorrectionJson(
+        defaultCorrectionJson(
+          response.task_type,
+          buildWorkflowMetadataView(response.metadata),
+        ),
+      );
+      setSelectedEvidenceValue(null);
+      setSelectedEvidenceField(null);
+      setSelectedEvidenceBlockId(null);
       setLoadState("loaded");
     } catch (error) {
       setErrorMessage(formatApiError(error));
@@ -91,6 +114,42 @@ export function ReviewTaskDetailClient({
     () => buildProposalView(task, workflowMetadata),
     [task, workflowMetadata],
   );
+  const activeEvidenceBlock = useMemo(
+    () =>
+      workflowMetadata.layoutBlocks.find(
+        (block) => block.id === selectedEvidenceBlockId,
+      ) ??
+      findMatchingBlock(
+        workflowMetadata.layoutBlocks,
+        selectedEvidenceValue,
+        selectedEvidenceField,
+      ),
+    [
+      selectedEvidenceBlockId,
+      selectedEvidenceField,
+      selectedEvidenceValue,
+      workflowMetadata.layoutBlocks,
+    ],
+  );
+
+  function selectEvidenceValue(
+    value: string | null,
+    fieldKind: EvidenceFieldKind,
+  ) {
+    if (!value) {
+      return;
+    }
+
+    setSelectedEvidenceBlockId(null);
+    setSelectedEvidenceField(fieldKind);
+    setSelectedEvidenceValue(value);
+  }
+
+  function selectEvidenceBlock(blockId: string) {
+    setSelectedEvidenceField(null);
+    setSelectedEvidenceValue(null);
+    setSelectedEvidenceBlockId(blockId);
+  }
 
   async function runDecision(action: "approve" | "reject") {
     if (!task || actionState === "running") {
@@ -217,9 +276,9 @@ export function ReviewTaskDetailClient({
           <p className="eyebrow">Review task detail</p>
           <h2>{task.title}</h2>
           <p>
-            Inspect the source evidence placeholder, then approve, reject, or
-            submit a corrected proposal. Actions are persisted through the
-            review API and recorded in the audit trail.
+            Inspect the original document and OCR evidence, then approve,
+            reject, or submit a corrected proposal. Actions are persisted
+            through the review API and recorded in the audit trail.
           </p>
         </div>
         <Link className="button button-secondary" href="/review">
@@ -261,219 +320,253 @@ export function ReviewTaskDetailClient({
                 "No detailed description is attached yet. Future workflow steps can provide validator errors, agent rationale, and proposed field diffs here."}
             </p>
           </div>
-
-          <div className="review-description">
-            <p className="eyebrow">Source evidence placeholder</p>
-            <div className="source-evidence-placeholder">
-              <div>
-                <span>{task.target_type}</span>
-                <strong>Evidence viewer reserved</strong>
-                <p>
-                  OCR text spans, PDF image regions, invoice line highlights,
-                  bank transaction excerpts, and validator error signals will be
-                  rendered in this area.
-                </p>
-              </div>
-              <div className="evidence-grid-overlay" aria-hidden="true" />
-            </div>
-          </div>
         </article>
 
-        <aside className="panel-card action-panel">
-          <div>
-            <p className="eyebrow">Human action</p>
-            <h3>Approve, reject, or correct</h3>
-          </div>
-
-          <label className="form-field">
-            <span>Reviewer comment</span>
-            <textarea
-              disabled={actionState === "running" || !isActionable}
-              onChange={(event) => setComment(event.target.value)}
-              placeholder="Add rationale for audit trail..."
-              rows={4}
-              value={comment}
-            />
-          </label>
-
-          <div className="action-row">
-            <button
-              className="button button-primary"
-              disabled={!isActionable || actionState === "running"}
-              onClick={() => void runDecision("approve")}
-              type="button"
-            >
-              {pendingAction === "approve" ? "Approving..." : "Approve"}
-            </button>
-            <button
-              className="button button-ghost"
-              disabled={!isActionable || actionState === "running"}
-              onClick={() => void runDecision("reject")}
-              type="button"
-            >
-              {pendingAction === "reject" ? "Rejecting..." : "Reject"}
-            </button>
-          </div>
-
-          {actionProgress ? (
-            <div className="action-progress" role="status" aria-live="polite">
-              <div className="action-progress-header">
-                <span className="action-progress-dot" aria-hidden="true" />
-                <strong>{actionProgress.title}</strong>
-              </div>
-              <p>{actionProgress.message}</p>
-              <div className="action-progress-bar" aria-hidden="true" />
-            </div>
-          ) : null}
-
-          <div className="correction-card">
+        <aside className="review-side-stack">
+          <section className="panel-card action-panel">
             <div>
-              <p className="eyebrow">Correction payload</p>
-              <p>
-                JSON body mapped to the task type. Extraction uses
-                <code> corrected_fields</code>; classification and
-                reconciliation map directly to proposal fields.
-              </p>
+              <p className="eyebrow">Human action</p>
+              <h3>Approve, reject, or correct</h3>
             </div>
-            <textarea
-              className="textarea-code"
-              disabled={!supportsCorrection || actionState === "running"}
-              onChange={(event) => setCorrectionJson(event.target.value)}
-              rows={8}
-              value={correctionJson}
-            />
-            <button
-              className="button button-secondary"
-              disabled={
-                !isActionable ||
-                !supportsCorrection ||
-                actionState === "running"
-              }
-              onClick={() => void runCorrection()}
-              type="button"
-            >
-              {pendingAction === "correction"
-                ? "Submitting correction..."
-                : "Submit correction"}
-            </button>
-          </div>
 
-          {actionMessage ? (
-            <div
-              className="action-feedback action-feedback-success"
-              role="status"
-            >
-              {actionMessage}
+            <label className="form-field">
+              <span>Reviewer comment</span>
+              <textarea
+                disabled={actionState === "running" || !isActionable}
+                onChange={(event) => setComment(event.target.value)}
+                placeholder="Add rationale for audit trail..."
+                rows={4}
+                value={comment}
+              />
+            </label>
+
+            <div className="action-row">
+              <button
+                className="button button-primary"
+                disabled={!isActionable || actionState === "running"}
+                onClick={() => void runDecision("approve")}
+                type="button"
+              >
+                {pendingAction === "approve" ? "Approving..." : "Approve"}
+              </button>
+              <button
+                className="button button-ghost"
+                disabled={!isActionable || actionState === "running"}
+                onClick={() => void runDecision("reject")}
+                type="button"
+              >
+                {pendingAction === "reject" ? "Rejecting..." : "Reject"}
+              </button>
             </div>
-          ) : null}
-          {errorMessage ? (
-            <div className="action-feedback action-feedback-error" role="alert">
-              {errorMessage}
+
+            {actionProgress ? (
+              <div className="action-progress" role="status" aria-live="polite">
+                <div className="action-progress-header">
+                  <span className="action-progress-dot" aria-hidden="true" />
+                  <strong>{actionProgress.title}</strong>
+                </div>
+                <p>{actionProgress.message}</p>
+                <div className="action-progress-bar" aria-hidden="true" />
+              </div>
+            ) : null}
+
+            <div className="correction-card">
+              <div>
+                <p className="eyebrow">Correction payload</p>
+                <p>
+                  JSON body mapped to the task type. Extraction uses
+                  <code> corrected_fields</code>; classification and
+                  reconciliation map directly to proposal fields.
+                </p>
+              </div>
+              <textarea
+                className="textarea-code"
+                disabled={!supportsCorrection || actionState === "running"}
+                onChange={(event) => setCorrectionJson(event.target.value)}
+                rows={8}
+                value={correctionJson}
+              />
+              <button
+                className="button button-secondary"
+                disabled={
+                  !isActionable ||
+                  !supportsCorrection ||
+                  actionState === "running"
+                }
+                onClick={() => void runCorrection()}
+                type="button"
+              >
+                {pendingAction === "correction"
+                  ? "Submitting correction..."
+                  : "Submit correction"}
+              </button>
             </div>
-          ) : null}
-          {!isActionable ? (
-            <small>
-              This task is no longer actionable because its status is{" "}
-              {formatStatus(task.status)}.
-            </small>
-          ) : null}
+
+            {actionMessage ? (
+              <div
+                className="action-feedback action-feedback-success"
+                role="status"
+              >
+                {actionMessage}
+              </div>
+            ) : null}
+            {errorMessage ? (
+              <div
+                className="action-feedback action-feedback-error"
+                role="alert"
+              >
+                {errorMessage}
+              </div>
+            ) : null}
+            {!isActionable ? (
+              <small>
+                This task is no longer actionable because its status is{" "}
+                {formatStatus(task.status)}.
+              </small>
+            ) : null}
+          </section>
         </aside>
       </section>
 
-      <section className="review-evidence-layout">
-        <article className="panel-card panel-card-large">
-          <div className="card-header">
-            <div>
-              <p className="eyebrow">{proposalView.eyebrow}</p>
-              <h3>{proposalView.title}</h3>
-            </div>
-            <span className="status-pill status-pill-muted">
-              {proposalView.statusLabel}
-            </span>
-          </div>
-
-          <div className="proposal-summary-grid">
-            {proposalView.fields.map((field) => (
-              <ProposalField
-                emphasis={field.emphasis}
-                key={field.label}
-                label={field.label}
-                value={field.value}
-              />
-            ))}
-          </div>
-
-          {proposalView.summary ? (
-            <div className="proposal-section proposal-note">
-              <p className="eyebrow">{proposalView.summaryLabel}</p>
-              <p>{proposalView.summary}</p>
-            </div>
-          ) : null}
-
-          {proposalView.chips.length > 0 ? (
-            <div className="proposal-section">
-              <p className="eyebrow">{proposalView.chipLabel}</p>
-              <div className="evidence-ref-list">
-                {proposalView.chips.map((chip, index) => (
-                  <code key={`${chip}-${index}`}>{chip}</code>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          {proposalView.kind === "extraction" ? (
-            <LineItemsPreview lineItems={workflowMetadata.lineItems} />
-          ) : null}
-        </article>
-
-        <article className="panel-card">
+      <section className="panel-card panel-card-large review-proposal-panel">
+        <div className="card-header">
           <div>
-            <p className="eyebrow">Diagnostics</p>
-            <h3>OCR and provider status</h3>
+            <p className="eyebrow">{proposalView.eyebrow}</p>
+            <h3>{proposalView.title}</h3>
           </div>
+          <span className="status-pill status-pill-muted">
+            {proposalView.statusLabel}
+          </span>
+        </div>
 
-          <div className="debug-stack">
-            <div className="debug-block">
-              <div className="card-header card-header-compact">
-                <h4>OCR text preview</h4>
-                <span className="status-pill status-pill-muted">
-                  {workflowMetadata.ocrPreview.length} chars
-                </span>
+        <div className="proposal-summary-grid review-proposal-fields">
+          {proposalView.fields.map((field) => (
+            <ProposalField
+              emphasis={field.emphasis}
+              isSelected={
+                proposalView.kind === "extraction" &&
+                selectedEvidenceField === field.evidenceKind
+              }
+              key={field.label}
+              label={field.label}
+              onSelect={
+                proposalView.kind === "extraction" &&
+                field.value &&
+                field.evidenceKind
+                  ? () => selectEvidenceValue(field.value, field.evidenceKind!)
+                  : undefined
+              }
+              value={field.value}
+            />
+          ))}
+        </div>
+
+        {proposalView.summary ? (
+          <div className="proposal-section proposal-note">
+            <p className="eyebrow">{proposalView.summaryLabel}</p>
+            <p>{proposalView.summary}</p>
+          </div>
+        ) : null}
+
+        {proposalView.chips.length > 0 ? (
+          <div className="proposal-section">
+            <p className="eyebrow">{proposalView.chipLabel}</p>
+            <div className="evidence-ref-list">
+              {proposalView.chips.map((chip, index) => (
+                <code key={`${chip}-${index}`}>{chip}</code>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </section>
+
+      <section
+        className={
+          proposalView.kind === "extraction"
+            ? "review-evidence-layout"
+            : "review-evidence-layout review-evidence-layout-single"
+        }
+      >
+        {proposalView.kind === "extraction" ? (
+          <article className="panel-card panel-card-large">
+            <div>
+              <p className="eyebrow">Original document</p>
+              <h3>Invoice preview</h3>
+            </div>
+            <SourceEvidencePreview
+              activeBlock={activeEvidenceBlock}
+              blocks={workflowMetadata.layoutBlocks}
+              documentId={task.document_id}
+            />
+            <LineItemsPreview lineItems={workflowMetadata.lineItems} />
+          </article>
+        ) : null}
+
+        <aside className="review-side-stack">
+          <section className="panel-card source-evidence-panel">
+            <div className="card-header">
+              <div>
+                <p className="eyebrow">Source evidence</p>
+                <h3>Selected evidence</h3>
               </div>
-              {workflowMetadata.ocrPreview ? (
-                <pre className="ocr-preview-text">
-                  {workflowMetadata.ocrPreview}
-                </pre>
-              ) : (
-                <p className="muted-copy">No OCR preview attached.</p>
-              )}
+            </div>
+            <SourceEvidenceRegions
+              activeBlock={activeEvidenceBlock}
+              blocks={workflowMetadata.layoutBlocks}
+              documentType={task.target_type}
+              onSelect={selectEvidenceBlock}
+            />
+          </section>
+
+          <section className="panel-card">
+            <div>
+              <p className="eyebrow">Diagnostics</p>
+              <h3>OCR and provider status</h3>
             </div>
 
-            <div className="debug-block">
-              <div className="card-header card-header-compact">
-                <h4>Provider extraction errors</h4>
-                <span className="status-pill status-pill-muted">
-                  {workflowMetadata.providerErrors.length}
-                </span>
-              </div>
-              {workflowMetadata.providerErrors.length > 0 ? (
-                <div className="provider-error-list">
-                  {workflowMetadata.providerErrors.map((error, index) => (
-                    <details key={`${error.agentName}-${index}`}>
-                      <summary>
-                        <span>{error.agentName ?? "provider"}</span>
-                        <code>{error.errorCode ?? "ERR_UNKNOWN"}</code>
-                      </summary>
-                      <pre>{error.errorMessage ?? "No error details."}</pre>
-                    </details>
-                  ))}
+            <div className="debug-stack">
+              <div className="debug-block">
+                <div className="card-header card-header-compact">
+                  <h4>OCR text preview</h4>
+                  <span className="status-pill status-pill-muted">
+                    {workflowMetadata.ocrPreview.length} chars
+                  </span>
                 </div>
-              ) : (
-                <p className="muted-copy">No provider errors recorded.</p>
-              )}
+                {workflowMetadata.ocrPreview ? (
+                  <pre className="ocr-preview-text">
+                    {workflowMetadata.ocrPreview}
+                  </pre>
+                ) : (
+                  <p className="muted-copy">No OCR preview attached.</p>
+                )}
+              </div>
+
+              <div className="debug-block">
+                <div className="card-header card-header-compact">
+                  <h4>Provider extraction errors</h4>
+                  <span className="status-pill status-pill-muted">
+                    {workflowMetadata.providerErrors.length}
+                  </span>
+                </div>
+                {workflowMetadata.providerErrors.length > 0 ? (
+                  <div className="provider-error-list">
+                    {workflowMetadata.providerErrors.map((error, index) => (
+                      <details key={`${error.agentName}-${index}`}>
+                        <summary>
+                          <span>{error.agentName ?? "provider"}</span>
+                          <code>{error.errorCode ?? "ERR_UNKNOWN"}</code>
+                        </summary>
+                        <pre>{error.errorMessage ?? "No error details."}</pre>
+                      </details>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="muted-copy">No provider errors recorded.</p>
+                )}
+              </div>
             </div>
-          </div>
-        </article>
+          </section>
+        </aside>
       </section>
 
       <section className="review-detail-layout">
@@ -531,21 +624,40 @@ function ProposalField({
   label,
   value,
   emphasis = false,
+  isSelected = false,
+  onSelect,
 }: {
   label: string;
   value: string | null;
   emphasis?: boolean;
+  isSelected?: boolean;
+  onSelect?: () => void;
 }) {
-  return (
-    <div
-      className={
-        emphasis ? "proposal-field proposal-field-emphasis" : "proposal-field"
-      }
-    >
+  const className = [
+    "proposal-field",
+    emphasis ? "proposal-field-emphasis" : "",
+    onSelect ? "proposal-field-selectable" : "",
+    isSelected ? "proposal-field-selected" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const content = (
+    <>
       <span>{label}</span>
       <strong>{value || "—"}</strong>
-    </div>
+      {onSelect ? <small>Inspect source</small> : null}
+    </>
   );
+
+  if (onSelect) {
+    return (
+      <button className={className} onClick={onSelect} type="button">
+        {content}
+      </button>
+    );
+  }
+
+  return <div className={className}>{content}</div>;
 }
 
 function LineItemsPreview({
@@ -647,11 +759,14 @@ function taskSupportsCorrection(taskType: ReviewTaskType) {
   );
 }
 
-function defaultCorrectionJson(taskType: ReviewTaskType) {
+function defaultCorrectionJson(
+  taskType: ReviewTaskType,
+  workflowMetadata?: WorkflowMetadataView,
+) {
   if (taskType === "extraction") {
     return JSON.stringify(
       {
-        total_amount: "1240.00",
+        total_amount: workflowMetadata?.totalAmount ?? "",
         confidence: "human_verified",
       },
       null,
@@ -793,6 +908,7 @@ type WorkflowMetadataView = {
     lineTotal: string | null;
   }>;
   ocrPreview: string;
+  layoutBlocks: OcrLayoutBlock[];
   providerErrors: Array<{
     agentName: string | null;
     errorCode: string | null;
@@ -810,6 +926,7 @@ type ProposalView = {
   chipLabel: string;
   chips: string[];
   fields: Array<{
+    evidenceKind?: EvidenceFieldKind;
     label: string;
     value: string | null;
     emphasis?: boolean;
@@ -838,12 +955,33 @@ function buildProposalView(
     chipLabel: "Evidence",
     chips: [],
     fields: [
-      { label: "Invoice #", value: workflowMetadata.invoiceNumber },
-      { label: "Supplier", value: workflowMetadata.supplier },
-      { label: "Customer", value: workflowMetadata.customer },
-      { label: "Issue date", value: workflowMetadata.issueDate },
-      { label: "Due date", value: workflowMetadata.dueDate },
       {
+        evidenceKind: "invoice_number",
+        label: "Invoice #",
+        value: workflowMetadata.invoiceNumber,
+      },
+      {
+        evidenceKind: "supplier",
+        label: "Supplier",
+        value: workflowMetadata.supplier,
+      },
+      {
+        evidenceKind: "customer",
+        label: "Customer",
+        value: workflowMetadata.customer,
+      },
+      {
+        evidenceKind: "issue_date",
+        label: "Issue date",
+        value: workflowMetadata.issueDate,
+      },
+      {
+        evidenceKind: "due_date",
+        label: "Due date",
+        value: workflowMetadata.dueDate,
+      },
+      {
+        evidenceKind: "total",
         label: "Total",
         value: formatMoneyDisplay(
           workflowMetadata.totalAmount,
@@ -978,6 +1116,9 @@ function buildWorkflowMetadataView(
       errorCode: getDisplayValue(error.error_code),
       errorMessage: getDisplayValue(error.error_message),
     }));
+  const layoutBlocks = getArray(metadata.ocr_layout_blocks)
+    .map((block, index) => toOcrLayoutBlock(block, index))
+    .filter((block): block is OcrLayoutBlock => Boolean(block));
 
   return {
     assemblyStatus: titleCase(getDisplayValue(draft?.assembly_status)),
@@ -989,6 +1130,7 @@ function buildWorkflowMetadataView(
     currency: getDisplayValue(totalsGroup?.currency ?? metadataGroup?.currency),
     totalAmount: getDisplayValue(totalsGroup?.total_amount),
     lineItems,
+    layoutBlocks,
     ocrPreview: getDisplayValue(metadata.ocr_text_preview) ?? "",
     providerErrors,
   };
@@ -1004,6 +1146,38 @@ function getRecord(value: unknown): Record<string, unknown> | null {
 
 function getArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function getNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function toOcrLayoutBlock(
+  value: unknown,
+  index: number,
+): OcrLayoutBlock | null {
+  const block = getRecord(value);
+  const text = getDisplayValue(block?.text);
+
+  if (!block || !text) {
+    return null;
+  }
+
+  const metadata = getRecord(block.metadata);
+  const boundingBox = getArray(block.bounding_box).filter(
+    (coordinate): coordinate is number =>
+      typeof coordinate === "number" && Number.isFinite(coordinate),
+  );
+
+  return {
+    boundingBox: boundingBox.length >= 4 ? boundingBox : null,
+    confidence: getNumber(block.confidence),
+    id: getDisplayValue(block.id) ?? `ocr-block-${index}`,
+    pageHeight: getNumber(metadata?.page_height),
+    pageNumber: getNumber(block.page_number) ?? 1,
+    pageWidth: getNumber(metadata?.page_width),
+    text,
+  };
 }
 
 function getDisplayValue(value: unknown): string | null {

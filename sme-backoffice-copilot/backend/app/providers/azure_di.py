@@ -180,6 +180,7 @@ class AzureDIOCRProvider:
 
         pages = result_payload.get("pages") or []
         assert isinstance(pages, list)
+        page_metadata = _page_metadata_by_number(pages)
 
         text_blocks: list[OCRTextBlock] = []
         full_text_lines: list[str] = []
@@ -210,8 +211,11 @@ class AzureDIOCRProvider:
                     text=content,
                     page_number=page_number,
                     bounding_box=bounding_box,
-                    confidence=None,
-                    metadata={"source": "azure_di_paragraph"},
+                    confidence=_optional_float(para.get("confidence")),
+                    metadata={
+                        "source": "azure_di_paragraph",
+                        **page_metadata.get(page_number, {}),
+                    },
                 )
             )
 
@@ -237,8 +241,11 @@ class AzureDIOCRProvider:
                             text=content,
                             page_number=page_number,
                             bounding_box=bounding_box,
-                            confidence=None,
-                            metadata={"source": "azure_di_line"},
+                            confidence=_optional_float(line.get("confidence")),
+                            metadata={
+                                "source": "azure_di_line",
+                                **page_metadata.get(page_number, {}),
+                            },
                         )
                     )
 
@@ -539,3 +546,34 @@ class AzureDIOCRProvider:
             "table_group": table_group,
             "totals_group": totals_group,
         }
+
+
+def _optional_float(value: object) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _page_metadata_by_number(pages: list[object]) -> dict[int, dict[str, object]]:
+    """Expose DI page dimensions so the review UI can scale OCR polygons."""
+    metadata_by_page: dict[int, dict[str, object]] = {}
+
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+
+        page_number = page.get("pageNumber")
+        if not isinstance(page_number, int):
+            continue
+
+        page_metadata: dict[str, object] = {}
+        width = _optional_float(page.get("width"))
+        height = _optional_float(page.get("height"))
+        if width is not None:
+            page_metadata["page_width"] = width
+        if height is not None:
+            page_metadata["page_height"] = height
+        if page_metadata:
+            metadata_by_page[page_number] = page_metadata
+
+    return metadata_by_page
