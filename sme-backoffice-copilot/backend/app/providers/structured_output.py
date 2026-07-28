@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from typing import Any, cast
 
@@ -62,6 +63,77 @@ def is_registered_output_schema(
     """Return whether a structured output schema is registered."""
 
     return schema_name in schema_registry
+
+
+def build_native_json_schema(
+    schema_name: str,
+    *,
+    schema_registry: Mapping[str, StructuredOutputModel] = (
+        DEFAULT_STRUCTURED_OUTPUT_SCHEMAS
+    ),
+) -> dict[str, object] | None:
+    """Build an OpenAI strict JSON Schema for a registered output contract."""
+
+    schema_model = schema_registry.get(schema_name)
+    if schema_model is None:
+        return None
+
+    schema = cast(
+        dict[str, object],
+        schema_model.model_json_schema(mode="serialization"),
+    )
+    if contains_freeform_object(schema):
+        return None
+    return make_json_schema_strict(schema)
+
+
+def native_json_schema_name(schema_name: str) -> str:
+    """Return a provider-safe name for a versioned application schema."""
+
+    normalized = re.sub(r"[^a-zA-Z0-9_-]", "_", schema_name)
+    return normalized[:64] or "structured_output"
+
+
+def make_json_schema_strict(schema: dict[str, object]) -> dict[str, object]:
+    """Recursively adapt a Pydantic schema to OpenAI strict-mode requirements."""
+
+    strict_schema: dict[str, object] = {}
+    for key, value in schema.items():
+        if key == "default":
+            continue
+        if isinstance(value, dict):
+            strict_schema[key] = make_json_schema_strict(cast(dict[str, object], value))
+        elif isinstance(value, list):
+            strict_schema[key] = [
+                make_json_schema_strict(cast(dict[str, object], item))
+                if isinstance(item, dict)
+                else item
+                for item in value
+            ]
+        else:
+            strict_schema[key] = value
+
+    properties = strict_schema.get("properties")
+    if isinstance(properties, dict):
+        strict_schema["required"] = list(properties)
+        strict_schema["additionalProperties"] = False
+    return strict_schema
+
+
+def contains_freeform_object(value: object) -> bool:
+    """Return whether a schema contains maps unsupported by strict JSON Schema."""
+
+    if isinstance(value, dict):
+        if (
+            value.get("type") == "object"
+            and "properties" not in value
+            and value.get("additionalProperties") is not False
+        ):
+            return True
+        return any(contains_freeform_object(item) for item in value.values())
+    if isinstance(value, list):
+        return any(contains_freeform_object(item) for item in value)
+    return False
 
 
 def validate_structured_output(

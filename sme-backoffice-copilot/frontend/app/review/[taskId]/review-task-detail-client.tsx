@@ -140,7 +140,9 @@ export function ReviewTaskDetailClient({
       return;
     }
 
-    setSelectedEvidenceBlockId(null);
+    setSelectedEvidenceBlockId(
+      workflowMetadata.fieldEvidenceGrounding[fieldKind]?.[0] ?? null,
+    );
     setSelectedEvidenceField(fieldKind);
     setSelectedEvidenceValue(value);
   }
@@ -909,6 +911,7 @@ type WorkflowMetadataView = {
   }>;
   ocrPreview: string;
   layoutBlocks: OcrLayoutBlock[];
+  fieldEvidenceGrounding: Partial<Record<EvidenceFieldKind, string[]>>;
   providerErrors: Array<{
     agentName: string | null;
     errorCode: string | null;
@@ -1119,6 +1122,9 @@ function buildWorkflowMetadataView(
   const layoutBlocks = getArray(metadata.ocr_layout_blocks)
     .map((block, index) => toOcrLayoutBlock(block, index))
     .filter((block): block is OcrLayoutBlock => Boolean(block));
+  const fieldEvidenceGrounding = parseFieldEvidenceGrounding(
+    metadata.field_evidence_grounding,
+  );
 
   return {
     assemblyStatus: titleCase(getDisplayValue(draft?.assembly_status)),
@@ -1131,9 +1137,39 @@ function buildWorkflowMetadataView(
     totalAmount: getDisplayValue(totalsGroup?.total_amount),
     lineItems,
     layoutBlocks,
+    fieldEvidenceGrounding,
     ocrPreview: getDisplayValue(metadata.ocr_text_preview) ?? "",
     providerErrors,
   };
+}
+
+function parseFieldEvidenceGrounding(
+  value: unknown,
+): Partial<Record<EvidenceFieldKind, string[]>> {
+  const grounding = getRecord(value);
+  if (!grounding) {
+    return {};
+  }
+
+  const result: Partial<Record<EvidenceFieldKind, string[]>> = {};
+  const fieldKinds: EvidenceFieldKind[] = [
+    "invoice_number",
+    "supplier",
+    "customer",
+    "issue_date",
+    "due_date",
+    "total",
+  ];
+  for (const fieldKind of fieldKinds) {
+    const entry = getRecord(grounding[fieldKind]);
+    const blockIds = getArray(entry?.block_ids).filter(
+      (blockId): blockId is string => typeof blockId === "string",
+    );
+    if (blockIds.length > 0) {
+      result[fieldKind] = blockIds;
+    }
+  }
+  return result;
 }
 
 function getRecord(value: unknown): Record<string, unknown> | null {

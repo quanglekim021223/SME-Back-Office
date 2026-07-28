@@ -100,7 +100,17 @@ async def test_openai_provider_builds_responses_request_and_parses_json() -> Non
     assert captured_payload["model"] == "gpt-5.2"
     assert captured_payload["instructions"] == "Return compact invoice JSON only."
     assert captured_payload["max_output_tokens"] == 512
-    assert captured_payload["text"] == {"format": {"type": "json_object"}}
+    text = captured_payload["text"]
+    assert isinstance(text, dict)
+    output_format = text["format"]
+    assert isinstance(output_format, dict)
+    assert output_format["type"] == "json_schema"
+    assert output_format["name"] == "invoice-metadata-group_v1"
+    assert output_format["strict"] is True
+    schema = output_format["schema"]
+    assert isinstance(schema, dict)
+    assert schema["additionalProperties"] is False
+    assert set(schema["required"]) == set(schema["properties"])
     assert captured_payload["input"] == [
         {
             "role": "user",
@@ -140,6 +150,24 @@ def test_openai_payload_supports_text_responses_and_system_only_messages() -> No
     assert payload["instructions"] == "Summarize the invoice."
     assert payload["input"] == "Respond according to the instructions."
     assert payload["text"] == {"format": {"type": "text"}}
+
+
+def test_openai_payload_falls_back_to_json_mode_for_unknown_schema() -> None:
+    payload = build_openai_responses_payload(
+        request=LLMGenerationRequest(
+            messages=[
+                LLMMessage(
+                    role=LLMMessageRole.USER,
+                    content="Return JSON.",
+                )
+            ],
+            response_format=LLMResponseFormat.JSON,
+            response_schema_name="tenant-custom-schema.v1",
+        ),
+        model_name="gpt-5.2",
+    )
+
+    assert payload["text"] == {"format": {"type": "json_object"}}
 
 
 def test_openai_output_text_extraction_supports_top_level_output_text() -> None:

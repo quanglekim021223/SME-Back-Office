@@ -25,6 +25,7 @@ from app.providers.ocr import OCRInput, OCRProviderRunContext, OCRResult
 from app.services.workflow_outputs import (
     WorkflowOutputPersistenceService,
     get_assembled_invoice_draft,
+    match_ocr_blocks,
 )
 from app.workflows.replay import WorkflowReplayRunner, create_replay_state
 
@@ -147,9 +148,51 @@ async def test_workflow_output_service_materializes_invoice_review_task() -> Non
     assert isinstance(layout_blocks, list)
     assert layout_blocks
     assert isinstance(layout_blocks[0], dict)
+    grounding = materialized.review_task.metadata_["field_evidence_grounding"]
+    assert isinstance(grounding, dict)
+    assert grounding["invoice_number"]["block_ids"] == ["ocr:block:1"]
+    invoice_number_evidence = next(
+        row for row in persistence.field_evidence if row.field_name == "invoice_number"
+    )
+    assert invoice_number_evidence.metadata_["evidence_refs"] == ["ocr:block:1"]
+    assert invoice_number_evidence.metadata_["grounding_method"] == "ocr_block_match"
     assert persistence.document_status_updates == [
         (state.tenant_id, state.document_id, DocumentStatus.REVIEW_REQUIRED)
     ]
+
+
+def test_field_grounding_matches_dates_and_totals_without_single_digit_fallback() -> (
+    None
+):
+    blocks = [
+        {"id": "ocr:block:1", "text": "1", "page_number": 1},
+        {"id": "ocr:block:2", "text": "INVOICE DATE", "page_number": 1},
+        {"id": "ocr:block:3", "text": "11/02/2019", "page_number": 1},
+        {"id": "ocr:block:4", "text": "TOTAL", "page_number": 1},
+        {"id": "ocr:block:5", "text": "$154.06", "page_number": 1},
+        {"id": "ocr:block:6", "text": "Due date", "page_number": 1},
+        {"id": "ocr:block:7", "text": "10-16-2023", "page_number": 1},
+    ]
+
+    date_matches = match_ocr_blocks(
+        value="2019-02-11",
+        field_name="issue_date",
+        layout_blocks=blocks,
+    )
+    total_matches = match_ocr_blocks(
+        value="154.06",
+        field_name="total_amount",
+        layout_blocks=blocks,
+    )
+    due_date_matches = match_ocr_blocks(
+        value="2023-10-16",
+        field_name="due_date",
+        layout_blocks=blocks,
+    )
+
+    assert [block["id"] for block in date_matches] == ["ocr:block:3"]
+    assert [block["id"] for block in total_matches] == ["ocr:block:5"]
+    assert [block["id"] for block in due_date_matches] == ["ocr:block:7"]
 
 
 async def test_workflow_output_service_traces_review_task_creation() -> None:

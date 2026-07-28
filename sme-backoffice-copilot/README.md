@@ -1,12 +1,39 @@
 # SME Back-Office Copilot
 
-Foundation for a controlled multi-agent platform that processes SME financial
-documents, reconciles payments, and turns verified financial data into
-operational insights.
+A production-oriented, multi-tenant platform for extracting, validating,
+reviewing, and reconciling SME financial documents. The system combines
+provider-neutral OCR, schema-constrained LLM extraction, deterministic financial
+checks, and human approval before proposed data can affect business records.
 
-This repository intentionally contains no accounting or AI business logic. It
-defines service boundaries, deployment shells, ownership expectations, and the
-technical documents that future implementation should follow.
+## What is implemented
+
+- **Hybrid document AI:** Azure Document Intelligence fast path plus local OCR
+  adapters (PaddleOCR, ChandraOCR, and Tesseract) with configurable routing and
+  fallback.
+- **Schema-constrained extraction:** versioned prompts and Pydantic contracts;
+  the OpenAI Responses adapter uses native strict Structured Outputs for
+  compatible registered schemas and validates every result again inside the
+  application.
+- **Field-level evidence grounding:** extracted invoice fields retain the exact
+  OCR block IDs, page, and bounding polygon used by the human-review UI.
+- **Controlled multi-agent workflow:** invoice extraction, classification,
+  reconciliation, review coordination, and insight generation with deterministic
+  policy gates and LangGraph/custom orchestration modes.
+- **Reliable asynchronous processing:** Celery, Redis, transactional outbox,
+  idempotent workflow state, replay, tracing, and provider rate limiting.
+- **Multi-tenant safety:** tenant-scoped persistence, privacy routing, redacted
+  observability, and human-in-the-loop review tasks.
+- **Cloud-native delivery:** Docker, Terraform-managed Azure infrastructure, and
+  GitHub Actions with OIDC. Merges to `main` run the deployment pipeline to
+  Azure.
+
+## Processing flow
+
+```text
+Upload → privacy gate → OCR/layout → field-grounded extraction
+       → deterministic validation → classification/reconciliation
+       → human review when required → approved business records
+```
 
 ## Start locally
 

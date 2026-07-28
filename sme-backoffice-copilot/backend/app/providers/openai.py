@@ -19,7 +19,11 @@ from app.providers.llm import (
     LLMResponseFormat,
 )
 from app.providers.ollama import parse_structured_output
-from app.providers.structured_output import validate_structured_output
+from app.providers.structured_output import (
+    build_native_json_schema,
+    native_json_schema_name,
+    validate_structured_output,
+)
 
 OpenAITransport = Callable[
     [str, dict[str, object], str, float],
@@ -243,17 +247,29 @@ def build_openai_responses_payload(
         if message.role != LLMMessageRole.SYSTEM
     ]
 
+    text_format: dict[str, object] = {"type": "text"}
+    if request.response_format == LLMResponseFormat.JSON:
+        native_schema = (
+            build_native_json_schema(request.response_schema_name)
+            if request.response_schema_name is not None
+            else None
+        )
+        text_format = (
+            {
+                "type": "json_schema",
+                "name": native_json_schema_name(request.response_schema_name),
+                "schema": native_schema,
+                "strict": True,
+            }
+            if native_schema is not None and request.response_schema_name is not None
+            else {"type": "json_object"}
+        )
+
     payload: dict[str, object] = {
         "model": model_name,
         "input": input_messages or "Respond according to the instructions.",
         "temperature": request.temperature,
-        "text": {
-            "format": {
-                "type": "json_object"
-                if request.response_format == LLMResponseFormat.JSON
-                else "text",
-            }
-        },
+        "text": {"format": text_format},
     }
     if system_messages:
         payload["instructions"] = "\n\n".join(system_messages)

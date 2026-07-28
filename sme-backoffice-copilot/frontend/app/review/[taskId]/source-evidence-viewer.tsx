@@ -235,10 +235,12 @@ export function findMatchingBlock(
     return selectBestCandidate(exactMatches, blocks, fieldKind);
   }
 
-  const normalizedDate = normalizeDate(value);
-  if (normalizedDate) {
-    const dateMatches = candidates.filter(
-      (candidate) => normalizeDate(candidate.block.text) === normalizedDate,
+  const normalizedDates = normalizeDateKeys(value);
+  if (normalizedDates.length > 0) {
+    const dateMatches = candidates.filter((candidate) =>
+      normalizeDateKeys(candidate.block.text).some((date) =>
+        normalizedDates.includes(date),
+      ),
     );
     if (dateMatches.length > 0) {
       return selectBestCandidate(dateMatches, blocks, fieldKind);
@@ -406,35 +408,44 @@ function normalizeCompact(value: string) {
   return normalizeText(value).replace(/\s+/g, "");
 }
 
-function normalizeDate(value: string) {
+function normalizeDateKeys(value: string) {
   const match = value.trim().match(/^(\d{1,4})[-/.](\d{1,2})[-/.](\d{1,4})$/);
   if (!match) {
-    return null;
+    return [];
   }
 
   const [, first, second, third] = match;
-  const [year, month, day] =
-    first.length === 4 ? [first, second, third] : [third, second, first];
-  const monthNumber = Number(month);
-  const dayNumber = Number(day);
+  const candidates: Array<[number, number, number]> = [];
+  if (first.length === 4) {
+    candidates.push([Number(first), Number(second), Number(third)]);
+  } else if (third.length === 4) {
+    if (Number(first) <= 12) {
+      candidates.push([Number(third), Number(first), Number(second)]);
+    }
+    if (Number(second) <= 12) {
+      candidates.push([Number(third), Number(second), Number(first)]);
+    }
+  }
 
+  return [...new Set(candidates.map(toDateKey).filter(Boolean))];
+}
+
+function toDateKey([year, month, day]: [number, number, number]) {
+  const parsed = new Date(Date.UTC(year, month - 1, day));
   if (
-    year.length !== 4 ||
-    monthNumber < 1 ||
-    monthNumber > 12 ||
-    dayNumber < 1 ||
-    dayNumber > 31
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
   ) {
     return null;
   }
-
-  return `${year}-${monthNumber.toString().padStart(2, "0")}-${dayNumber
+  return `${year}-${month.toString().padStart(2, "0")}-${day
     .toString()
     .padStart(2, "0")}`;
 }
 
 function normalizeAmount(value: string) {
-  if (normalizeDate(value)) {
+  if (normalizeDateKeys(value).length > 0) {
     return null;
   }
 

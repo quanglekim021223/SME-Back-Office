@@ -98,6 +98,7 @@ from app.providers.routing import (
 from app.providers.structured_output import (
     DEFAULT_STRUCTURED_OUTPUT_SCHEMAS,
     StructuredOutputValidationResult,
+    build_native_json_schema,
     is_registered_output_schema,
     parse_and_validate_structured_output,
     validate_structured_output,
@@ -175,6 +176,7 @@ __all__ = [
     "ProviderPrivacyPolicy",
     "ProviderRedactionResult",
     "StructuredOutputValidationResult",
+    "build_native_json_schema",
     "build_default_provider_routing_config",
     "build_default_prompt_registry",
     "build_provider_privacy_policy",

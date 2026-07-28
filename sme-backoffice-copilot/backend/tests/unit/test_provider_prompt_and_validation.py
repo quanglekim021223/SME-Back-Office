@@ -5,6 +5,7 @@ from app.providers import (
     DEFAULT_PROMPT_REGISTRY,
     LLMMessageRole,
     ProviderPromptError,
+    build_native_json_schema,
     is_registered_output_schema,
     parse_and_validate_structured_output,
     validate_structured_output,
@@ -89,3 +90,21 @@ def test_parse_and_validate_structured_output_reports_invalid_json() -> None:
 def test_registered_output_schema_lookup() -> None:
     assert is_registered_output_schema("classification-draft.v1") is True
     assert is_registered_output_schema("unknown-schema.v1") is False
+
+
+def test_native_json_schema_is_strict_at_every_object_level() -> None:
+    schema = build_native_json_schema("invoice-table-group.v1")
+
+    assert schema is not None
+    assert schema["additionalProperties"] is False
+    assert set(schema["required"]) == set(schema["properties"])
+    definitions = schema["$defs"]
+    assert isinstance(definitions, dict)
+    line_item = definitions["InvoiceLineItemCandidate"]
+    assert isinstance(line_item, dict)
+    assert line_item["additionalProperties"] is False
+    assert set(line_item["required"]) == set(line_item["properties"])
+
+
+def test_native_json_schema_skips_contracts_with_freeform_maps() -> None:
+    assert build_native_json_schema("grounded-insight.v1") is None

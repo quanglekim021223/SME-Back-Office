@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from typing import Protocol, cast
 from uuid import UUID, uuid4
@@ -233,6 +235,7 @@ class WorkflowOutputPersistenceService:
             document_id=result.state.document_id,
             invoice_id=invoice.id,
             draft=draft,
+            layout_blocks=ocr_layout_blocks_from_state(result),
         ):
             self.persistence.add_invoice_field_evidence(field_evidence)
 
@@ -479,10 +482,12 @@ def build_field_evidence_from_draft(
     document_id: UUID,
     invoice_id: UUID,
     draft: AssembledInvoiceDraft,
+    layout_blocks: list[dict[str, object]] | None = None,
 ) -> list[InvoiceFieldEvidence]:
-    """Create coarse evidence rows for extracted invoice header and totals."""
+    """Create field-level evidence rows grounded to concrete OCR blocks."""
 
     evidence: list[InvoiceFieldEvidence] = []
+    blocks = layout_blocks or []
     metadata = draft.groups.metadata
     totals = draft.groups.totals
     table = draft.groups.table
@@ -506,6 +511,7 @@ def build_field_evidence_from_draft(
                 },
                 confidence=metadata.confidence,
                 evidence_refs=metadata.evidence_refs,
+                layout_blocks=blocks,
             )
         )
 
@@ -524,6 +530,7 @@ def build_field_evidence_from_draft(
                 },
                 confidence=totals.confidence,
                 evidence_refs=totals.evidence_refs,
+                layout_blocks=blocks,
             )
         )
 
@@ -556,6 +563,7 @@ def build_group_field_evidence(
     fields: dict[str, object | None],
     confidence: ConfidenceLevel,
     evidence_refs: list[str],
+    layout_blocks: list[dict[str, object]],
 ) -> list[InvoiceFieldEvidence]:
     """Create evidence rows for non-empty group fields."""
 
@@ -563,6 +571,20 @@ def build_group_field_evidence(
     for field_name, value in fields.items():
         if value is None:
             continue
+        matched_blocks = match_ocr_blocks(
+            value=value,
+            field_name=field_name,
+            layout_blocks=layout_blocks,
+        )
+        matched_refs = [
+            block_id
+            for block in matched_blocks
+            if (block_id := block.get("id")) and isinstance(block_id, str)
+        ]
+        primary_block = matched_blocks[0] if matched_blocks else None
+        bounding_box = (
+            primary_block.get("bounding_box") if primary_block is not None else None
+        )
         rows.append(
             InvoiceFieldEvidence(
                 tenant_id=tenant_id,
@@ -573,12 +595,220 @@ def build_group_field_evidence(
                 extracted_value=str(value),
                 normalized_value=str(value),
                 confidence=confidence.value,
+                page_number=(
+                    primary_block.get("page_number")
+                    if primary_block is not None
+                    and isinstance(primary_block.get("page_number"), int)
+                    else None
+                ),
+                bounding_box=(
+                    {"polygon": bounding_box}
+                    if isinstance(bounding_box, list)
+                    else None
+                ),
                 source_agent=INVOICE_ASSEMBLY_NODE,
                 source_agent_version="0.1.0",
-                metadata_={"evidence_refs": evidence_refs},
+                metadata_={
+                    "evidence_refs": matched_refs,
+                    "group_evidence_refs": evidence_refs,
+                    "grounding_method": (
+                        "ocr_block_match" if matched_refs else "unresolved"
+                    ),
+                },
             )
         )
     return rows
+
+
+def build_review_field_grounding(
+    *,
+    draft: AssembledInvoiceDraft,
+    layout_blocks: list[dict[str, object]],
+) -> dict[str, dict[str, object]]:
+    """Map review-card fields to stable OCR block IDs."""
+
+    metadata = draft.groups.metadata
+    totals = draft.groups.totals
+    candidates: tuple[tuple[str, str, object | None], ...] = (
+        (
+            "invoice_number",
+            "groups.metadata.invoice_number",
+            metadata.invoice_number if metadata else None,
+        ),
+        (
+            "supplier",
+            "groups.metadata.supplier_name",
+            metadata.supplier_name if metadata else None,
+        ),
+        (
+            "customer",
+            "groups.metadata.customer_name",
+            metadata.customer_name if metadata else None,
+        ),
+        (
+            "issue_date",
+            "groups.metadata.issue_date",
+            metadata.issue_date if metadata else None,
+        ),
+        (
+            "due_date",
+            "groups.metadata.due_date",
+            metadata.due_date if metadata else None,
+        ),
+        (
+            "total",
+            "groups.totals.total_amount",
+            totals.total_amount if totals else None,
+        ),
+    )
+    grounding: dict[str, dict[str, object]] = {}
+    for field_kind, field_path, value in candidates:
+        if value is None:
+            continue
+        blocks = match_ocr_blocks(
+            value=value,
+            field_name=field_kind,
+            layout_blocks=layout_blocks,
+        )
+        grounding[field_kind] = {
+            "field_path": field_path,
+            "block_ids": [
+                block["id"] for block in blocks if isinstance(block.get("id"), str)
+            ],
+        }
+    return grounding
+
+
+def match_ocr_blocks(
+    *,
+    value: object,
+    field_name: str,
+    layout_blocks: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Return the best OCR block for a field without weak token matching."""
+
+    value_text = str(value).strip()
+    normalized_value = normalize_evidence_text(value_text)
+    if not normalized_value:
+        return []
+
+    date_keys = evidence_date_keys(value_text)
+    amount = (
+        evidence_decimal(value_text)
+        if "amount" in field_name or field_name == "total"
+        else None
+    )
+    anchors = evidence_field_anchors(field_name)
+    anchor_indexes = [
+        index
+        for index, block in enumerate(layout_blocks)
+        if normalize_evidence_text(str(block.get("text") or "")) in anchors
+    ]
+    scored: list[tuple[int, int, dict[str, object]]] = []
+    for index, block in enumerate(layout_blocks):
+        block_text = block.get("text")
+        if not isinstance(block_text, str):
+            continue
+        normalized_block = normalize_evidence_text(block_text)
+        score = 0
+        if normalized_block == normalized_value:
+            score = 100
+        elif date_keys and date_keys.intersection(evidence_date_keys(block_text)):
+            score = 95
+        elif amount is not None and amount in evidence_decimals(block_text):
+            score = 85
+        elif len(normalized_value) >= 3 and normalized_value in normalized_block:
+            score = 75
+        if score == 0:
+            continue
+        if any(anchor in normalized_block for anchor in anchors):
+            score += 25
+        preceding = [anchor for anchor in anchor_indexes if anchor < index]
+        if preceding:
+            distance = index - max(preceding)
+            score += max(0, 20 - distance)
+        scored.append((score, -index, block))
+
+    if not scored:
+        return []
+    scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [scored[0][2]]
+
+
+def normalize_evidence_text(value: str) -> str:
+    """Normalize OCR and extracted values for conservative text matching."""
+
+    return " ".join(re.findall(r"[a-z0-9]+", value.casefold()))
+
+
+def evidence_date_keys(value: str) -> set[tuple[int, int, int]]:
+    """Return plausible date keys while supporting ISO and common OCR formats."""
+
+    stripped = value.strip()
+    try:
+        parsed = date.fromisoformat(stripped[:10])
+        return {(parsed.year, parsed.month, parsed.day)}
+    except ValueError:
+        pass
+
+    match = re.search(r"(\d{1,4})[./-](\d{1,2})[./-](\d{1,4})", stripped)
+    if match is None:
+        return set()
+    first, second, third = (int(part) for part in match.groups())
+    if first >= 1000:
+        return {(first, second, third)}
+    if third < 1000:
+        return set()
+
+    candidates: set[tuple[int, int, int]] = set()
+    if first <= 12:
+        candidates.add((third, first, second))
+    if second <= 12:
+        candidates.add((third, second, first))
+    return {candidate for candidate in candidates if is_valid_date_key(candidate)}
+
+
+def is_valid_date_key(value: tuple[int, int, int]) -> bool:
+    try:
+        date(*value)
+    except ValueError:
+        return False
+    return True
+
+
+def evidence_decimal(value: str) -> Decimal | None:
+    values = evidence_decimals(value)
+    return values[0] if len(values) == 1 else None
+
+
+def evidence_decimals(value: str) -> list[Decimal]:
+    """Extract locale-tolerant decimal candidates from one OCR block."""
+
+    decimals: list[Decimal] = []
+    for token in re.findall(r"[-+]?\d[\d,.]*", value):
+        normalized = token.replace(",", "")
+        try:
+            decimals.append(Decimal(normalized))
+        except ArithmeticError:
+            continue
+    return decimals
+
+
+def evidence_field_anchors(field_name: str) -> set[str]:
+    anchors = {
+        "invoice_number": {"invoice", "invoice no", "invoice number"},
+        "supplier": {"supplier", "vendor", "seller"},
+        "supplier_name": {"supplier", "vendor", "seller"},
+        "customer": {"bill to", "customer", "client"},
+        "customer_name": {"bill to", "customer", "client"},
+        "issue_date": {"invoice date", "issue date", "date"},
+        "due_date": {"due date", "payment due"},
+        "total": {"total", "amount due", "balance due"},
+        "total_amount": {"total", "amount due", "balance due"},
+        "subtotal_amount": {"subtotal", "sub total"},
+        "tax_amount": {"tax", "vat"},
+    }
+    return anchors.get(field_name, set())
 
 
 def build_review_task_for_invoice(
@@ -599,6 +829,10 @@ def build_review_task_for_invoice(
     ocr_text_preview = ocr_text_preview_from_state(result)
     ocr_layout_diagnostics = ocr_layout_diagnostics_from_state(result)
     ocr_layout_blocks = ocr_layout_blocks_from_state(result)
+    field_grounding = build_review_field_grounding(
+        draft=AssembledInvoiceDraft.model_validate(raw_draft),
+        layout_blocks=ocr_layout_blocks,
+    )
     invoice_label = invoice.invoice_number or str(invoice.id)
     return ReviewTask(
         id=uuid4(),
@@ -634,6 +868,7 @@ def build_review_task_for_invoice(
             "ocr_text_preview": ocr_text_preview,
             "ocr_layout_diagnostics": ocr_layout_diagnostics,
             "ocr_layout_blocks": ocr_layout_blocks,
+            "field_evidence_grounding": field_grounding,
         },
     )
 
