@@ -88,6 +88,7 @@ def workflow_state_from_document_ingested(event: DocumentIngested) -> WorkflowSt
             "source_event_id": str(event.event_id),
             "source_event_name": event.event_name,
             "correlation_id": event.correlation_id,
+            "processing_profile": event.processing_profile.value,
         },
     )
 
@@ -207,6 +208,7 @@ class QueuedDocumentWorkflowPublisher:
             storage_uri=event.storage_uri,
             content_hash=event.content_hash,
             malware_scan_status=event.malware_scan_status,
+            processing_profile=event.processing_profile,
             local_path=event.local_path,
             correlation_id=correlation_id,
             priority=JobPriority.HIGH,

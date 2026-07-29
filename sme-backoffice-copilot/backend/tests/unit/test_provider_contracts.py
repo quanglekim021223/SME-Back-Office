@@ -161,7 +161,7 @@ def test_settings_include_ai_provider_selection_defaults() -> None:
     assert settings.paddleocr_language == "en"
     assert settings.chandraocr_language == "en"
     assert settings.ollama_base_url == "http://localhost:11434"
-    assert settings.ollama_model == "llama3.1:8b"
+    assert settings.ollama_model == "qwen2.5:7b"
     assert settings.openai_api_key == ""
     assert settings.openai_base_url == "https://api.openai.com/v1"
     assert settings.openai_model == "gpt-5.2"

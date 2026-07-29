@@ -80,7 +80,10 @@ class DocumentRepository(TenantScopedRepository[Document]):
         statement = (
             select(Document)
             .where(Document.tenant_id == tenant_id, Document.id == document_id)
-            .options(selectinload(Document.artifacts))
+            .options(
+                selectinload(Document.artifacts),
+                selectinload(Document.invoices),
+            )
         )
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()

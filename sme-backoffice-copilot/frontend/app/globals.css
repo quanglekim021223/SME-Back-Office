@@ -1089,7 +1089,7 @@ textarea:focus-visible {
 }
 
 .review-proposal-fields {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
 }
 
 .proposal-field {

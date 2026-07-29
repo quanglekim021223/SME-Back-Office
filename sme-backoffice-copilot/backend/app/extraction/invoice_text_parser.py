@@ -24,9 +24,18 @@ class ParsedInvoiceLine:
     line_total: str
 
 
-MONEY_PATTERN = r"[$£]?\s*([0-9][0-9,]*\.\d{1,2})"
-WHOLE_DOLLAR_PATTERN = r"[$£]\s*([0-9][0-9,]*)"
-DATE_PATTERN = r"([0-9]{1,2}[-/][0-9]{1,2}[-/][0-9]{2,4})"
+MONEY_PATTERN = r"[$£€]?\s*([0-9][0-9.,]*[.,]\d{1,2})"
+WHOLE_DOLLAR_PATTERN = r"[$£€]\s*([0-9][0-9,]*)(?![0-9.,])"
+DATE_PATTERN = (
+    r"(?<!\d)("
+    r"[0-9]{4}[-/.][0-9]{1,2}[-/.][0-9]{1,2}"
+    r"|[0-9]{1,2}[-/.][0-9]{1,2}[-/.][0-9]{2,4}"
+    r")(?!\d)"
+)
+PORTUGUESE_TAX_ID_PATTERN = re.compile(
+    r"(?<!\d)(\d(?:[\s.]?\d){8})(?!\d)",
+    flags=re.IGNORECASE,
+)
 
 
 def parse_invoice_metadata_group_payload(
@@ -53,7 +62,7 @@ def parse_invoice_metadata_group_payload(
     issue_date = normalize_invoice_date(
         find_labeled_value(
             lines,
-            labels=("invoice date", "date"),
+            labels=("invoice date", "date", "data"),
             value_pattern=DATE_PATTERN,
         ),
         prefer_day_first=prefer_day_first_dates,
@@ -79,11 +88,14 @@ def parse_invoice_metadata_group_payload(
     currency = find_currency(ocr_text)
     supplier_name = find_supplier_name(lines)
     customer_name = find_customer_name(lines)
+    supplier_tax_id, customer_tax_id = find_portuguese_tax_ids(lines)
     extracted = any(
         [
             invoice_number,
             supplier_name,
+            supplier_tax_id,
             customer_name,
+            customer_tax_id,
             issue_date,
             due_date,
             currency,
@@ -95,9 +107,9 @@ def parse_invoice_metadata_group_payload(
         "extraction_status": "partial" if extracted else "placeholder",
         "invoice_number": invoice_number,
         "supplier_name": supplier_name,
-        "supplier_tax_id": None,
+        "supplier_tax_id": supplier_tax_id,
         "customer_name": customer_name,
-        "customer_tax_id": None,
+        "customer_tax_id": customer_tax_id,
         "issue_date": issue_date,
         "due_date": due_date,
         "currency": currency,
@@ -114,12 +126,12 @@ def parse_invoice_totals_group_payload(
     """Parse subtotal, tax, total, and currency from OCR text."""
 
     subtotal_amount = find_money_after_label(ocr_text, labels=("subtotal",))
-    tax_amount = find_money_after_label(
+    tax_amount = find_portuguese_vat_amount(ocr_text) or find_money_after_label(
         ocr_text,
         labels=("sales tax", "tax"),
         reject_labels=("subtotal", "total"),
     )
-    total_amount = find_total_amount(ocr_text)
+    total_amount, total_is_explicit = find_total_amount_candidate(ocr_text)
     if tax_amount is None:
         tax_amount = infer_tax_amount(
             subtotal_amount=subtotal_amount,
@@ -127,6 +139,12 @@ def parse_invoice_totals_group_payload(
         )
     currency = find_currency(ocr_text)
     extracted = any([subtotal_amount, tax_amount, total_amount, currency])
+    totals_are_consistent = amounts_are_consistent(
+        subtotal_amount=subtotal_amount,
+        tax_amount=tax_amount,
+        total_amount=total_amount,
+    )
+    unresolved_tax_summary = has_tax_summary(ocr_text) and tax_amount is None
 
     return {
         "schema_version": "invoice-totals-group.v1",
@@ -136,7 +154,15 @@ def parse_invoice_totals_group_payload(
         "total_amount": total_amount,
         "currency": currency,
         "evidence_refs": evidence_refs or ["ocr:text:fallback:totals"],
-        "confidence": "medium" if extracted else "unknown",
+        "confidence": (
+            "high"
+            if total_is_explicit
+            and totals_are_consistent
+            and not unresolved_tax_summary
+            else "medium"
+            if extracted
+            else "unknown"
+        ),
     }
 
 
@@ -225,11 +251,17 @@ def normalize_invoice_date(
     if value is None:
         return None
 
-    parts = re.split(r"[-/]", value)
+    parts = re.split(r"[-/.]", value)
     if len(parts) != 3:
         return value
 
     first, second, year = parts
+    if len(first) == 4:
+        try:
+            return date(int(first), int(second), int(year)).isoformat()
+        except ValueError:
+            return value
+
     is_short_year = len(year) == 2
     if is_short_year:
         year = f"20{year}"
@@ -267,6 +299,13 @@ def should_prefer_day_first_dates(text: str) -> bool:
         or "united kingdom" in lower_text
         or "gst" in lower_text
         or "inr" in lower_text
+        or "nif" in lower_text
+        or "nipc" in lower_text
+        or "fatura" in lower_text
+        or "factura" in lower_text
+        or "recibo" in lower_text
+        or "iva" in lower_text
+        or "contribuinte" in lower_text
     )
 
 
@@ -286,8 +325,25 @@ def find_header_date(lines: list[str]) -> str | None:
 def find_invoice_number(text: str) -> str | None:
     """Find invoice number in noisy OCR text."""
 
+    line_candidate = find_invoice_number_from_lines(normalized_lines(text))
+    if line_candidate is not None:
+        return line_candidate
+
     cleaned = clean_ocr_text(text)
     patterns = (
+        (
+            r"\b(?:fatura|factura)(?:\s*/\s*recibo)?"
+            r"(?:\s+simplificada)?\s*(?:n[º°.]?\.?)?\s*[:#-]?\s*"
+            r"([A-Z0-9]+(?:\s+[A-Z0-9]+)?(?:\s*[/-]\s*[A-Z0-9]+)*)"
+        ),
+        (
+            r"\brecibo\s*(?:n[º°.]?\.?)?\s*[:#-]?\s*"
+            r"([A-Z0-9]+(?:\s+[A-Z0-9]+)?(?:\s*[/-]\s*[A-Z0-9]+)*)"
+        ),
+        (
+            r"\bdoc(?:umento)?\.?\s*(?:n[º°.]?\.?)?\s*[:#-]?\s*"
+            r"([A-Z0-9]+(?:\s+[A-Z0-9]+)?(?:\s*[/-]\s*[A-Z0-9]+)*)"
+        ),
         r"\b(?:bill|receipt)\s*no\.?\s*:?\s*([A-Z0-9][A-Z0-9-]*)\b",
         r"\bno\.?\s*([0-9]{3,})\b",
         r"\binvoice\s*(?:#|no\.?|number|num|[:*])?\s*[#:'‘’“”]*\s*([A-Z0-9][A-Z0-9-]{3,})",
@@ -295,12 +351,100 @@ def find_invoice_number(text: str) -> str | None:
     )
     for pattern in patterns:
         for match in re.finditer(pattern, cleaned, flags=re.IGNORECASE):
-            candidate = match.group(1).strip(" :'‘’“”")
+            candidate = re.sub(r"\s*([/-])\s*", r"\1", match.group(1))
+            candidate = candidate.strip(" :'‘’“”")
+            candidate_parts = candidate.split()
+            while len(candidate_parts) > 1 and not re.search(
+                r"\d",
+                candidate_parts[-1],
+            ):
+                candidate_parts.pop()
+            candidate = " ".join(candidate_parts)
             if candidate.lower().startswith("date"):
                 continue
             if re.search(r"\d", candidate):
                 return candidate
     return None
+
+
+def find_invoice_number_from_lines(lines: list[str]) -> str | None:
+    """Find labelled document or POS identifiers without crossing OCR lines."""
+
+    document_patterns = (
+        (
+            r"\brec[i1]b[o0]\s*[:#-]?\s*"
+            r"((?:[A-Z0-9]{1,4}\s+)?[A-Z0-9][A-Z0-9_/-]{5,})"
+        ),
+        (
+            r"\b(?:fatura|factura)\s*[-/]\s*recibo.*?[:#]\s*"
+            r"([A-Z0-9]+(?:\s+[A-Z0-9]+)?(?:/[A-Z0-9]+)+)"
+        ),
+        (
+            r"\b(?:fatura|factura).*?\b"
+            r"((?:FS|FT|FAC|FR|F1)\s+[A-Z0-9_]+(?:/[A-Z0-9]+)+)"
+        ),
+        (
+            r"\b(?:fatura|factura)\s*[:#]\s*"
+            r"([A-Z0-9]+(?:\s+[A-Z0-9]+)?(?:/[A-Z0-9]+)+)"
+        ),
+        (
+            r"\bdoc(?:umento)?\.?\s*n[º°.]?\.?\s*[:#-]?\s*"
+            r"((?:[A-Z]{1,4}\s+)?[A-Z0-9_]+(?:/[A-Z0-9]+)*|[0-9]{5,})"
+        ),
+        r"\bfatura\s+n[uú]mero\s*[:#-]?\s*(.+)",
+        (
+            r"^(?:n[º°o]?|№[°º]?)\.?\s*[:#-]?\s*"
+            r"([A-Z0-9]+(?:/[A-Z0-9]+)+|[0-9]{5,})\b"
+        ),
+    )
+    for line in lines:
+        for pattern in document_patterns:
+            match = re.search(pattern, line, flags=re.IGNORECASE)
+            if match:
+                candidate = clean_invoice_number_candidate(match.group(1))
+                if candidate is not None:
+                    return candidate
+
+    document_labels = re.compile(
+        r"^(?:fatura|factura)(?:\s*/\s*recibo)?(?:\s+n[uú]mero)?\s*[:#-]?$",
+        flags=re.IGNORECASE,
+    )
+    for index, line in enumerate(lines):
+        if not document_labels.fullmatch(line):
+            continue
+        for candidate_line in lines[index + 1 : index + 9]:
+            if re.search(r"\b(?:data|date)\b", candidate_line, re.IGNORECASE):
+                continue
+            candidate = clean_invoice_number_candidate(candidate_line)
+            if candidate is not None and (
+                "/" in candidate or re.fullmatch(r"[A-Z]?\d{5,}", candidate)
+            ):
+                return candidate
+
+    for line in lines:
+        match = re.search(r"\btpa\s*[:#-]?\s*([0-9]{7,8})\b", line, re.IGNORECASE)
+        if match:
+            return match.group(1)
+
+    for line in lines:
+        match = re.search(r"\b(A[0-9]{12,})\b", line, re.IGNORECASE)
+        if match:
+            return match.group(1).upper()
+
+    for line in lines:
+        match = re.fullmatch(r"(501649F[F1]20)", line, re.IGNORECASE)
+        if match:
+            return match.group(1).upper()
+    return None
+
+
+def clean_invoice_number_candidate(value: str) -> str | None:
+    """Normalize spacing around separators in a document identifier."""
+
+    candidate = clean_ocr_text(value).strip(" :#-")
+    candidate = re.sub(r"\s*([/_-])\s*", r"\1", candidate)
+    candidate = re.sub(r"\s+", " ", candidate)
+    return candidate if re.search(r"\d", candidate) else None
 
 
 def infer_due_date_from_terms(
@@ -335,6 +479,119 @@ def find_currency(text: str) -> str | None:
         return "USD"
     if "£" in text:
         return "GBP"
+    if "€" in text or re.search(r"\beur\b", text, re.IGNORECASE):
+        return "EUR"
+    return None
+
+
+def find_portuguese_tax_ids(lines: list[str]) -> tuple[str | None, str | None]:
+    """Return explicitly labelled Portuguese seller and customer tax IDs."""
+
+    customer_start = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if (
+                "cliente" in line.lower()
+                or re.search(r"\b(?:customer|bill\s*to)\b", line, re.IGNORECASE)
+            )
+        ),
+        len(lines),
+    )
+    customer_tax_id = find_labeled_tax_id(
+        lines,
+        start=customer_start,
+        labels=(
+            "contribuinte",
+            "cont.n",
+            "num.contribuinte",
+            "customer tax id",
+            "nif cliente",
+        ),
+    )
+    supplier_tax_id = find_labeled_tax_id(
+        lines,
+        end=customer_start,
+        labels=(
+            "nif",
+            "nipc",
+            "nr.contr",
+            "n.contr",
+            "num.contrib",
+            "contrib.",
+            "contrtb",
+            "c0ntrtb",
+            "n11",
+            "cont:",
+        ),
+    )
+    if supplier_tax_id is None:
+        pt_match = next(
+            (
+                re.fullmatch(r"PT\s*(\d{9})", line, flags=re.IGNORECASE)
+                for line in lines[:customer_start]
+                if re.fullmatch(r"PT\s*\d{9}", line, flags=re.IGNORECASE)
+            ),
+            None,
+        )
+        if pt_match:
+            supplier_tax_id = pt_match.group(1)
+    if supplier_tax_id is None and customer_start == len(lines):
+        labelled_ids = [
+            re.sub(r"\D", "", match.group(1))
+            for line in lines
+            if any(
+                label in re.sub(r"[\sº°._-]+", "", line.lower())
+                for label in ("nif", "ncontr", "contribuinte")
+            )
+            if (match := PORTUGUESE_TAX_ID_PATTERN.search(line))
+        ]
+        distinct_ids = list(dict.fromkeys(labelled_ids))
+        if len(distinct_ids) >= 2:
+            supplier_tax_id = distinct_ids[-1]
+    return supplier_tax_id, customer_tax_id
+
+
+def find_labeled_tax_id(
+    lines: list[str],
+    *,
+    labels: tuple[str, ...],
+    start: int = 0,
+    end: int | None = None,
+) -> str | None:
+    """Find a nine-digit tax identifier on or immediately after a label."""
+
+    selected_lines = lines[start:end]
+    for offset, line in enumerate(selected_lines):
+        normalized_label_text = re.sub(r"[\sº°._-]+", "", line.lower())
+        normalized_labels = [
+            re.sub(r"[\sº°._-]+", "", label.lower()) for label in labels
+        ]
+        label_matches = any(
+            label in normalized_label_text
+            for label in normalized_labels
+            if label != "contrib"
+        ) or (
+            "contrib" in normalized_labels
+            and re.search(r"\bcontrib[.:]", line, re.IGNORECASE) is not None
+        )
+        if not label_matches:
+            continue
+        match = PORTUGUESE_TAX_ID_PATTERN.search(line)
+        if match:
+            return re.sub(r"\D", "", match.group(1))
+        if offset + 1 >= len(selected_lines):
+            continue
+        next_line = selected_lines[offset + 1]
+        if not re.fullmatch(
+            r"(?:PT\s*)?\d(?:[\s.]?\d){8}",
+            next_line,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        next_match = PORTUGUESE_TAX_ID_PATTERN.search(next_line)
+        if next_match:
+            return re.sub(r"\D", "", next_match.group(1))
     return None
 
 
@@ -568,8 +825,77 @@ def find_money_after_label(
     return None
 
 
+def find_portuguese_vat_amount(text: str) -> str | None:
+    """Extract IVA from common Portuguese tax-summary table layouts."""
+
+    lines = normalized_lines(text)
+    header_index = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if (
+                re.search(r"\bv[.]?\s*tax\b", line, re.IGNORECASE)
+                or re.search(
+                    r"\b(?:resumo|summary)\b.{0,16}\b(?:iva|vat)\b",
+                    line,
+                    re.IGNORECASE,
+                )
+                or re.search(r"\bvalor\s+(?:do\s+)?iva\b", line, re.IGNORECASE)
+                or (
+                    is_tax_summary_total(lines=lines, total_index=index)
+                    and re.search(r"\biva\b", text, re.IGNORECASE)
+                )
+                or (
+                    re.fullmatch(r"(?:iva|imposto)", line, re.IGNORECASE)
+                    and any(
+                        token in " ".join(lines[max(0, index - 3) : index + 4]).lower()
+                        for token in ("taxa", "sujeito", "incid", "base")
+                    )
+                )
+            )
+        ),
+        None,
+    )
+    if header_index is None:
+        return None
+
+    values: list[Decimal] = []
+    saw_percentage = False
+    for line in lines[header_index + 1 : header_index + 13]:
+        if "%" in line:
+            saw_percentage = True
+            continue
+        for value in find_money_values(line):
+            try:
+                values.append(Decimal(clean_money(value)))
+            except InvalidOperation:
+                continue
+        if len(values) >= 4 or (saw_percentage and len(values) >= 3):
+            break
+
+    for total_index in range(len(values) - 1, 1, -1):
+        total = values[total_index]
+        for net_index in range(total_index - 1):
+            net = values[net_index]
+            tax = values[net_index + 1]
+            if tax > 0 and abs((net + tax) - total) <= Decimal("0.02"):
+                return format_decimal(tax)
+
+    if len(values) >= 2:
+        # When OCR flattens a VAT table and loses its columns, the tax is
+        # normally the smallest monetary value among rate/base/tax/total.
+        return format_decimal(min(values))
+    return None
+
+
 def find_total_amount(text: str) -> str | None:
     """Find the final total amount without accidentally selecting subtotal."""
+
+    return find_total_amount_candidate(text)[0]
+
+
+def find_total_amount_candidate(text: str) -> tuple[str | None, bool]:
+    """Return total amount and whether an explicit payment label grounded it."""
 
     candidates: list[str] = []
     lines = normalized_lines(text)
@@ -577,9 +903,17 @@ def find_total_amount(text: str) -> str | None:
         lower_line = line.lower()
         if "total" not in lower_line:
             continue
+        nearby_lines = lines[max(0, index - 4) : index + 2]
+        nearby_text = " ".join(nearby_lines).lower()
+        if any(
+            "sujeito" in candidate.lower() for candidate in lines[index : index + 2]
+        ) or ("taxa" in nearby_text and "iva" in nearby_text):
+            continue
         if ("subtotal" in lower_line or "sub total" in lower_line) and not re.search(
             r"(?<!sub)\btotal\b", lower_line
         ):
+            continue
+        if is_tax_summary_total(lines=lines, total_index=index):
             continue
         explicit_total_match = re.search(
             r"(?<!sub)\btotal\b(?:\s*\(?[A-Z]{3}\)?)?[^0-9$]{0,24}" + MONEY_PATTERN,
@@ -593,11 +927,89 @@ def find_total_amount(text: str) -> str | None:
         if matches:
             candidates.append(clean_money(matches[-1]))
             continue
-        if index + 1 < len(lines):
-            next_line_matches = find_money_values(lines[index + 1])
+        for candidate_line in lines[index + 1 : index + 4]:
+            next_line_matches = find_money_values(candidate_line)
             if next_line_matches:
                 candidates.append(clean_money(next_line_matches[0]))
-    return candidates[-1] if candidates else None
+                break
+    if candidates:
+        return candidates[-1], True
+
+    payment_amount = find_money_after_label(
+        text,
+        labels=(
+            "pago:eur",
+            "pago eur",
+            "valor:eur",
+            "valor eur",
+            "u3lor:eur",
+            "taxa:",
+            "compra",
+        ),
+    )
+    if payment_amount is not None:
+        return payment_amount, True
+
+    currency_amounts: list[str] = []
+    for line in lines:
+        for match in re.finditer(
+            r"([0-9][0-9.,]*[.,]\d{1,2})\s*(?:€|eur\b)",
+            line,
+            flags=re.IGNORECASE,
+        ):
+            currency_amounts.append(clean_money(match.group(1)))
+    return (currency_amounts[-1], False) if currency_amounts else (None, False)
+
+
+def is_tax_summary_total(*, lines: list[str], total_index: int) -> bool:
+    """Return whether ``Total`` is a VAT-table column, not the invoice total."""
+
+    header_lines = [lines[total_index]]
+    for line in lines[total_index + 1 : total_index + 5]:
+        if find_money_values(line):
+            break
+        header_lines.append(line)
+    header_window = " ".join(
+        [*lines[max(0, total_index - 4) : total_index], *header_lines]
+    ).lower()
+    markers = sum(
+        bool(re.search(rf"\b{marker}\b", header_window))
+        for marker in ("taxa", "base", "iva", "imposto", "incidencia", "incidência")
+    )
+    return markers >= 2 or bool(
+        re.search(r"\b(?:resumo|summary)\b.{0,16}\b(?:iva|vat)\b", header_window)
+    )
+
+
+def has_tax_summary(text: str) -> bool:
+    """Return whether OCR contains a recognizable VAT/tax summary structure."""
+
+    normalized = " ".join(normalized_lines(text)).lower()
+    has_tax_term = bool(re.search(r"\b(?:iva|vat|imposto)\b", normalized))
+    structural_markers = sum(
+        bool(re.search(rf"\b{marker}\b", normalized))
+        for marker in ("taxa", "base", "sujeito", "incidencia", "incidência")
+    )
+    return has_tax_term and structural_markers >= 1
+
+
+def amounts_are_consistent(
+    *,
+    subtotal_amount: str | None,
+    tax_amount: str | None,
+    total_amount: str | None,
+) -> bool:
+    """Reject high confidence when all totals exist but their arithmetic conflicts."""
+
+    if subtotal_amount is None or tax_amount is None or total_amount is None:
+        return True
+    try:
+        subtotal = Decimal(subtotal_amount)
+        tax = Decimal(tax_amount)
+        total = Decimal(total_amount)
+    except InvalidOperation:
+        return False
+    return abs((subtotal + tax) - total) <= Decimal("0.02")
 
 
 def find_money_values(text: str) -> list[str]:
@@ -611,7 +1023,14 @@ def find_money_values(text: str) -> list[str]:
 def clean_money(value: str) -> str:
     """Normalize a money-like OCR value."""
 
-    cleaned = value.replace(",", "").strip()
+    cleaned = re.sub(r"[^0-9.,]", "", value)
+    if "," in cleaned and "." in cleaned:
+        decimal_separator = "," if cleaned.rfind(",") > cleaned.rfind(".") else "."
+        thousands_separator = "." if decimal_separator == "," else ","
+        cleaned = cleaned.replace(thousands_separator, "")
+        cleaned = cleaned.replace(decimal_separator, ".")
+    elif "," in cleaned:
+        cleaned = cleaned.replace(",", ".")
     try:
         return format_decimal(Decimal(cleaned))
     except InvalidOperation:

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Protocol
 from uuid import UUID, uuid4
 
-from app.jobs.contracts import JobRef
+from app.jobs.contracts import JobRef, ProcessingProfile
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +20,7 @@ class DocumentIngested:
     content_hash: str
     storage_uri: str
     malware_scan_status: str
+    processing_profile: ProcessingProfile = ProcessingProfile.AZURE
     local_path: str | None = None
     correlation_id: str | None = None
     event_id: UUID = field(default_factory=uuid4)
@@ -39,6 +40,7 @@ class DocumentIngested:
             "content_hash": self.content_hash,
             "storage_uri": self.storage_uri,
             "malware_scan_status": self.malware_scan_status,
+            "processing_profile": self.processing_profile.value,
             "local_path": self.local_path,
             "correlation_id": self.correlation_id,
         }

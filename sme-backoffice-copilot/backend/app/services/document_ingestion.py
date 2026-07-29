@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.jobs.contracts import ProcessingProfile
 from app.models.document import (
     ArtifactType,
     Document,
@@ -137,6 +138,7 @@ class DocumentIngestionService:
         content: bytes,
         media_type: str,
         document_type: DocumentType,
+        processing_profile: ProcessingProfile = ProcessingProfile.AZURE,
         correlation_id: str | None = None,
     ) -> DocumentUploadResult:
         """Validate, de-duplicate, store, and persist uploaded document metadata."""
@@ -207,6 +209,7 @@ class DocumentIngestionService:
             content_hash=document.content_hash,
             storage_uri=artifact.storage_uri,
             malware_scan_status=malware_scan_result.status.value,
+            processing_profile=processing_profile,
             local_path=str(stored_file.path) if stored_file.path is not None else None,
             correlation_id=correlation_id,
         )

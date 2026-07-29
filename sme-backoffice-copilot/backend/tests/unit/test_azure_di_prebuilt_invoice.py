@@ -11,11 +11,17 @@ Covers:
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import httpx
 import pytest
 
-from app.providers.azure_di import AzureDIOCRProvider
+from app.providers.azure_di import (
+    AzureDIOCRProvider,
+    rate_limit_delay_seconds,
+    request_with_rate_limit_retry,
+)
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -77,6 +83,60 @@ def _minimal_response(
     }
 
 
+def test_rate_limit_delay_uses_server_hint_then_exponential_backoff() -> None:
+    response = httpx.Response(
+        429,
+        headers={"Retry-After": "39"},
+        request=httpx.Request("GET", "https://example.test"),
+    )
+
+    assert rate_limit_delay_seconds(response, 0) == 39.0
+    assert [rate_limit_delay_seconds(response, retry) for retry in range(1, 5)] == [
+        1.0,
+        2.0,
+        4.0,
+        8.0,
+    ]
+
+
+async def test_rate_limit_request_retries_until_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = iter(
+        [
+            httpx.Response(
+                429,
+                headers={"Retry-After": "0"},
+                request=httpx.Request("GET", "https://example.test"),
+            ),
+            httpx.Response(
+                429,
+                request=httpx.Request("GET", "https://example.test"),
+            ),
+            httpx.Response(
+                200,
+                json={"status": "succeeded"},
+                request=httpx.Request("GET", "https://example.test"),
+            ),
+        ]
+    )
+    request = AsyncMock(side_effect=lambda *args, **kwargs: next(responses))
+    sleep = AsyncMock()
+    client = AsyncMock()
+    client.request = request
+    monkeypatch.setattr("app.providers.azure_di.asyncio.sleep", sleep)
+
+    response = await request_with_rate_limit_retry(
+        client,
+        "GET",
+        "https://example.test",
+    )
+
+    assert response.status_code == 200
+    assert request.await_count == 3
+    assert [call.args[0] for call in sleep.await_args_list] == [0.0, 1.0]
+
+
 # ─── _parse_prebuilt_invoice_fields directly ──────────────────────────────────
 
 
@@ -109,7 +169,9 @@ class TestParsePrebuiltInvoiceFields:
         fields = {
             "InvoiceId": _string_field("INV-2024-001"),
             "VendorName": _string_field("East Repair Inc."),
+            "VendorTaxId": _string_field("502.689.390"),
             "CustomerName": _string_field("John Smith"),
+            "CustomerTaxId": _string_field("510776914"),
             "InvoiceDate": _date_field("2024-01-15"),
             "DueDate": _date_field("2024-02-15"),
             "InvoiceTotal": _currency_field(154.06, "USD"),
@@ -122,7 +184,9 @@ class TestParsePrebuiltInvoiceFields:
         assert meta["extraction_status"] == "extracted"
         assert meta["invoice_number"] == "INV-2024-001"
         assert meta["supplier_name"] == "East Repair Inc."
+        assert meta["supplier_tax_id"] == "502.689.390"
         assert meta["customer_name"] == "John Smith"
+        assert meta["customer_tax_id"] == "510776914"
         assert meta["issue_date"] == "2024-01-15"
         assert meta["due_date"] == "2024-02-15"
         assert meta["currency"] == "USD"

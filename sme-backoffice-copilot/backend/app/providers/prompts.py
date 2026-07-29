@@ -158,7 +158,14 @@ def build_default_prompt_registry() -> PromptRegistry:
                         template=(
                             "You extract only invoice metadata. Return JSON that "
                             "matches the requested schema. Do not invent missing "
-                            "fields; use null when uncertain."
+                            "fields; use null when uncertain. For invoice_number, "
+                            "prefer values explicitly labelled Invoice, Fatura, "
+                            "Factura, Recibo, or Doc. N. Extract explicitly labelled "
+                            "supplier and customer NIF/tax identifiers into "
+                            "supplier_tax_id and customer_tax_id respectively. Only "
+                            "when selecting invoice_number, do not substitute a tax "
+                            "ID, payment-card reference, authorization code, ticket "
+                            "number, or certified-software reference such as 1542/AT."
                         ),
                     ),
                     PromptMessageTemplate(

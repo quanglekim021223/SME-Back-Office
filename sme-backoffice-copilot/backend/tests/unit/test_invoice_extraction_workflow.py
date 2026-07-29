@@ -50,7 +50,10 @@ from app.workflows import (
 )
 from app.workflows.invoice_extraction import (
     PROVIDER_EXTRACTION_ERRORS_KEY,
+    build_extraction_routing_decision,
+    merge_provider_payload_with_ocr_fallback,
     normalize_provider_invoice_group_payload,
+    ocr_context_for_schema,
 )
 
 COMMON_INVOICE_OCR_TEXT = """Your Company Inc.
@@ -193,6 +196,43 @@ class CapturingLLMProvider:
                     }
                 ],
                 "table_region_ref": "ocr:region:line_item_table",
+                "evidence_refs": [],
+                "confidence": "medium",
+            },
+        )
+
+
+class CountingOllamaProvider:
+    def __init__(self) -> None:
+        self.requests: list[LLMGenerationRequest] = []
+
+    @property
+    def name(self) -> str:
+        return "ollama"
+
+    async def generate(
+        self,
+        *,
+        request: LLMGenerationRequest,
+        context: LLMProviderRunContext,
+    ) -> LLMGenerationResult:
+        del context
+        self.requests.append(request)
+        return LLMGenerationResult(
+            provider_name=self.name,
+            model_name="qwen2.5:7b",
+            output_text="{}",
+            structured_output={
+                "schema_version": "invoice-metadata-group.v1",
+                "extraction_status": "extracted",
+                "invoice_number": "LLM-001",
+                "supplier_name": "LLM Supplier",
+                "supplier_tax_id": None,
+                "customer_name": None,
+                "customer_tax_id": None,
+                "issue_date": "2026-07-28",
+                "due_date": None,
+                "currency": "EUR",
                 "evidence_refs": [],
                 "confidence": "medium",
             },
@@ -476,6 +516,138 @@ async def test_invoice_extractors_run_llm_provider_and_validate_contracts() -> N
 
 
 @pytest.mark.asyncio
+async def test_local_complete_metadata_and_explicit_total_skip_ollama() -> None:
+    state = create_state()
+    state.scratchpad[OCR_FULL_TEXT_KEY] = COMMON_INVOICE_OCR_TEXT
+    llm_provider = CountingOllamaProvider()
+    context = AgentExecutionContext(
+        tenant_id=state.tenant_id,
+        document_id=state.document_id,
+        workflow_run_id=state.workflow_run_id,
+        provider_runtime=ProviderRuntime(
+            build_default_provider_routing_config(llm_provider_name="ollama")
+        ),
+        llm_provider=llm_provider,
+    )
+
+    metadata_result = await MetadataExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=METADATA_EXTRACTOR_AGENT,
+            stage=WorkflowStage.METADATA_EXTRACTION,
+        ),
+    )
+    totals_result = await TotalsExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=TOTALS_EXTRACTOR_AGENT,
+            stage=WorkflowStage.TOTALS_EXTRACTION,
+        ),
+    )
+
+    assert llm_provider.requests == []
+    assert metadata_result.metrics["llm_invoked"] is False
+    assert metadata_result.output["routing"]["strategy"] == "deterministic_fast_path"
+    assert totals_result.metrics["llm_invoked"] is False
+    assert totals_result.output["routing"]["strategy"] == "deterministic_fast_path"
+
+
+@pytest.mark.asyncio
+async def test_local_incomplete_metadata_invokes_ollama_for_weak_fields() -> None:
+    state = create_state()
+    state.scratchpad[OCR_FULL_TEXT_KEY] = "Invoice # LOCAL-001"
+    llm_provider = CountingOllamaProvider()
+    context = AgentExecutionContext(
+        tenant_id=state.tenant_id,
+        document_id=state.document_id,
+        workflow_run_id=state.workflow_run_id,
+        provider_runtime=ProviderRuntime(
+            build_default_provider_routing_config(llm_provider_name="ollama")
+        ),
+        llm_provider=llm_provider,
+    )
+
+    result = await MetadataExtractorAgent().run(
+        state=state,
+        context=context,
+        handoff=create_layout_handoff(
+            state=state,
+            target_agent=METADATA_EXTRACTOR_AGENT,
+            stage=WorkflowStage.METADATA_EXTRACTION,
+        ),
+    )
+
+    assert len(llm_provider.requests) == 1
+    assert result.metrics["llm_invoked"] is True
+    assert result.output["routing"]["strategy"] == "llm_fallback"
+    assert set(result.output["routing"]["missing_required_fields"]) == {
+        "supplier_name",
+        "issue_date",
+    }
+    prompt = "\n".join(message.content for message in llm_provider.requests[0].messages)
+    assert "unresolved or weak fields" in prompt
+
+
+def test_supplier_quality_gate_routes_truncated_name_to_llm() -> None:
+    decision = build_extraction_routing_decision(
+        schema_name="invoice-metadata-group.v1",
+        deterministic_payload={
+            "invoice_number": "A/123",
+            "supplier_name": "Esil. rarques de",
+            "issue_date": "2019-01-17",
+            "confidence": "medium",
+        },
+        llm_provider_name="ollama",
+        handoff=None,
+    )
+
+    assert decision["llm_invoked"] is True
+    assert decision["missing_required_fields"] == ["supplier_name"]
+    assert decision["low_quality_fields"] == ["supplier_name"]
+
+
+def test_supplier_quality_gate_keeps_complete_company_name_on_fast_path() -> None:
+    decision = build_extraction_routing_decision(
+        schema_name="invoice-metadata-group.v1",
+        deterministic_payload={
+            "invoice_number": "19FT 002/46",
+            "supplier_name": "FERRAGENS IDEAL DA BOAVISA A",
+            "issue_date": "2019-01-11",
+            "confidence": "medium",
+        },
+        llm_provider_name="ollama",
+        handoff=None,
+    )
+
+    assert decision["llm_invoked"] is False
+    assert decision["low_quality_fields"] == []
+
+
+@pytest.mark.parametrize("supplier_name", ["ARROTOS", "PORTUGAL", "SULAMAN"])
+def test_supplier_quality_gate_keeps_single_token_names_on_fast_path(
+    supplier_name: str,
+) -> None:
+    decision = build_extraction_routing_decision(
+        schema_name="invoice-metadata-group.v1",
+        deterministic_payload={
+            "invoice_number": "A/26752",
+            "supplier_name": supplier_name,
+            "issue_date": "2019-02-04",
+            "confidence": "medium",
+        },
+        llm_provider_name="ollama",
+        handoff=None,
+    )
+
+    assert decision["llm_invoked"] is False
+    assert decision["low_quality_fields"] == []
+
+
+@pytest.mark.asyncio
 async def test_invoice_extractors_fallback_to_ocr_text_when_llm_schema_fails() -> None:
     state = create_state()
     state.scratchpad[OCR_FULL_TEXT_KEY] = COMMON_INVOICE_OCR_TEXT
@@ -644,6 +816,104 @@ async def test_table_extractor_prefers_layout_region_over_full_ocr_text() -> Non
     assert "Region item 1.00 10.00 10.00" in prompt_text
     assert "Header Supplier" not in prompt_text
     assert "Footer terms" not in prompt_text
+
+
+def test_metadata_extractor_uses_full_ocr_text_instead_of_layout_subset() -> None:
+    state = create_state()
+    state.scratchpad[OCR_FULL_TEXT_KEY] = (
+        "Supplier SA\nNIF: 502689390\nCliente: Buyer LDA\nContribuinte: 510776914"
+    )
+    state.scratchpad[OCR_LAYOUT_REGIONS_KEY] = {
+        "header": {
+            "region_type": "header",
+            "block_ids": ["ocr:block:1"],
+            "text": "Supplier SA",
+            "bounding_box": None,
+            "confidence": None,
+            "source": "ocr_layout_blocks",
+        }
+    }
+
+    context_text = ocr_context_for_schema(
+        state=state,
+        schema_name="invoice-metadata-group.v1",
+    )
+
+    assert "NIF: 502689390" in context_text
+    assert "Contribuinte: 510776914" in context_text
+
+
+def test_totals_extractor_uses_full_ocr_text_instead_of_layout_subset() -> None:
+    state = create_state()
+    state.scratchpad[OCR_FULL_TEXT_KEY] = "Items\nTotal a Pagar:\n19,98 €"
+    state.scratchpad[OCR_LAYOUT_REGIONS_KEY] = {
+        "totals": {
+            "region_type": "totals",
+            "block_ids": ["ocr:block:9"],
+            "text": "Total\n1998",
+            "bounding_box": None,
+            "confidence": None,
+            "source": "ocr_layout_blocks",
+        }
+    }
+
+    context_text = ocr_context_for_schema(
+        state=state,
+        schema_name="invoice-totals-group.v1",
+    )
+
+    assert context_text == "Items\nTotal a Pagar:\n19,98 €"
+
+
+def test_explicit_deterministic_total_overrides_llm_amount() -> None:
+    merged = merge_provider_payload_with_ocr_fallback(
+        schema_name="invoice-totals-group.v1",
+        provider_payload={
+            "schema_version": "invoice-totals-group.v1",
+            "extraction_status": "extracted",
+            "subtotal_amount": None,
+            "tax_amount": "374.00",
+            "total_amount": "1998.00",
+            "currency": "EUR",
+            "evidence_refs": [],
+            "confidence": "medium",
+        },
+        fallback_payload={
+            "schema_version": "invoice-totals-group.v1",
+            "extraction_status": "partial",
+            "subtotal_amount": None,
+            "tax_amount": None,
+            "total_amount": "19.98",
+            "currency": "EUR",
+            "evidence_refs": ["ocr:text:fallback:totals"],
+            "confidence": "high",
+        },
+    )
+
+    assert merged["total_amount"] == "19.98"
+    assert merged["tax_amount"] == "374.00"
+
+
+def test_unlabelled_deterministic_total_does_not_override_llm_amount() -> None:
+    merged = merge_provider_payload_with_ocr_fallback(
+        schema_name="invoice-totals-group.v1",
+        provider_payload={
+            "schema_version": "invoice-totals-group.v1",
+            "extraction_status": "extracted",
+            "total_amount": "49.99",
+            "evidence_refs": [],
+            "confidence": "medium",
+        },
+        fallback_payload={
+            "schema_version": "invoice-totals-group.v1",
+            "extraction_status": "partial",
+            "total_amount": "9.99",
+            "evidence_refs": ["ocr:text:fallback:totals"],
+            "confidence": "medium",
+        },
+    )
+
+    assert merged["total_amount"] == "49.99"
 
 
 @pytest.mark.asyncio

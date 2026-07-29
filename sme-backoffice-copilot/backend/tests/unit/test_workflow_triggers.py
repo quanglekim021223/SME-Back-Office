@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from app.jobs import JobStatus
+from app.jobs import JobStatus, ProcessingProfile
 from app.models.jobs import OutboxEvent, WorkflowJob
 from app.models.workflow import (
     AgentHandoff,
@@ -69,6 +69,7 @@ def create_document_ingested_event() -> DocumentIngested:
         content_hash="hash-123",
         storage_uri="local://tenants/t/documents/d/original/invoice.pdf",
         malware_scan_status="not_scanned",
+        processing_profile=ProcessingProfile.LOCAL,
         local_path="/tmp/invoice.pdf",
     )
 
@@ -86,6 +87,7 @@ def test_workflow_state_from_document_ingested_event_preserves_artifact_context(
     assert state.policy_flags["malware_scan_status"] == "not_scanned"
     assert state.policy_flags["source_event_id"] == str(event.event_id)
     assert state.policy_flags["correlation_id"] is None
+    assert state.policy_flags["processing_profile"] == "local"
     assert state.artifacts["original"].uri == event.storage_uri
     assert state.artifacts["original"].content_hash == event.content_hash
     assert state.artifacts["original"].metadata["local_path"] == "/tmp/invoice.pdf"
@@ -252,6 +254,7 @@ async def test_queued_document_publisher_stages_job_and_outbox_atomically() -> N
     assert durable_job.workflow_run_id == workflow_run.id
     assert durable_job.idempotency_key == str(workflow_run.id)
     assert durable_job.command["event_id"] == str(event.event_id)
+    assert durable_job.command["processing_profile"] == "local"
     assert len(persistence.outbox_events) == 1
     assert persistence.outbox_events[0].workflow_job_id == durable_job.id
     assert persistence.outbox_events[0].payload["command"] == durable_job.command

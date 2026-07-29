@@ -26,6 +26,7 @@ from app.services.workflow_outputs import (
     WorkflowOutputPersistenceService,
     get_assembled_invoice_draft,
     match_ocr_blocks,
+    normalize_currency_code,
 )
 from app.workflows.replay import WorkflowReplayRunner, create_replay_state
 
@@ -103,6 +104,14 @@ class FakeWorkflowOutputPersistence:
         self.document_status_updates.append((tenant_id, document_id, status))
 
 
+def test_currency_normalization_protects_three_character_database_column() -> None:
+    assert normalize_currency_code("EURO") == "EUR"
+    assert normalize_currency_code(" euros ") == "EUR"
+    assert normalize_currency_code("€") == "EUR"
+    assert normalize_currency_code("usd") == "USD"
+    assert normalize_currency_code("unknown") is None
+
+
 async def test_workflow_output_service_materializes_invoice_review_task() -> None:
     state = create_replay_state()
     result = await WorkflowReplayRunner(
@@ -172,6 +181,10 @@ def test_field_grounding_matches_dates_and_totals_without_single_digit_fallback(
         {"id": "ocr:block:5", "text": "$154.06", "page_number": 1},
         {"id": "ocr:block:6", "text": "Due date", "page_number": 1},
         {"id": "ocr:block:7", "text": "10-16-2023", "page_number": 1},
+        {"id": "ocr:block:8", "text": "Data: 06 Abr 2018", "page_number": 1},
+        {"id": "ocr:block:9", "text": "Contribuinte: 510776914", "page_number": 1},
+        {"id": "ocr:block:10", "text": "TX IVA , Valor IVA - 23 % ,", "page_number": 1},
+        {"id": "ocr:block:11", "text": "2.06", "page_number": 1},
     ]
 
     date_matches = match_ocr_blocks(
@@ -189,10 +202,28 @@ def test_field_grounding_matches_dates_and_totals_without_single_digit_fallback(
         field_name="due_date",
         layout_blocks=blocks,
     )
+    portuguese_date_matches = match_ocr_blocks(
+        value="2018-04-06",
+        field_name="issue_date",
+        layout_blocks=blocks,
+    )
+    customer_tax_id_matches = match_ocr_blocks(
+        value="510776914",
+        field_name="customer_tax_id",
+        layout_blocks=blocks,
+    )
+    tax_matches = match_ocr_blocks(
+        value="2.06",
+        field_name="tax",
+        layout_blocks=blocks,
+    )
 
     assert [block["id"] for block in date_matches] == ["ocr:block:3"]
     assert [block["id"] for block in total_matches] == ["ocr:block:5"]
     assert [block["id"] for block in due_date_matches] == ["ocr:block:7"]
+    assert [block["id"] for block in portuguese_date_matches] == ["ocr:block:8"]
+    assert [block["id"] for block in customer_tax_id_matches] == ["ocr:block:9"]
+    assert [block["id"] for block in tax_matches] == ["ocr:block:11"]
 
 
 async def test_workflow_output_service_traces_review_task_creation() -> None:

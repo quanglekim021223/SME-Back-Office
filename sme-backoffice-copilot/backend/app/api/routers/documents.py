@@ -17,15 +17,22 @@ from app.core.auth import Permission, Principal
 from app.core.config import Settings
 from app.core.db import get_db_session
 from app.core.tenant import TenantContext
-from app.models.document import DocumentType
-from app.repositories import DocumentRepository, WorkflowJobRepository
+from app.jobs.contracts import ProcessingProfile
+from app.models.document import ArtifactType, DocumentStatus, DocumentType
+from app.models.workflow import WorkflowRunStatus
+from app.repositories import (
+    DocumentRepository,
+    WorkflowJobRepository,
+    WorkflowRuntimeRepository,
+)
 from app.schemas.document import (
+    DocumentReprocessResponse,
     DocumentUploadResponse,
     DocumentWorkflowTriggerResponse,
     MalwareScanResponse,
 )
 from app.services.audit import AuditService
-from app.services.document_events import DocumentEventPublisher
+from app.services.document_events import DocumentEventPublisher, DocumentIngested
 from app.services.document_ingestion import (
     DocumentIngestionService,
     DuplicateDocumentError,
@@ -108,6 +115,7 @@ async def upload_document(
     request: Request,
     filename: Annotated[str, Query(min_length=1)],
     document_type: Annotated[DocumentType, Query()] = DocumentType.OTHER,
+    profile: Annotated[ProcessingProfile, Query()] = ProcessingProfile.AZURE,
     tenant_context: Annotated[TenantContext | None, Depends(get_tenant_context)] = None,
     principal: Annotated[
         Principal | None,
@@ -135,6 +143,7 @@ async def upload_document(
             content=content,
             media_type=media_type,
             document_type=document_type,
+            processing_profile=profile,
             correlation_id=getattr(request.state, "correlation_id", None),
         )
     except DuplicateDocumentError as exc:
@@ -201,6 +210,128 @@ async def upload_document(
                 else None
             ),
         ),
+    )
+
+
+@router.post(
+    "/{document_id}/reprocess",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=DocumentReprocessResponse,
+)
+async def reprocess_failed_document(
+    document_id: UUID,
+    request: Request,
+    tenant_context: Annotated[TenantContext, Depends(get_tenant_context)],
+    principal: Annotated[
+        Principal,
+        Depends(require_permission(Permission.WRITE_DOCUMENTS)),
+    ],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    event_publisher: Annotated[
+        DocumentEventPublisher,
+        Depends(get_document_workflow_publisher),
+    ],
+    profile: Annotated[ProcessingProfile, Query()] = ProcessingProfile.AZURE,
+) -> DocumentReprocessResponse:
+    """Queue a fresh workflow run for a failed tenant-owned document."""
+
+    del principal
+    tenant_id = resolve_tenant_uuid(tenant_context)
+    document = await DocumentRepository(session).get_with_artifacts(
+        tenant_id=tenant_id,
+        document_id=document_id,
+    )
+    if document is None:
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="document_not_found",
+            message="Document was not found.",
+            details={"document_id": str(document_id)},
+        )
+    latest_workflow = await WorkflowRuntimeRepository(
+        session
+    ).get_latest_for_document(
+        tenant_id=tenant_id,
+        document_id=document_id,
+    )
+    failed_workflow_statuses = {
+        WorkflowRunStatus.FAILED.value,
+        WorkflowRunStatus.DEAD_LETTERED.value,
+        WorkflowRunStatus.LOST.value,
+    }
+    if document.invoices or (
+        document.status != DocumentStatus.FAILED.value
+        and (
+            latest_workflow is None
+            or latest_workflow.status not in failed_workflow_statuses
+        )
+    ):
+        raise APIError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="document_not_reprocessable",
+            message=(
+                "Only documents without an invoice after a failed run "
+                "can be reprocessed."
+            ),
+            details={
+                "document_id": str(document_id),
+                "document_status": document.status,
+                "workflow_status": (
+                    latest_workflow.status if latest_workflow is not None else None
+                ),
+            },
+        )
+
+    original_artifact = next(
+        (
+            artifact
+            for artifact in document.artifacts
+            if artifact.artifact_type == ArtifactType.ORIGINAL.value
+        ),
+        None,
+    )
+    if original_artifact is None:
+        raise APIError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="original_artifact_missing",
+            message="The document has no original artifact to reprocess.",
+            details={"document_id": str(document_id)},
+        )
+
+    malware_scan_status = "not_scanned"
+    if latest_workflow is not None and isinstance(latest_workflow.state, dict):
+        policy_flags = latest_workflow.state.get("policy_flags")
+        if isinstance(policy_flags, dict):
+            stored_scan_status = policy_flags.get("malware_scan_status")
+            if isinstance(stored_scan_status, str) and stored_scan_status:
+                malware_scan_status = stored_scan_status
+
+    event = DocumentIngested(
+        tenant_id=tenant_id,
+        document_id=document.id,
+        document_type=document.document_type,
+        content_hash=document.content_hash,
+        storage_uri=original_artifact.storage_uri,
+        malware_scan_status=malware_scan_status,
+        processing_profile=profile,
+        correlation_id=getattr(request.state, "correlation_id", None),
+    )
+    submission = await event_publisher.publish_document_ingested(event)
+    if submission is None:
+        raise APIError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="workflow_not_supported",
+            message="This document type does not support reprocessing.",
+            details={"document_id": str(document_id)},
+        )
+
+    document.status = DocumentStatus.ACCEPTED.value
+    await session.commit()
+    return DocumentReprocessResponse(
+        document_id=document.id,
+        status=submission.job.status.value,
+        workflow_run_id=submission.workflow_run_id,
+        job_id=submission.job.job_id,
     )
 
 

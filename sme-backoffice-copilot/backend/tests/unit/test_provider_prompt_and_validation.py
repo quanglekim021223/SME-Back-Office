@@ -24,6 +24,11 @@ def test_default_prompt_registry_renders_invoice_metadata_prompt() -> None:
     assert rendered.response_schema_name == "invoice-metadata-group.v1"
     assert rendered.messages[0].role == LLMMessageRole.SYSTEM
     assert rendered.messages[1].role == LLMMessageRole.USER
+    assert "supplier_tax_id and customer_tax_id respectively" in (
+        rendered.messages[0].content
+    )
+    assert "Only when selecting invoice_number" in rendered.messages[0].content
+    assert "Never use tax IDs" not in rendered.messages[0].content
     assert DEFAULT_MOCK_OCR_TEXT in rendered.messages[1].content
 
 

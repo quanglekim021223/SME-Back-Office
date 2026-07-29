@@ -24,3 +24,5 @@ data/labelled/*
 !data/labelled/.gitkeep
 data/uploads/*
 !data/uploads/.gitkeep
+data/*.json
+data/*-artifacts/

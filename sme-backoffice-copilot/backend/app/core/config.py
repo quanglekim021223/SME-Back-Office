@@ -140,6 +140,8 @@ class Settings(BaseSettings):
     tesseract_binary_path: str = "tesseract"
     tesseract_language: str = "eng"
     paddleocr_language: str = "en"
+    paddleocr_detection_model: str = "PP-OCRv5_mobile_det"
+    paddleocr_recognition_model: str = "latin_PP-OCRv5_mobile_rec"
     chandraocr_language: str = "en"
     azure_di_endpoint: str = ""
     azure_di_key: str = ""
@@ -158,9 +160,12 @@ class Settings(BaseSettings):
     ocr_preprocessing_upscale_min_px: int = 0
     ocr_preprocessing_clahe_clip_limit: float = 2.0
     ocr_preprocessing_clahe_tile_grid_size: int = 8
+    ocr_preprocessing_max_dimension_px: int = 3000
+    ocr_preprocessing_max_output_bytes: int = 3_500_000
+    ocr_preprocessing_jpeg_quality: int = 85
 
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.1:8b"
+    ollama_model: str = "qwen2.5:7b"
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-5.2"

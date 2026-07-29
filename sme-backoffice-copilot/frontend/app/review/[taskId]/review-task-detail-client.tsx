@@ -768,6 +768,16 @@ function defaultCorrectionJson(
   if (taskType === "extraction") {
     return JSON.stringify(
       {
+        invoice_number: workflowMetadata?.invoiceNumber ?? "",
+        supplier_name: workflowMetadata?.supplier ?? "",
+        supplier_tax_id: workflowMetadata?.supplierTaxId ?? "",
+        customer_name: workflowMetadata?.customer ?? "",
+        customer_tax_id: workflowMetadata?.customerTaxId ?? "",
+        issue_date: workflowMetadata?.issueDate ?? "",
+        due_date: workflowMetadata?.dueDate ?? "",
+        currency: workflowMetadata?.currency ?? "",
+        subtotal_amount: workflowMetadata?.subtotalAmount ?? "",
+        tax_amount: workflowMetadata?.taxAmount ?? "",
         total_amount: workflowMetadata?.totalAmount ?? "",
         confidence: "human_verified",
       },
@@ -897,10 +907,14 @@ type WorkflowMetadataView = {
   assemblyStatus: string | null;
   invoiceNumber: string | null;
   supplier: string | null;
+  supplierTaxId: string | null;
   customer: string | null;
+  customerTaxId: string | null;
   issueDate: string | null;
   dueDate: string | null;
   currency: string | null;
+  subtotalAmount: string | null;
+  taxAmount: string | null;
   totalAmount: string | null;
   lineItems: Array<{
     lineNumber: string | null;
@@ -969,9 +983,19 @@ function buildProposalView(
         value: workflowMetadata.supplier,
       },
       {
+        evidenceKind: "supplier_tax_id",
+        label: "Supplier NIF",
+        value: workflowMetadata.supplierTaxId,
+      },
+      {
         evidenceKind: "customer",
         label: "Customer",
         value: workflowMetadata.customer,
+      },
+      {
+        evidenceKind: "customer_tax_id",
+        label: "Customer NIF",
+        value: workflowMetadata.customerTaxId,
       },
       {
         evidenceKind: "issue_date",
@@ -982,6 +1006,22 @@ function buildProposalView(
         evidenceKind: "due_date",
         label: "Due date",
         value: workflowMetadata.dueDate,
+      },
+      {
+        evidenceKind: "subtotal",
+        label: "Subtotal",
+        value: formatMoneyDisplay(
+          workflowMetadata.subtotalAmount,
+          workflowMetadata.currency,
+        ),
+      },
+      {
+        evidenceKind: "tax",
+        label: "Tax / IVA",
+        value: formatMoneyDisplay(
+          workflowMetadata.taxAmount,
+          workflowMetadata.currency,
+        ),
       },
       {
         evidenceKind: "total",
@@ -1130,10 +1170,14 @@ function buildWorkflowMetadataView(
     assemblyStatus: titleCase(getDisplayValue(draft?.assembly_status)),
     invoiceNumber: getDisplayValue(metadataGroup?.invoice_number),
     supplier: getDisplayValue(metadataGroup?.supplier_name),
+    supplierTaxId: getDisplayValue(metadataGroup?.supplier_tax_id),
     customer: getDisplayValue(metadataGroup?.customer_name),
+    customerTaxId: getDisplayValue(metadataGroup?.customer_tax_id),
     issueDate: getDisplayValue(metadataGroup?.issue_date),
     dueDate: getDisplayValue(metadataGroup?.due_date),
     currency: getDisplayValue(totalsGroup?.currency ?? metadataGroup?.currency),
+    subtotalAmount: getDisplayValue(totalsGroup?.subtotal_amount),
+    taxAmount: getDisplayValue(totalsGroup?.tax_amount),
     totalAmount: getDisplayValue(totalsGroup?.total_amount),
     lineItems,
     layoutBlocks,
@@ -1155,9 +1199,13 @@ function parseFieldEvidenceGrounding(
   const fieldKinds: EvidenceFieldKind[] = [
     "invoice_number",
     "supplier",
+    "supplier_tax_id",
     "customer",
+    "customer_tax_id",
     "issue_date",
     "due_date",
+    "subtotal",
+    "tax",
     "total",
   ];
   for (const fieldKind of fieldKinds) {

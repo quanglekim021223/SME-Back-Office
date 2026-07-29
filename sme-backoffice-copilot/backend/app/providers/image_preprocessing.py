@@ -99,6 +99,15 @@ class ImagePreprocessingConfig:
     output_suffix: str = "_preprocessed"
     """Suffix appended to the temp file name for easy identification in logs."""
 
+    max_dimension_px: int = 3000
+    """Down-scale images whose longest side exceeds this value."""
+
+    max_output_bytes: int = 3_500_000
+    """Keep the encoded image below Azure F0's 4 MB request limit with margin."""
+
+    jpeg_quality: int = 85
+    """Initial JPEG quality; reduced only when needed to meet max_output_bytes."""
+
 
 # ── Core pipeline ─────────────────────────────────────────────────────────────
 
@@ -165,6 +174,25 @@ def preprocess_image_for_ocr(
             )
             log.debug("Upscaled image %.1fx to %dx%d", factor, *img.shape[:2][::-1])
 
+    # Bound large phone photos before enhancement and encoding. This prevents
+    # preprocessing from turning a compact source JPEG into a request that
+    # exceeds Azure Document Intelligence F0 limits.
+    h, w = img.shape[:2]
+    if config.max_dimension_px > 0 and max(h, w) > config.max_dimension_px:
+        scale = config.max_dimension_px / max(h, w)
+        img = cv2.resize(
+            img,
+            (max(1, round(w * scale)), max(1, round(h * scale))),
+            interpolation=cv2.INTER_AREA,
+        )
+        log.info(
+            "Downscaled OCR input from %dx%d to %dx%d",
+            w,
+            h,
+            img.shape[1],
+            img.shape[0],
+        )
+
     # ── Convert to greyscale ──────────────────────────────────────────────
     grey = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
@@ -215,7 +243,16 @@ def preprocess_image_for_ocr(
         stem = src.stem + config.output_suffix
         output_path = str(src.parent / f"{stem}{src.suffix}")
 
-    ok = cv2.imwrite(output_path, grey)
+    output_suffix = Path(output_path).suffix.casefold()
+    if output_suffix in {".jpg", ".jpeg"}:
+        ok = _write_bounded_jpeg(
+            output_path,
+            grey,
+            max_output_bytes=config.max_output_bytes,
+            initial_quality=config.jpeg_quality,
+        )
+    else:
+        ok = cv2.imwrite(output_path, grey)
     if not ok:
         log.warning("cv2.imwrite failed for %s; falling back to original", output_path)
         return input_path
@@ -229,6 +266,43 @@ def preprocess_image_for_ocr(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _write_bounded_jpeg(
+    output_path: str,
+    image: Any,
+    *,
+    max_output_bytes: int,
+    initial_quality: int,
+) -> bool:
+    """Encode a JPEG under the configured byte limit without dropping readability."""
+
+    import cv2
+
+    working = image
+    quality = max(40, min(initial_quality, 95))
+    for _ in range(12):
+        ok, encoded = cv2.imencode(
+            ".jpg",
+            working,
+            [cv2.IMWRITE_JPEG_QUALITY, quality],
+        )
+        if not ok:
+            return False
+        if max_output_bytes <= 0 or len(encoded) <= max_output_bytes:
+            Path(output_path).write_bytes(encoded.tobytes())
+            return True
+        if quality > 55:
+            quality -= 10
+            continue
+        height, width = working.shape[:2]
+        working = cv2.resize(
+            working,
+            (max(1, round(width * 0.85)), max(1, round(height * 0.85))),
+            interpolation=cv2.INTER_AREA,
+        )
+        quality = max(55, initial_quality - 10)
+    return False
 
 
 def _deskew(grey: Any, max_angle: float) -> Any:
@@ -385,9 +459,8 @@ async def _run_preprocessing(
 ) -> str:
     """Run :func:`preprocess_image_for_ocr` in a thread pool."""
 
-    suffix = Path(input_path).suffix or ".png"
     with tempfile.NamedTemporaryFile(
-        suffix=suffix,
+        suffix=".jpg",
         delete=False,
         prefix="sme_ocr_prep_",
     ) as tmp:

@@ -17,9 +17,13 @@ export type OcrLayoutBlock = {
 export type EvidenceFieldKind =
   | "invoice_number"
   | "supplier"
+  | "supplier_tax_id"
   | "customer"
+  | "customer_tax_id"
   | "issue_date"
   | "due_date"
+  | "subtotal"
+  | "tax"
   | "total";
 
 type SourceEvidencePreviewProps = {
@@ -300,7 +304,12 @@ function selectBestCandidate(
   }
 
   const anchorIndexes = blocks.flatMap((block, index) =>
-    anchors.includes(normalizeText(block.text)) ? [index] : [],
+    anchors.some((anchor) => {
+      const normalized = normalizeText(block.text);
+      return normalized === anchor || normalized.startsWith(`${anchor} `);
+    })
+      ? [index]
+      : [],
   );
   const ranked = [...candidates].sort(
     (left, right) =>
@@ -317,12 +326,20 @@ function getFieldAnchors(fieldKind: EvidenceFieldKind) {
       return ["invoice", "invoice no", "invoice number"];
     case "customer":
       return ["bill to", "customer", "client"];
+    case "customer_tax_id":
+      return ["customer tax id", "contribuinte", "nif"];
     case "issue_date":
-      return ["invoice date", "issue date", "date"];
+      return ["invoice date", "issue date", "date", "data"];
     case "due_date":
       return ["due date", "payment due"];
+    case "subtotal":
+      return ["subtotal", "sub total"];
+    case "tax":
+      return ["tax", "vat", "iva", "valor iva", "tx iva"];
     case "total":
       return ["total", "amount due", "balance due"];
+    case "supplier_tax_id":
+      return ["vendor tax id", "supplier tax id", "nif"];
     case "supplier":
       return [];
   }
@@ -330,7 +347,7 @@ function getFieldAnchors(fieldKind: EvidenceFieldKind) {
 
 function distanceFromPrecedingAnchor(index: number, anchorIndexes: number[]) {
   const distances = anchorIndexes
-    .filter((anchorIndex) => anchorIndex < index)
+    .filter((anchorIndex) => anchorIndex <= index)
     .map((anchorIndex) => index - anchorIndex);
 
   return distances.length > 0
@@ -409,6 +426,35 @@ function normalizeCompact(value: string) {
 }
 
 function normalizeDateKeys(value: string) {
+  const portugueseMonths: Record<string, number> = {
+    jan: 1,
+    fev: 2,
+    mar: 3,
+    abr: 4,
+    mai: 5,
+    jun: 6,
+    jul: 7,
+    ago: 8,
+    set: 9,
+    out: 10,
+    nov: 11,
+    dez: 12,
+  };
+  const localizedMatch = value
+    .toLocaleLowerCase()
+    .match(
+      /\b(\d{1,2})\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\s+(\d{4})\b/,
+    );
+  if (localizedMatch) {
+    const [, day, monthName, year] = localizedMatch;
+    const key = toDateKey([
+      Number(year),
+      portugueseMonths[monthName],
+      Number(day),
+    ]);
+    return key ? [key] : [];
+  }
+
   const match = value.trim().match(/^(\d{1,4})[-/.](\d{1,2})[-/.](\d{1,4})$/);
   if (!match) {
     return [];

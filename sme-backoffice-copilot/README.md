@@ -78,6 +78,68 @@ python -m app.evaluations.runner --format json --output ../data/evaluation-repor
 The evaluation command currently checks the controlled workflow replay scenarios
 and applies the initial local release gate before real AI providers are enabled.
 
+Evaluate the running API against a directory of invoice images and paired JSON
+annotations (files are paired by basename; `.txt` annotations containing JSON are
+supported):
+
+```bash
+cd backend
+python -m app.evaluations.api_dataset_runner \
+  --images /path/to/invoice-images \
+  --annotations /path/to/annotations \
+  --profile azure \
+  --limit 10 \
+  --output ../data/api-extraction-baseline.json
+```
+
+The runner uploads each invoice, waits for the workflow to finish, loads the
+persisted invoice, and reports normalized field accuracy for invoice number,
+supplier, supplier/buyer tax IDs, issue date, tax, and total. Start with
+`--limit 10`; remove the limit only after the smoke run succeeds. Re-running the
+same dataset reuses duplicate documents already stored for the development
+tenant.
+
+Provider profiles are selected per evaluation job:
+
+- `azure`: Azure Document Intelligence `prebuilt-invoice`.
+- `local`: local PaddleOCR (`pt`) followed by Ollama extraction.
+- `hybrid`: Azure `prebuilt-layout` OCR followed by Ollama extraction.
+
+For the local and hybrid profiles, install and start Ollama on the Docker host:
+
+```bash
+ollama pull qwen2.5:7b
+ollama serve
+docker compose -f infra/docker-compose.yml up -d --build backend worker outbox
+```
+
+Then run a local baseline:
+
+```bash
+cd backend
+.venv/bin/python -m app.dev_reset \
+  --yes \
+  --tenant-id 00000000-0000-4000-8000-000000000001
+
+.venv/bin/python -m app.evaluations.api_dataset_runner \
+  --images /path/to/invoice-images \
+  --annotations /path/to/annotations \
+  --profile local \
+  --limit 10 \
+  --output ../data/zenodo-local-baseline.json
+```
+
+The reset is intentionally required for a fair comparison: document hashes are
+deduplicated per tenant, so otherwise a local run could accidentally score the
+invoice previously produced by Azure. `--reuse-existing` is available only when
+you explicitly want to score stored results rather than rerun the selected
+profile.
+
+Before running a downloaded dataset through a cloud OCR provider, verify that
+its license and privacy terms permit external processing and that the documents
+satisfy the provider privacy policy. Prefer the local OCR profile for datasets
+that have not been de-identified.
+
 ## LangGraph workflow
 
 The invoice extraction pipeline can run in two orchestration modes controlled

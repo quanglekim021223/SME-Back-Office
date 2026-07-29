@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from subprocess import CompletedProcess
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -168,6 +169,38 @@ class FakePaddleV3Engine:
                 ],
             }
         ]
+
+
+def test_paddleocr_provider_loads_configured_cpu_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    fake_engine = object()
+
+    def fake_paddleocr(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return fake_engine
+
+    monkeypatch.setattr(
+        "app.providers.local_ocr.importlib.import_module",
+        lambda module_name: SimpleNamespace(PaddleOCR=fake_paddleocr),
+    )
+    provider = PaddleOCRProvider(
+        language="pt",
+        detection_model="PP-OCRv5_mobile_det",
+        recognition_model="latin_PP-OCRv5_mobile_rec",
+    )
+
+    assert provider._load_engine() is fake_engine
+    assert captured == {
+        "lang": "pt",
+        "text_detection_model_name": "PP-OCRv5_mobile_det",
+        "text_recognition_model_name": "latin_PP-OCRv5_mobile_rec",
+        "enable_mkldnn": False,
+        "use_doc_orientation_classify": False,
+        "use_doc_unwarping": False,
+        "use_textline_orientation": False,
+    }
 
 
 class FakeChandraEngine:

@@ -30,6 +30,8 @@ dev = [
 ]
 local-ocr = [
   "opencv-python-headless>=4.9,<5",
+  "paddleocr>=3.3,<4",
+  "paddlepaddle>=3.0,<4",
 ]
 
 

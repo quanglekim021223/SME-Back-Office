@@ -44,6 +44,7 @@ from app.workflows.downstream_agents import (
 )
 from app.workflows.invoice_extraction import (
     ASSEMBLED_INVOICE_DRAFT_KEY,
+    EXTRACTION_ROUTING_DECISIONS_KEY,
     INVOICE_ASSEMBLY_NODE,
     PROVIDER_EXTRACTION_ERRORS_KEY,
     AssembledInvoiceDraft,
@@ -641,9 +642,19 @@ def build_review_field_grounding(
             metadata.supplier_name if metadata else None,
         ),
         (
+            "supplier_tax_id",
+            "groups.metadata.supplier_tax_id",
+            metadata.supplier_tax_id if metadata else None,
+        ),
+        (
             "customer",
             "groups.metadata.customer_name",
             metadata.customer_name if metadata else None,
+        ),
+        (
+            "customer_tax_id",
+            "groups.metadata.customer_tax_id",
+            metadata.customer_tax_id if metadata else None,
         ),
         (
             "issue_date",
@@ -654,6 +665,16 @@ def build_review_field_grounding(
             "due_date",
             "groups.metadata.due_date",
             metadata.due_date if metadata else None,
+        ),
+        (
+            "subtotal",
+            "groups.totals.subtotal_amount",
+            totals.subtotal_amount if totals else None,
+        ),
+        (
+            "tax",
+            "groups.totals.tax_amount",
+            totals.tax_amount if totals else None,
         ),
         (
             "total",
@@ -695,14 +716,20 @@ def match_ocr_blocks(
     date_keys = evidence_date_keys(value_text)
     amount = (
         evidence_decimal(value_text)
-        if "amount" in field_name or field_name == "total"
+        if "amount" in field_name or field_name in {"subtotal", "tax", "total"}
         else None
     )
     anchors = evidence_field_anchors(field_name)
     anchor_indexes = [
         index
         for index, block in enumerate(layout_blocks)
-        if normalize_evidence_text(str(block.get("text") or "")) in anchors
+        if any(
+            normalize_evidence_text(str(block.get("text") or "")) == anchor
+            or normalize_evidence_text(str(block.get("text") or "")).startswith(
+                f"{anchor} "
+            )
+            for anchor in anchors
+        )
     ]
     scored: list[tuple[int, int, dict[str, object]]] = []
     for index, block in enumerate(layout_blocks):
@@ -717,7 +744,10 @@ def match_ocr_blocks(
             score = 95
         elif amount is not None and amount in evidence_decimals(block_text):
             score = 85
-        elif len(normalized_value) >= 3 and normalized_value in normalized_block:
+        elif len(normalized_value) >= 3 and (
+            normalized_value in normalized_block
+            or (len(normalized_block) >= 4 and normalized_block in normalized_value)
+        ):
             score = 75
         if score == 0:
             continue
@@ -750,6 +780,30 @@ def evidence_date_keys(value: str) -> set[tuple[int, int, int]]:
         return {(parsed.year, parsed.month, parsed.day)}
     except ValueError:
         pass
+
+    portuguese_months = {
+        "jan": 1,
+        "fev": 2,
+        "mar": 3,
+        "abr": 4,
+        "mai": 5,
+        "jun": 6,
+        "jul": 7,
+        "ago": 8,
+        "set": 9,
+        "out": 10,
+        "nov": 11,
+        "dez": 12,
+    }
+    localized_match = re.search(
+        r"\b(\d{1,2})\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)"
+        r"\s+(\d{4})\b",
+        stripped.casefold(),
+    )
+    if localized_match is not None:
+        day, month_name, year = localized_match.groups()
+        localized_key = (int(year), portuguese_months[month_name], int(day))
+        return {localized_key} if is_valid_date_key(localized_key) else set()
 
     match = re.search(r"(\d{1,4})[./-](\d{1,2})[./-](\d{1,4})", stripped)
     if match is None:
@@ -799,14 +853,18 @@ def evidence_field_anchors(field_name: str) -> set[str]:
         "invoice_number": {"invoice", "invoice no", "invoice number"},
         "supplier": {"supplier", "vendor", "seller"},
         "supplier_name": {"supplier", "vendor", "seller"},
+        "supplier_tax_id": {"vendor tax id", "supplier tax id", "nif"},
         "customer": {"bill to", "customer", "client"},
         "customer_name": {"bill to", "customer", "client"},
-        "issue_date": {"invoice date", "issue date", "date"},
+        "customer_tax_id": {"customer tax id", "contribuinte", "nif"},
+        "issue_date": {"invoice date", "issue date", "date", "data"},
         "due_date": {"due date", "payment due"},
         "total": {"total", "amount due", "balance due"},
         "total_amount": {"total", "amount due", "balance due"},
+        "subtotal": {"subtotal", "sub total"},
         "subtotal_amount": {"subtotal", "sub total"},
-        "tax_amount": {"tax", "vat"},
+        "tax": {"tax", "vat", "iva", "valor iva", "tx iva"},
+        "tax_amount": {"tax", "vat", "iva", "valor iva", "tx iva"},
     }
     return anchors.get(field_name, set())
 
@@ -826,6 +884,10 @@ def build_review_task_for_invoice(
     )
     evidence_refs = collect_evidence_refs(raw_draft)
     provider_errors = result.state.scratchpad.get(PROVIDER_EXTRACTION_ERRORS_KEY, [])
+    extraction_routing = result.state.scratchpad.get(
+        EXTRACTION_ROUTING_DECISIONS_KEY,
+        {},
+    )
     ocr_text_preview = ocr_text_preview_from_state(result)
     ocr_layout_diagnostics = ocr_layout_diagnostics_from_state(result)
     ocr_layout_blocks = ocr_layout_blocks_from_state(result)
@@ -865,6 +927,9 @@ def build_review_task_for_invoice(
             "provider_extraction_errors": provider_errors
             if isinstance(provider_errors, list)
             else [],
+            "extraction_routing": extraction_routing
+            if isinstance(extraction_routing, dict)
+            else {},
             "ocr_text_preview": ocr_text_preview,
             "ocr_layout_diagnostics": ocr_layout_diagnostics,
             "ocr_layout_blocks": ocr_layout_blocks,
@@ -1096,10 +1161,31 @@ def resolve_invoice_currency(
     """Prefer totals currency, then metadata currency."""
 
     if totals is not None and totals.currency is not None:
-        return totals.currency
+        return normalize_currency_code(totals.currency)
     if metadata is not None:
-        return metadata.currency
+        return normalize_currency_code(metadata.currency)
     return None
+
+
+def normalize_currency_code(value: str | None) -> str | None:
+    """Return a safe ISO-like three-letter currency code for persistence."""
+
+    if value is None:
+        return None
+    normalized = value.strip().upper()
+    aliases = {
+        "€": "EUR",
+        "EURO": "EUR",
+        "EUROS": "EUR",
+        "$": "USD",
+        "DOLLAR": "USD",
+        "DOLLARS": "USD",
+        "£": "GBP",
+        "POUND": "GBP",
+        "POUNDS": "GBP",
+    }
+    normalized = aliases.get(normalized, normalized)
+    return normalized if re.fullmatch(r"[A-Z]{3}", normalized) else None
 
 
 def combined_confidence(

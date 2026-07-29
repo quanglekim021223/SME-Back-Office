@@ -32,6 +32,26 @@ class WorkflowRuntimeRepository(TenantScopedRepository[WorkflowRun]):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    async def get_latest_for_document(
+        self,
+        *,
+        tenant_id: UUID,
+        document_id: UUID,
+    ) -> WorkflowRun | None:
+        """Return the newest workflow run for one tenant-owned document."""
+
+        statement = (
+            select(WorkflowRun)
+            .where(
+                WorkflowRun.tenant_id == tenant_id,
+                WorkflowRun.document_id == document_id,
+            )
+            .order_by(WorkflowRun.created_at.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
+
     def add_workflow_run(self, workflow_run: WorkflowRun) -> WorkflowRun:
         """Stage a workflow run for insertion."""
 

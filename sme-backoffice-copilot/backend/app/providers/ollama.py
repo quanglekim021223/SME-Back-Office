@@ -45,7 +45,7 @@ class OllamaLLMProvider:
         self,
         *,
         base_url: str = "http://localhost:11434",
-        model_name: str = "llama3.1:8b",
+        model_name: str = "qwen2.5:7b",
         timeout_seconds: float = 30.0,
         transport: OllamaTransport = urlopen_ollama_transport,
     ) -> None:

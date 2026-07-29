@@ -60,6 +60,9 @@ services:
       start_period: 10s
 
   worker:
+    # PaddlePaddle's published Linux ARM64 wheel segfaults during OCR inference.
+    # Keep the local benchmark worker on x86_64 until upstream ships a fixed wheel.
+    platform: linux/amd64
     build:
       context: ../backend
     command:
@@ -69,7 +72,8 @@ services:
         "app.workers.celery_app:celery_app",
         "worker",
         "--loglevel=INFO",
-        "--concurrency=${CELERY_WORKER_CONCURRENCY:-2}",
+        "--pool=${CELERY_WORKER_POOL:-solo}",
+        "--concurrency=${CELERY_WORKER_CONCURRENCY:-1}",
         "--queues=document-processing-high,document-processing-medium,document-processing-low",
       ]
     env_file:
@@ -84,6 +88,8 @@ services:
       OUTBOX_DISPATCHER_ENABLED: "false"
       PROVIDER_RATE_LIMIT_REDIS_URL: redis://redis:6379/2
       PROVIDER_RATE_LIMIT_ENABLED: "true"
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      PADDLEOCR_LANGUAGE: pt
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -92,6 +98,7 @@ services:
     volumes:
       - ../backend/app:/app/app
       - uploads_data:/data/uploads
+      - paddleocr_cache:/home/app/.paddlex
 
   outbox:
     build:
@@ -160,3 +167,4 @@ volumes:
   frontend_next:
   postgres_data:
   uploads_data:
+  paddleocr_cache:

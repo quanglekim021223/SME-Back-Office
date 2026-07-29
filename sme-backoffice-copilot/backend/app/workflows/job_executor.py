@@ -7,8 +7,12 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.core.config import Settings
-from app.jobs.contracts import DocumentProcessingCommand, WorkflowJobLeaseLostError
+from app.core.config import LLMProviderType, OCRProviderType, Settings
+from app.jobs.contracts import (
+    DocumentProcessingCommand,
+    ProcessingProfile,
+    WorkflowJobLeaseLostError,
+)
 from app.models.base import utc_now
 from app.models.document import DocumentType
 from app.models.jobs import WorkflowJobStatus
@@ -175,18 +179,29 @@ class DocumentProcessingWorkflowExecutor:
         state: WorkflowState,
         command: DocumentProcessingCommand,
     ) -> None:
-        trace_provider = build_trace_provider_from_settings(self.settings)
-        rate_limiter = build_provider_rate_limiter_from_settings(self.settings)
+        provider_settings = self._settings_for_profile(command.processing_profile)
+        logger.info(
+            "workflow.profile.selected",
+            extra={
+                "event": "workflow.profile.selected",
+                "workflow_run_id": str(command.workflow_run_id),
+                "processing_profile": command.processing_profile.value,
+                "ocr_provider": provider_settings.ocr_provider.value,
+                "llm_provider": provider_settings.llm_provider.value,
+            },
+        )
+        trace_provider = build_trace_provider_from_settings(provider_settings)
+        rate_limiter = build_provider_rate_limiter_from_settings(provider_settings)
         provider_runtime = ProviderRuntime(
-            build_provider_routing_config_from_settings(self.settings),
-            privacy_gate=build_provider_privacy_gate_from_settings(self.settings),
+            build_provider_routing_config_from_settings(provider_settings),
+            privacy_gate=build_provider_privacy_gate_from_settings(provider_settings),
             rate_limiter=rate_limiter,
         )
         runner = WorkflowReplayRunner(
             persistence=WorkflowRuntimeRepository(session),
             provider_runtime=provider_runtime,
-            llm_provider=build_llm_provider_from_settings(self.settings),
-            ocr_provider=build_ocr_provider_from_settings(self.settings),
+            llm_provider=build_llm_provider_from_settings(provider_settings),
+            ocr_provider=build_ocr_provider_from_settings(provider_settings),
             provider_privacy_context=ProviderPrivacyContext(tenant_allows_cloud=True),
             trace_provider=trace_provider,
             progress_observer=self.progress_observer,
@@ -204,6 +219,36 @@ class DocumentProcessingWorkflowExecutor:
             ).persist_invoice_review_from_workflow_result(result)
         finally:
             await rate_limiter.aclose()
+
+    def _settings_for_profile(self, profile: ProcessingProfile) -> Settings:
+        """Resolve one benchmark profile without changing worker-wide settings."""
+
+        if profile == ProcessingProfile.LOCAL:
+            return self.settings.model_copy(
+                update={
+                    "ocr_provider": OCRProviderType.PADDLEOCR,
+                    "llm_provider": LLMProviderType.OLLAMA,
+                    "provider_allow_cloud": False,
+                    "provider_timeout_seconds": 120.0,
+                }
+            )
+        if profile == ProcessingProfile.HYBRID:
+            return self.settings.model_copy(
+                update={
+                    "ocr_provider": OCRProviderType.AZURE_DI,
+                    "azure_di_model_id": "prebuilt-layout",
+                    "llm_provider": LLMProviderType.OLLAMA,
+                    "provider_allow_cloud": True,
+                    "provider_timeout_seconds": 120.0,
+                }
+            )
+        return self.settings.model_copy(
+            update={
+                "ocr_provider": OCRProviderType.AZURE_DI,
+                "azure_di_model_id": "prebuilt-invoice",
+                "provider_allow_cloud": True,
+            }
+        )
 
     async def _run_bank_statement(
         self,
@@ -265,6 +310,7 @@ class DocumentProcessingWorkflowExecutor:
             content_hash=command.content_hash,
             storage_uri=command.storage_uri,
             malware_scan_status=command.malware_scan_status,
+            processing_profile=command.processing_profile,
             local_path=command.local_path,
             correlation_id=command.correlation_id,
         )

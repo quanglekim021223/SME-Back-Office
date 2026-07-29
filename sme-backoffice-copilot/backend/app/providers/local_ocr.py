@@ -133,10 +133,14 @@ class PaddleOCRProvider:
         self,
         *,
         language: str = "en",
+        detection_model: str = "PP-OCRv5_mobile_det",
+        recognition_model: str = "latin_PP-OCRv5_mobile_rec",
         timeout_seconds: float = 30.0,
         engine: object | None = None,
     ) -> None:
         self.language = language
+        self.detection_model = detection_model
+        self.recognition_model = recognition_model
         self.timeout_seconds = timeout_seconds
         self._engine = engine
 
@@ -220,6 +224,12 @@ class PaddleOCRProvider:
             )
         self._engine = cast(Callable[..., object], paddleocr_class)(
             lang=self.language,
+            text_detection_model_name=self.detection_model,
+            text_recognition_model_name=self.recognition_model,
+            enable_mkldnn=False,
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
         )
         return self._engine
 

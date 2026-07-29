@@ -71,6 +71,9 @@ def build_ocr_provider_from_settings(settings: Settings) -> OCRProvider:
         upscale_min_px=settings.ocr_preprocessing_upscale_min_px,
         clahe_clip_limit=settings.ocr_preprocessing_clahe_clip_limit,
         clahe_tile_grid_size=settings.ocr_preprocessing_clahe_tile_grid_size,
+        max_dimension_px=settings.ocr_preprocessing_max_dimension_px,
+        max_output_bytes=settings.ocr_preprocessing_max_output_bytes,
+        jpeg_quality=settings.ocr_preprocessing_jpeg_quality,
     )
 
     match settings.ocr_provider:
@@ -85,6 +88,8 @@ def build_ocr_provider_from_settings(settings: Settings) -> OCRProvider:
         case OCRProviderType.PADDLEOCR:
             inner = PaddleOCRProvider(
                 language=settings.paddleocr_language,
+                detection_model=settings.paddleocr_detection_model,
+                recognition_model=settings.paddleocr_recognition_model,
                 timeout_seconds=settings.provider_timeout_seconds,
             )
         case OCRProviderType.CHANDRAOCR:

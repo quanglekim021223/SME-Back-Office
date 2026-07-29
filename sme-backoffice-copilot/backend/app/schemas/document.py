@@ -44,3 +44,12 @@ class DocumentUploadResponse(BaseModel):
     malware_scan: MalwareScanResponse
     workflow_trigger: DocumentWorkflowTriggerResponse
     duplicate: bool = Field(default=False)
+
+
+class DocumentReprocessResponse(BaseModel):
+    """Response returned when a failed document is queued for another run."""
+
+    document_id: UUID
+    status: str
+    workflow_run_id: UUID
+    job_id: UUID

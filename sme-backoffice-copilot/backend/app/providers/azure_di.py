@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -24,6 +27,55 @@ _API_VERSION = "2024-11-30"
 _POLL_INTERVAL_SECONDS = 0.5
 # Maximum number of poll attempts (0.5s * 120 = 60 seconds max)
 _MAX_POLL_ATTEMPTS = 120
+_MAX_RATE_LIMIT_RETRIES = 5
+logger = logging.getLogger(__name__)
+
+
+async def request_with_rate_limit_retry(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    **kwargs: Any,
+) -> httpx.Response:
+    """Retry Azure 429 responses using server guidance, then exponential backoff."""
+
+    retry_count = 0
+    while True:
+        response = await client.request(method, url, **kwargs)
+        if response.status_code != 429 or retry_count >= _MAX_RATE_LIMIT_RETRIES:
+            return response
+
+        delay = rate_limit_delay_seconds(response, retry_count)
+        retry_count += 1
+        logger.warning(
+            "Azure DI rate limited request; retrying in %.1fs "
+            "(retry %d/%d, method=%s)",
+            delay,
+            retry_count,
+            _MAX_RATE_LIMIT_RETRIES,
+            method,
+        )
+        await asyncio.sleep(delay)
+
+
+def rate_limit_delay_seconds(response: httpx.Response, retry_count: int) -> float:
+    """Use Retry-After once, then back off for 1, 2, 4, and 8 seconds."""
+
+    if retry_count == 0:
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                return max(0.0, float(retry_after))
+            except ValueError:
+                pass
+        message_match = re.search(
+            r"retry after\s+(\d+(?:\.\d+)?)\s+seconds?",
+            response.text,
+            flags=re.IGNORECASE,
+        )
+        if message_match:
+            return float(message_match.group(1))
+    return float(2 ** max(0, retry_count - 1))
 
 
 class AzureDIOCRProvider:
@@ -103,7 +155,9 @@ class AzureDIOCRProvider:
 
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             # Step 1: Submit document for analysis (returns 202 Accepted)
-            response = await client.post(
+            response = await request_with_rate_limit_retry(
+                client,
+                "POST",
                 analyze_url,
                 content=file_bytes,
                 headers=headers,
@@ -128,7 +182,9 @@ class AzureDIOCRProvider:
             for _ in range(_MAX_POLL_ATTEMPTS):
                 await asyncio.sleep(_POLL_INTERVAL_SECONDS)
 
-                poll_response = await client.get(
+                poll_response = await request_with_rate_limit_retry(
+                    client,
+                    "GET",
                     operation_location,
                     headers=poll_headers,
                 )
@@ -402,7 +458,7 @@ class AzureDIOCRProvider:
             "supplier_name": _str("VendorName"),
             "supplier_tax_id": _str("VendorTaxId"),
             "customer_name": _str("CustomerName") or _str("CustomerAddressRecipient"),
-            "customer_tax_id": _str("CustomerId"),
+            "customer_tax_id": _str("CustomerTaxId"),
             "issue_date": _date("InvoiceDate"),
             "due_date": _date("DueDate"),
             "currency": currency,

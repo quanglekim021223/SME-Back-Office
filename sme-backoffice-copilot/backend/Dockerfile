@@ -2,19 +2,28 @@ FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    HOME=/home/app
 
 WORKDIR /app
 
-RUN addgroup --system app && adduser --system --ingroup app app
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-por \
+    && rm -rf /var/lib/apt/lists/* \
+    && addgroup --system app \
+    && adduser --system --ingroup app --home /home/app app
 
 COPY pyproject.toml ./
 COPY app ./app
 COPY alembic.ini ./
 COPY alembic ./alembic
-# The worker can enable OpenCV preprocessing before Azure DI OCR.
+# Local profiles use PaddleOCR; other profiles can enable OpenCV preprocessing.
 RUN pip install ".[local-ocr]"
-RUN mkdir -p /data/uploads && chown -R app:app /data/uploads
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /data/uploads /home/app/.paddlex \
+    && chown -R app:app /data/uploads /home/app
 
 USER app
 

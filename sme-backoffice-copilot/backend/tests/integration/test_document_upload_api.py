@@ -1,13 +1,29 @@
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.routers.documents import get_document_ingestion_service
+from app.api.routers.documents import (
+    get_document_ingestion_service,
+    get_document_workflow_publisher,
+)
+from app.core.db import get_db_session
+from app.jobs.contracts import (
+    JobPriority,
+    JobRef,
+    JobStatus,
+    ProcessingProfile,
+)
 from app.models.document import ArtifactType, Document, DocumentArtifact, DocumentStatus
-from app.services.document_events import DocumentIngested
+from app.repositories.documents import DocumentRepository
+from app.repositories.workflows import WorkflowRuntimeRepository
+from app.services.document_events import (
+    DocumentIngested,
+    WorkflowJobSubmission,
+)
 from app.services.document_ingestion import DocumentUploadResult, DuplicateDocumentError
 from app.services.document_storage import FileValidationError, StoredFile
 from app.services.malware_scan import MalwareScanResult, MalwareScanStatus
@@ -32,6 +48,7 @@ class FakeDocumentIngestionService:
         content: bytes,
         media_type: str,
         document_type,
+        processing_profile,
         correlation_id: str | None = None,
     ) -> DocumentUploadResult:
         self.calls.append(
@@ -41,6 +58,7 @@ class FakeDocumentIngestionService:
                 "content": content,
                 "media_type": media_type,
                 "document_type": document_type,
+                "processing_profile": processing_profile,
                 "correlation_id": correlation_id,
             }
         )
@@ -129,7 +147,10 @@ def test_upload_document_endpoint_accepts_raw_file_body(
     )
 
     response = client.post(
-        "/api/v1/documents/upload?filename=invoice.pdf&document_type=invoice",
+        (
+            "/api/v1/documents/upload?filename=invoice.pdf"
+            "&document_type=invoice&profile=local"
+        ),
         headers=auth_headers(tenant_id),
         content=b"invoice body",
     )
@@ -147,6 +168,10 @@ def test_upload_document_endpoint_accepts_raw_file_body(
     assert payload["workflow_trigger"]["event_name"] == "DocumentIngested"
     assert payload["duplicate"] is False
     assert fake_service.calls[0]["content"] == b"invoice body"
+    assert (
+        fake_service.calls[0]["processing_profile"]
+        == ProcessingProfile.LOCAL
+    )
 
 
 def test_upload_document_endpoint_returns_conflict_for_duplicate(
@@ -205,3 +230,140 @@ def test_upload_document_endpoint_returns_unsupported_media_type(
     assert response.status_code == 415
     payload = response.json()
     assert payload["error"]["code"] == "unsupported_mime_type"
+
+
+def test_reprocess_failed_document_queues_new_workflow(
+    upload_app: FastAPI,
+    client: TestClient,
+) -> None:
+    tenant_id = uuid4()
+    document_id = uuid4()
+    workflow_run_id = uuid4()
+    job_id = uuid4()
+    document = Document(
+        id=document_id,
+        tenant_id=tenant_id,
+        document_type="invoice",
+        status=DocumentStatus.ACCEPTED.value,
+        original_filename="invoice.jpg",
+        mime_type="image/jpeg",
+        size_bytes=12,
+        content_hash="hash-123",
+    )
+    artifact = DocumentArtifact(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        document_id=document_id,
+        artifact_type=ArtifactType.ORIGINAL.value,
+        storage_uri="local://tenants/t/documents/d/original/invoice.jpg",
+        media_type="image/jpeg",
+        size_bytes=12,
+        content_hash="hash-123",
+    )
+    document.artifacts = [artifact]
+
+    mock_repository = MagicMock(spec=DocumentRepository)
+    mock_repository.get_with_artifacts = AsyncMock(return_value=document)
+    mock_workflow_repository = MagicMock(spec=WorkflowRuntimeRepository)
+    failed_workflow = MagicMock()
+    failed_workflow.status = "failed"
+    failed_workflow.state = {
+        "policy_flags": {"malware_scan_status": "clean"}
+    }
+    mock_workflow_repository.get_latest_for_document = AsyncMock(
+        return_value=failed_workflow
+    )
+    mock_session = MagicMock()
+    mock_session.commit = AsyncMock()
+    mock_publisher = MagicMock()
+    mock_publisher.publish_document_ingested = AsyncMock(
+        return_value=WorkflowJobSubmission(
+            workflow_run_id=workflow_run_id,
+            job=JobRef(
+                job_id=job_id,
+                workflow_run_id=workflow_run_id,
+                status=JobStatus.QUEUED,
+                priority=JobPriority.HIGH,
+            ),
+        )
+    )
+    upload_app.dependency_overrides[get_db_session] = lambda: mock_session
+    upload_app.dependency_overrides[get_document_workflow_publisher] = (
+        lambda: mock_publisher
+    )
+
+    with (
+        patch(
+            "app.api.routers.documents.DocumentRepository",
+            return_value=mock_repository,
+        ),
+        patch(
+            "app.api.routers.documents.WorkflowRuntimeRepository",
+            return_value=mock_workflow_repository,
+        ),
+    ):
+        response = client.post(
+            f"/api/v1/documents/{document_id}/reprocess?profile=local",
+            headers=auth_headers(tenant_id),
+        )
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "document_id": str(document_id),
+        "status": "queued",
+        "workflow_run_id": str(workflow_run_id),
+        "job_id": str(job_id),
+    }
+    assert document.status == DocumentStatus.ACCEPTED.value
+    mock_session.commit.assert_awaited_once()
+    event = mock_publisher.publish_document_ingested.await_args.args[0]
+    assert event.document_id == document_id
+    assert event.tenant_id == tenant_id
+    assert event.storage_uri == artifact.storage_uri
+    assert event.malware_scan_status == "clean"
+    assert event.processing_profile == ProcessingProfile.LOCAL
+
+
+def test_reprocess_non_failed_document_returns_conflict(
+    upload_app: FastAPI,
+    client: TestClient,
+) -> None:
+    tenant_id = uuid4()
+    document_id = uuid4()
+    document = Document(
+        id=document_id,
+        tenant_id=tenant_id,
+        document_type="invoice",
+        status=DocumentStatus.PROCESSED.value,
+        original_filename="invoice.jpg",
+        mime_type="image/jpeg",
+        size_bytes=12,
+        content_hash="hash-123",
+    )
+    mock_repository = MagicMock(spec=DocumentRepository)
+    mock_repository.get_with_artifacts = AsyncMock(return_value=document)
+    mock_workflow_repository = MagicMock(spec=WorkflowRuntimeRepository)
+    mock_workflow_repository.get_latest_for_document = AsyncMock(return_value=None)
+    mock_session = MagicMock()
+    upload_app.dependency_overrides[get_db_session] = lambda: mock_session
+    upload_app.dependency_overrides[get_document_workflow_publisher] = (
+        lambda: MagicMock()
+    )
+
+    with (
+        patch(
+            "app.api.routers.documents.DocumentRepository",
+            return_value=mock_repository,
+        ),
+        patch(
+            "app.api.routers.documents.WorkflowRuntimeRepository",
+            return_value=mock_workflow_repository,
+        ),
+    ):
+        response = client.post(
+            f"/api/v1/documents/{document_id}/reprocess",
+            headers=auth_headers(tenant_id),
+        )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "document_not_reprocessable"

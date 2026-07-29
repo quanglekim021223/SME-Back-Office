@@ -39,6 +39,14 @@ class JobPriority(StrEnum):
     LOW = "low"
 
 
+class ProcessingProfile(StrEnum):
+    """AI provider combinations selectable for one document run."""
+
+    AZURE = "azure"
+    LOCAL = "local"
+    HYBRID = "hybrid"
+
+
 class WorkflowJobLeaseLostError(RuntimeError):
     """Raised when a stale worker no longer owns the durable execution lease."""
 
@@ -58,6 +66,7 @@ class DocumentProcessingCommand(BaseModel):
     storage_uri: str = Field(min_length=1)
     content_hash: str = Field(min_length=1)
     malware_scan_status: str = Field(min_length=1)
+    processing_profile: ProcessingProfile = ProcessingProfile.AZURE
     local_path: str | None = None
     correlation_id: str | None = None
     priority: JobPriority = JobPriority.HIGH

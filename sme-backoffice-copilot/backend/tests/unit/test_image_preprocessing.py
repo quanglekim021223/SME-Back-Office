@@ -129,6 +129,41 @@ def test_preprocess_output_file_is_different_from_input(tmp_path: Path) -> None:
     assert Path(out_path).stat().st_size > 0
 
 
+def test_preprocess_bounds_large_phone_photo_for_azure(tmp_path: Path) -> None:
+    try:
+        import cv2  # type: ignore[import-untyped]
+        import numpy as np  # type: ignore[import-untyped]
+    except ImportError:
+        pytest.skip("opencv not installed")
+
+    image_path = str(tmp_path / "phone-photo.jpg")
+    output_path = str(tmp_path / "phone-photo-preprocessed.jpg")
+    image = np.random.default_rng(7).integers(
+        0,
+        256,
+        size=(4000, 3000, 3),
+        dtype=np.uint8,
+    )
+    cv2.imwrite(image_path, image, [cv2.IMWRITE_JPEG_QUALITY, 90])
+
+    config = ImagePreprocessingConfig(
+        deskew=False,
+        max_dimension_px=3000,
+        max_output_bytes=3_500_000,
+        jpeg_quality=85,
+    )
+    result = preprocess_image_for_ocr(
+        image_path,
+        config,
+        output_path=output_path,
+    )
+
+    processed = cv2.imread(result)
+    assert processed is not None
+    assert max(processed.shape[:2]) <= 3000
+    assert Path(result).stat().st_size <= 3_500_000
+
+
 # ── _deskew helper ────────────────────────────────────────────────────────────
 
 

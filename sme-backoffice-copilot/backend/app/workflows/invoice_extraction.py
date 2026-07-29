@@ -52,6 +52,35 @@ INVOICE_TABLE_GROUP_KEY = "invoice_table_group"
 INVOICE_TOTALS_GROUP_KEY = "invoice_totals_group"
 ASSEMBLED_INVOICE_DRAFT_KEY = "assembled_invoice_draft"
 PROVIDER_EXTRACTION_ERRORS_KEY = "provider_extraction_errors"
+EXTRACTION_ROUTING_DECISIONS_KEY = "extraction_routing_decisions"
+
+GROUP_VALUE_FIELDS: dict[str, tuple[str, ...]] = {
+    "invoice-metadata-group.v1": (
+        "invoice_number",
+        "supplier_name",
+        "supplier_tax_id",
+        "customer_name",
+        "customer_tax_id",
+        "issue_date",
+        "due_date",
+        "currency",
+    ),
+    "invoice-totals-group.v1": (
+        "subtotal_amount",
+        "tax_amount",
+        "total_amount",
+        "currency",
+    ),
+}
+
+GROUP_REQUIRED_DETERMINISTIC_FIELDS: dict[str, tuple[str, ...]] = {
+    "invoice-metadata-group.v1": (
+        "invoice_number",
+        "supplier_name",
+        "issue_date",
+    ),
+    "invoice-totals-group.v1": ("total_amount",),
+}
 
 
 class InvoiceExtractionStatus(StrEnum):
@@ -525,6 +554,18 @@ def ocr_context_for_schema(
 ) -> str:
     """Return region-specific OCR context, falling back to full OCR text."""
 
+    full_text = state.scratchpad.get(OCR_FULL_TEXT_KEY)
+    if (
+        schema_name
+        in {
+            "invoice-metadata-group.v1",
+            "invoice-totals-group.v1",
+        }
+        and isinstance(full_text, str)
+        and full_text.strip()
+    ):
+        return full_text
+
     regions = state.scratchpad.get(OCR_LAYOUT_REGIONS_KEY)
     if isinstance(regions, dict):
         region_names = region_names_for_schema(schema_name)
@@ -538,7 +579,6 @@ def ocr_context_for_schema(
         if region_text.strip():
             return region_text
 
-    full_text = state.scratchpad.get(OCR_FULL_TEXT_KEY)
     return full_text if isinstance(full_text, str) else ""
 
 
@@ -612,16 +652,25 @@ def merge_provider_payload_with_ocr_fallback(
             target=merged,
             source=fallback_payload,
             keys=(
-                "invoice_number",
                 "supplier_name",
                 "supplier_tax_id",
                 "customer_tax_id",
                 "currency",
             ),
         )
+        # Prefer a deterministically parsed, explicitly-labelled document number
+        # over a local LLM guess. Small models commonly confuse Portuguese
+        # software-certificate numbers such as "1542/AT" with invoice numbers.
+        fallback_invoice_number = fallback_payload.get("invoice_number")
+        if isinstance(fallback_invoice_number, str) and fallback_invoice_number.strip():
+            merged["invoice_number"] = fallback_invoice_number
         fallback_customer_name = fallback_payload.get("customer_name")
         if isinstance(fallback_customer_name, str) and fallback_customer_name.strip():
             merged["customer_name"] = fallback_customer_name
+        for key in ("supplier_tax_id", "customer_tax_id"):
+            fallback_tax_id = fallback_payload.get(key)
+            if isinstance(fallback_tax_id, str) and fallback_tax_id.strip():
+                merged[key] = fallback_tax_id
 
         # Prefer deterministic date parsing from OCR text because local LLMs often
         # reinterpret MM-DD-YYYY as DD-MM-YYYY.
@@ -654,6 +703,13 @@ def merge_provider_payload_with_ocr_fallback(
             source=fallback_payload,
             keys=("subtotal_amount", "tax_amount", "total_amount", "currency"),
         )
+        fallback_total = fallback_payload.get("total_amount")
+        if (
+            fallback_payload.get("confidence") == "high"
+            and isinstance(fallback_total, str)
+            and fallback_total.strip()
+        ):
+            merged["total_amount"] = fallback_total
         if any(
             merged.get(key) for key in ("subtotal_amount", "tax_amount", "total_amount")
         ):
@@ -1214,6 +1270,152 @@ def ocr_text_fallback_payload(
     return None
 
 
+def build_extraction_routing_decision(
+    *,
+    schema_name: str,
+    deterministic_payload: dict[str, object] | None,
+    llm_provider_name: str | None,
+    handoff: AgentHandoffEnvelope | None,
+) -> dict[str, object]:
+    """Describe whether deterministic OCR is strong enough to skip local LLM."""
+
+    value_fields = GROUP_VALUE_FIELDS.get(schema_name, ())
+    required_fields = GROUP_REQUIRED_DETERMINISTIC_FIELDS.get(schema_name, ())
+    resolved_fields = [
+        field
+        for field in value_fields
+        if deterministic_payload is not None
+        and deterministic_payload.get(field) not in (None, "", [])
+    ]
+    low_quality_fields: list[str] = []
+    if (
+        schema_name == "invoice-metadata-group.v1"
+        and deterministic_payload is not None
+        and isinstance(deterministic_payload.get("supplier_name"), str)
+        and cast(str, deterministic_payload["supplier_name"]).strip()
+        and not supplier_name_is_high_quality(
+            cast(str, deterministic_payload["supplier_name"]),
+        )
+    ):
+        resolved_fields.remove("supplier_name")
+        low_quality_fields.append("supplier_name")
+    unresolved_fields = [
+        field for field in value_fields if field not in resolved_fields
+    ]
+    missing_required_fields = [
+        field for field in required_fields if field not in resolved_fields
+    ]
+    confidence = (
+        str(deterministic_payload.get("confidence", "unknown"))
+        if deterministic_payload is not None
+        else "unknown"
+    )
+    correction_requested = handoff is not None and handoff.qa_error_signal is not None
+    local_llm_selected = llm_provider_name == "ollama"
+    deterministic_complete = not missing_required_fields
+    if schema_name == "invoice-totals-group.v1":
+        deterministic_complete = deterministic_complete and confidence == "high"
+
+    skip_llm = (
+        local_llm_selected and deterministic_complete and not correction_requested
+    )
+    return {
+        "strategy": ("deterministic_fast_path" if skip_llm else "llm_fallback"),
+        "llm_invoked": not skip_llm,
+        "llm_provider": llm_provider_name,
+        "deterministic_confidence": confidence,
+        "resolved_fields": resolved_fields,
+        "unresolved_fields": unresolved_fields,
+        "missing_required_fields": missing_required_fields,
+        "low_quality_fields": low_quality_fields,
+        "correction_requested": correction_requested,
+    }
+
+
+def supplier_name_is_high_quality(value: str) -> bool:
+    """Reject supplier names that end with a likely truncated connector."""
+
+    tokens = re.findall(r"[^\W_]+", value.casefold(), flags=re.UNICODE)
+    if not tokens:
+        return False
+    return tokens[-1] not in {"da", "de", "do", "dos", "das", "e"}
+
+
+def record_extraction_routing_decision(
+    *,
+    state: WorkflowState,
+    context: AgentExecutionContext,
+    group_name: str,
+    schema_name: str,
+    decision: dict[str, object],
+) -> None:
+    """Persist one routing decision in workflow state and tracing."""
+
+    raw_decisions = state.scratchpad.setdefault(
+        EXTRACTION_ROUTING_DECISIONS_KEY,
+        {},
+    )
+    if not isinstance(raw_decisions, dict):
+        raw_decisions = {}
+        state.scratchpad[EXTRACTION_ROUTING_DECISIONS_KEY] = raw_decisions
+    raw_decisions[group_name] = dict(decision)
+    record_trace_event(
+        context.trace_provider,
+        "extraction.routing.selected",
+        {
+            "group_name": group_name,
+            "schema_name": schema_name,
+            **decision,
+        },
+        correlation_id=context.correlation_id,
+    )
+
+
+def build_provider_fast_path_decision(
+    *,
+    schema_name: str,
+    payload: dict[str, object],
+    provider_name: str | None,
+) -> dict[str, object]:
+    """Describe a group populated directly by an OCR/document AI provider."""
+
+    value_fields = GROUP_VALUE_FIELDS.get(schema_name, ())
+    resolved_fields = [
+        field for field in value_fields if payload.get(field) not in (None, "", [])
+    ]
+    return {
+        "strategy": "provider_fast_path",
+        "llm_invoked": False,
+        "llm_provider": provider_name,
+        "deterministic_confidence": str(payload.get("confidence", "unknown")),
+        "resolved_fields": resolved_fields,
+        "unresolved_fields": [
+            field for field in value_fields if field not in resolved_fields
+        ],
+        "missing_required_fields": [],
+        "low_quality_fields": [],
+        "correction_requested": False,
+    }
+
+
+def selective_llm_instruction(
+    *,
+    instruction: str,
+    decision: dict[str, object],
+) -> str:
+    """Tell the LLM which weak fields need attention without changing its schema."""
+
+    unresolved_fields = decision.get("unresolved_fields")
+    if not isinstance(unresolved_fields, list) or not unresolved_fields:
+        return instruction
+    return (
+        f"{instruction} Focus especially on unresolved or weak fields: "
+        f"{', '.join(str(field) for field in unresolved_fields)}. "
+        "Return the complete group schema; deterministic grounded fields will be "
+        "merged after validation."
+    )
+
+
 def provider_task_type(value: str) -> Any:
     """Return provider task enum without importing provider package at module load."""
 
@@ -1314,10 +1516,23 @@ class MetadataExtractorAgent:
             existing_payload = state.scratchpad[INVOICE_METADATA_GROUP_KEY]
             assert isinstance(existing_payload, dict)
             group = InvoiceMetadataGroup.model_validate(existing_payload)
+            routing_decision = build_provider_fast_path_decision(
+                schema_name="invoice-metadata-group.v1",
+                payload=existing_payload,
+                provider_name=getattr(context.ocr_provider, "name", None),
+            )
+            record_extraction_routing_decision(
+                state=state,
+                context=context,
+                group_name="metadata",
+                schema_name="invoice-metadata-group.v1",
+                decision=routing_decision,
+            )
             output: dict[str, object] = {
                 "group_name": "metadata",
                 "metadata": model_to_payload(group),
                 "fast_path": True,
+                "routing": routing_decision,
             }
             return AgentRunResult(
                 status=AgentRunStatus.SUCCEEDED,
@@ -1335,15 +1550,51 @@ class MetadataExtractorAgent:
                 confidence=group.confidence,
             )
 
-        provider_payload = await run_llm_group_extraction_if_available(
+        schema_name = "invoice-metadata-group.v1"
+        fallback_payload = ocr_text_fallback_payload(
             state=state,
-            context=context,
-            agent_name=METADATA_EXTRACTOR_AGENT,
-            task_type=provider_task_type("invoice_metadata_extraction"),
-            schema_name="invoice-metadata-group.v1",
-            instruction="Extract only invoice metadata and party fields.",
+            schema_name=schema_name,
             handoff=handoff,
         )
+        routing_decision = build_extraction_routing_decision(
+            schema_name=schema_name,
+            deterministic_payload=fallback_payload,
+            llm_provider_name=getattr(context.llm_provider, "name", None),
+            handoff=handoff,
+        )
+        record_extraction_routing_decision(
+            state=state,
+            context=context,
+            group_name="metadata",
+            schema_name=schema_name,
+            decision=routing_decision,
+        )
+        metadata_instruction = selective_llm_instruction(
+            instruction=(
+                "Extract only invoice metadata and party fields. For "
+                "invoice_number, prefer a value explicitly labelled Invoice, "
+                "Fatura, Factura, Recibo, or Doc. N. Extract explicitly labelled "
+                "supplier and customer NIF/tax identifiers into supplier_tax_id "
+                "and customer_tax_id respectively. Only when selecting "
+                "invoice_number, do not substitute a tax ID, payment-card "
+                "reference, authorization code, ticket number, or certified-"
+                "software reference such as 1542/AT."
+            ),
+            decision=routing_decision,
+        )
+        provider_payload: dict[str, object] | AgentRunResult | None
+        if routing_decision["llm_invoked"] is False:
+            provider_payload = fallback_payload
+        else:
+            provider_payload = await run_llm_group_extraction_if_available(
+                state=state,
+                context=context,
+                agent_name=METADATA_EXTRACTOR_AGENT,
+                task_type=provider_task_type("invoice_metadata_extraction"),
+                schema_name=schema_name,
+                instruction=metadata_instruction,
+                handoff=handoff,
+            )
         if isinstance(provider_payload, AgentRunResult):
             record_provider_extraction_error(
                 state=state,
@@ -1351,11 +1602,7 @@ class MetadataExtractorAgent:
                 error_code=provider_payload.error_code,
                 error_message=provider_payload.error_message,
             )
-            provider_payload = ocr_text_fallback_payload(
-                state=state,
-                schema_name="invoice-metadata-group.v1",
-                handoff=handoff,
-            )
+            provider_payload = fallback_payload
 
         if provider_payload is None:
             group = InvoiceMetadataGroup(
@@ -1363,18 +1610,14 @@ class MetadataExtractorAgent:
             )
         else:
             provider_payload = normalize_provider_invoice_group_payload(
-                schema_name="invoice-metadata-group.v1",
+                schema_name=schema_name,
                 payload=provider_payload,
                 evidence_refs=get_handoff_evidence_refs(handoff),
             )
             provider_payload = merge_provider_payload_with_ocr_fallback(
-                schema_name="invoice-metadata-group.v1",
+                schema_name=schema_name,
                 provider_payload=provider_payload,
-                fallback_payload=ocr_text_fallback_payload(
-                    state=state,
-                    schema_name="invoice-metadata-group.v1",
-                    handoff=handoff,
-                ),
+                fallback_payload=fallback_payload,
             )
             try:
                 group = InvoiceMetadataGroup.model_validate(provider_payload)
@@ -1384,11 +1627,6 @@ class MetadataExtractorAgent:
                     agent_name=METADATA_EXTRACTOR_AGENT,
                     error_code="ERR_LLM_OUTPUT_SCHEMA",
                     error_message=str(exc),
-                )
-                fallback_payload = ocr_text_fallback_payload(
-                    state=state,
-                    schema_name="invoice-metadata-group.v1",
-                    handoff=handoff,
                 )
                 if fallback_payload is None:
                     return contract_validation_failure_result(
@@ -1402,6 +1640,7 @@ class MetadataExtractorAgent:
         output = {
             "group_name": "metadata",
             "metadata": group_payload,
+            "routing": routing_decision,
         }
         return AgentRunResult(
             status=AgentRunStatus.SUCCEEDED,
@@ -1417,6 +1656,12 @@ class MetadataExtractorAgent:
                 )
             ],
             confidence=group.confidence,
+            metrics={
+                "llm_invoked": routing_decision["llm_invoked"],
+                "deterministic_resolved_field_count": len(
+                    cast(list[object], routing_decision["resolved_fields"])
+                ),
+            },
         )
 
 
@@ -1461,10 +1706,23 @@ class TableExtractorAgent:
             existing_payload = state.scratchpad[INVOICE_TABLE_GROUP_KEY]
             assert isinstance(existing_payload, dict)
             group = InvoiceTableGroup.model_validate(existing_payload)
+            routing_decision = build_provider_fast_path_decision(
+                schema_name="invoice-table-group.v1",
+                payload=existing_payload,
+                provider_name=getattr(context.ocr_provider, "name", None),
+            )
+            record_extraction_routing_decision(
+                state=state,
+                context=context,
+                group_name="table",
+                schema_name="invoice-table-group.v1",
+                decision=routing_decision,
+            )
             table_output: dict[str, object] = {
                 "group_name": "table",
                 "table": model_to_payload(group),
                 "fast_path": True,
+                "routing": routing_decision,
             }
             return AgentRunResult(
                 status=AgentRunStatus.SUCCEEDED,
@@ -1483,12 +1741,38 @@ class TableExtractorAgent:
                 metrics={"line_item_count": len(group.line_items)},
             )
 
+        schema_name = "invoice-table-group.v1"
+        fallback_payload = ocr_text_fallback_payload(
+            state=state,
+            schema_name=schema_name,
+            handoff=handoff,
+        )
+        llm_invoked = (
+            context.provider_runtime is not None and context.llm_provider is not None
+        )
+        routing_decision = build_extraction_routing_decision(
+            schema_name=schema_name,
+            deterministic_payload=fallback_payload,
+            llm_provider_name=getattr(context.llm_provider, "name", None),
+            handoff=handoff,
+        )
+        routing_decision["strategy"] = (
+            "llm_fallback" if llm_invoked else "deterministic_fallback"
+        )
+        routing_decision["llm_invoked"] = llm_invoked
+        record_extraction_routing_decision(
+            state=state,
+            context=context,
+            group_name="table",
+            schema_name=schema_name,
+            decision=routing_decision,
+        )
         provider_payload = await run_llm_group_extraction_if_available(
             state=state,
             context=context,
             agent_name=TABLE_EXTRACTOR_AGENT,
             task_type=provider_task_type("invoice_table_extraction"),
-            schema_name="invoice-table-group.v1",
+            schema_name=schema_name,
             instruction="Extract only invoice line-item table rows.",
             handoff=handoff,
         )
@@ -1499,11 +1783,7 @@ class TableExtractorAgent:
                 error_code=provider_payload.error_code,
                 error_message=provider_payload.error_message,
             )
-            provider_payload = ocr_text_fallback_payload(
-                state=state,
-                schema_name="invoice-table-group.v1",
-                handoff=handoff,
-            )
+            provider_payload = fallback_payload
 
         if provider_payload is None:
             group = InvoiceTableGroup(
@@ -1511,18 +1791,14 @@ class TableExtractorAgent:
             )
         else:
             provider_payload = normalize_provider_invoice_group_payload(
-                schema_name="invoice-table-group.v1",
+                schema_name=schema_name,
                 payload=provider_payload,
                 evidence_refs=get_handoff_evidence_refs(handoff),
             )
             provider_payload = merge_provider_payload_with_ocr_fallback(
-                schema_name="invoice-table-group.v1",
+                schema_name=schema_name,
                 provider_payload=provider_payload,
-                fallback_payload=ocr_text_fallback_payload(
-                    state=state,
-                    schema_name="invoice-table-group.v1",
-                    handoff=handoff,
-                ),
+                fallback_payload=fallback_payload,
             )
             try:
                 group = InvoiceTableGroup.model_validate(provider_payload)
@@ -1532,11 +1808,6 @@ class TableExtractorAgent:
                     agent_name=TABLE_EXTRACTOR_AGENT,
                     error_code="ERR_LLM_OUTPUT_SCHEMA",
                     error_message=str(exc),
-                )
-                fallback_payload = ocr_text_fallback_payload(
-                    state=state,
-                    schema_name="invoice-table-group.v1",
-                    handoff=handoff,
                 )
                 if fallback_payload is None:
                     return contract_validation_failure_result(
@@ -1550,6 +1821,7 @@ class TableExtractorAgent:
         output: dict[str, object] = {
             "group_name": "table",
             "table": group_payload,
+            "routing": routing_decision,
         }
         return AgentRunResult(
             status=AgentRunStatus.SUCCEEDED,
@@ -1610,10 +1882,23 @@ class TotalsExtractorAgent:
             existing_payload = state.scratchpad[INVOICE_TOTALS_GROUP_KEY]
             assert isinstance(existing_payload, dict)
             group = InvoiceTotalsGroup.model_validate(existing_payload)
+            routing_decision = build_provider_fast_path_decision(
+                schema_name="invoice-totals-group.v1",
+                payload=existing_payload,
+                provider_name=getattr(context.ocr_provider, "name", None),
+            )
+            record_extraction_routing_decision(
+                state=state,
+                context=context,
+                group_name="totals",
+                schema_name="invoice-totals-group.v1",
+                decision=routing_decision,
+            )
             totals_output: dict[str, object] = {
                 "group_name": "totals",
                 "totals": model_to_payload(group),
                 "fast_path": True,
+                "routing": routing_decision,
             }
             return AgentRunResult(
                 status=AgentRunStatus.SUCCEEDED,
@@ -1631,24 +1916,48 @@ class TotalsExtractorAgent:
                 confidence=group.confidence,
             )
 
-        provider_payload: dict[str, object] | AgentRunResult | None
+        schema_name = "invoice-totals-group.v1"
+        fallback_payload = ocr_text_fallback_payload(
+            state=state,
+            schema_name=schema_name,
+            handoff=handoff,
+        )
+        routing_decision = build_extraction_routing_decision(
+            schema_name=schema_name,
+            deterministic_payload=fallback_payload,
+            llm_provider_name=getattr(context.llm_provider, "name", None),
+            handoff=handoff,
+        )
         if should_use_ocr_totals_for_low_confidence_prebuilt_invoice(
             state=state,
             context=context,
         ):
-            provider_payload = ocr_text_fallback_payload(
-                state=state,
-                schema_name="invoice-totals-group.v1",
-                handoff=handoff,
-            )
+            routing_decision["strategy"] = "deterministic_prebuilt_recovery"
+            routing_decision["llm_invoked"] = False
+        record_extraction_routing_decision(
+            state=state,
+            context=context,
+            group_name="totals",
+            schema_name=schema_name,
+            decision=routing_decision,
+        )
+
+        provider_payload: dict[str, object] | AgentRunResult | None
+        if routing_decision["llm_invoked"] is False:
+            provider_payload = fallback_payload
         else:
             provider_payload = await run_llm_group_extraction_if_available(
                 state=state,
                 context=context,
                 agent_name=TOTALS_EXTRACTOR_AGENT,
                 task_type=provider_task_type("invoice_totals_extraction"),
-                schema_name="invoice-totals-group.v1",
-                instruction="Extract only invoice subtotal, tax, total, and currency.",
+                schema_name=schema_name,
+                instruction=selective_llm_instruction(
+                    instruction=(
+                        "Extract only invoice subtotal, tax, total, and currency."
+                    ),
+                    decision=routing_decision,
+                ),
                 handoff=handoff,
             )
         if isinstance(provider_payload, AgentRunResult):
@@ -1658,11 +1967,7 @@ class TotalsExtractorAgent:
                 error_code=provider_payload.error_code,
                 error_message=provider_payload.error_message,
             )
-            provider_payload = ocr_text_fallback_payload(
-                state=state,
-                schema_name="invoice-totals-group.v1",
-                handoff=handoff,
-            )
+            provider_payload = fallback_payload
 
         if provider_payload is None:
             group = InvoiceTotalsGroup(
@@ -1670,18 +1975,14 @@ class TotalsExtractorAgent:
             )
         else:
             provider_payload = normalize_provider_invoice_group_payload(
-                schema_name="invoice-totals-group.v1",
+                schema_name=schema_name,
                 payload=provider_payload,
                 evidence_refs=get_handoff_evidence_refs(handoff),
             )
             provider_payload = merge_provider_payload_with_ocr_fallback(
-                schema_name="invoice-totals-group.v1",
+                schema_name=schema_name,
                 provider_payload=provider_payload,
-                fallback_payload=ocr_text_fallback_payload(
-                    state=state,
-                    schema_name="invoice-totals-group.v1",
-                    handoff=handoff,
-                ),
+                fallback_payload=fallback_payload,
             )
             try:
                 group = InvoiceTotalsGroup.model_validate(provider_payload)
@@ -1691,11 +1992,6 @@ class TotalsExtractorAgent:
                     agent_name=TOTALS_EXTRACTOR_AGENT,
                     error_code="ERR_LLM_OUTPUT_SCHEMA",
                     error_message=str(exc),
-                )
-                fallback_payload = ocr_text_fallback_payload(
-                    state=state,
-                    schema_name="invoice-totals-group.v1",
-                    handoff=handoff,
                 )
                 if fallback_payload is None:
                     return contract_validation_failure_result(
@@ -1709,6 +2005,7 @@ class TotalsExtractorAgent:
         output: dict[str, object] = {
             "group_name": "totals",
             "totals": group_payload,
+            "routing": routing_decision,
         }
         return AgentRunResult(
             status=AgentRunStatus.SUCCEEDED,
@@ -1724,6 +2021,12 @@ class TotalsExtractorAgent:
                 )
             ],
             confidence=group.confidence,
+            metrics={
+                "llm_invoked": routing_decision["llm_invoked"],
+                "deterministic_resolved_field_count": len(
+                    cast(list[object], routing_decision["resolved_fields"])
+                ),
+            },
         )
 
 
