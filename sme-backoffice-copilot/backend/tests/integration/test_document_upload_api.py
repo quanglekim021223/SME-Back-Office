@@ -168,10 +168,7 @@ def test_upload_document_endpoint_accepts_raw_file_body(
     assert payload["workflow_trigger"]["event_name"] == "DocumentIngested"
     assert payload["duplicate"] is False
     assert fake_service.calls[0]["content"] == b"invoice body"
-    assert (
-        fake_service.calls[0]["processing_profile"]
-        == ProcessingProfile.LOCAL
-    )
+    assert fake_service.calls[0]["processing_profile"] == ProcessingProfile.LOCAL
 
 
 def test_upload_document_endpoint_returns_conflict_for_duplicate(
@@ -267,9 +264,7 @@ def test_reprocess_failed_document_queues_new_workflow(
     mock_workflow_repository = MagicMock(spec=WorkflowRuntimeRepository)
     failed_workflow = MagicMock()
     failed_workflow.status = "failed"
-    failed_workflow.state = {
-        "policy_flags": {"malware_scan_status": "clean"}
-    }
+    failed_workflow.state = {"policy_flags": {"malware_scan_status": "clean"}}
     mock_workflow_repository.get_latest_for_document = AsyncMock(
         return_value=failed_workflow
     )
@@ -288,8 +283,8 @@ def test_reprocess_failed_document_queues_new_workflow(
         )
     )
     upload_app.dependency_overrides[get_db_session] = lambda: mock_session
-    upload_app.dependency_overrides[get_document_workflow_publisher] = (
-        lambda: mock_publisher
+    upload_app.dependency_overrides[get_document_workflow_publisher] = lambda: (
+        mock_publisher
     )
 
     with (
@@ -346,8 +341,8 @@ def test_reprocess_non_failed_document_returns_conflict(
     mock_workflow_repository.get_latest_for_document = AsyncMock(return_value=None)
     mock_session = MagicMock()
     upload_app.dependency_overrides[get_db_session] = lambda: mock_session
-    upload_app.dependency_overrides[get_document_workflow_publisher] = (
-        lambda: MagicMock()
+    upload_app.dependency_overrides[get_document_workflow_publisher] = lambda: (
+        MagicMock()
     )
 
     with (

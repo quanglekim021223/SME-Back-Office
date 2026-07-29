@@ -248,9 +248,7 @@ async def reprocess_failed_document(
             message="Document was not found.",
             details={"document_id": str(document_id)},
         )
-    latest_workflow = await WorkflowRuntimeRepository(
-        session
-    ).get_latest_for_document(
+    latest_workflow = await WorkflowRuntimeRepository(session).get_latest_for_document(
         tenant_id=tenant_id,
         document_id=document_id,
     )

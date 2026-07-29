@@ -48,8 +48,7 @@ async def request_with_rate_limit_retry(
         delay = rate_limit_delay_seconds(response, retry_count)
         retry_count += 1
         logger.warning(
-            "Azure DI rate limited request; retrying in %.1fs "
-            "(retry %d/%d, method=%s)",
+            "Azure DI rate limited request; retrying in %.1fs (retry %d/%d, method=%s)",
             delay,
             retry_count,
             _MAX_RATE_LIMIT_RETRIES,
