@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any, TypedDict, cast
 
 from app.models.workflow import AgentHandoff, AgentStepExecution, WorkflowRun
@@ -556,10 +557,15 @@ class LangGraphWorkflowAdapter:
                 else graph_state["results_by_agent"].get(handoff_source_agent)
             )
         )
+        started_at = perf_counter()
         result = await agent.run(
             state=state,
             context=graph_state["context"],
             handoff=_handoff_to(source_result, handoff_target),
+        )
+        result.metrics.setdefault(
+            "duration_ms",
+            round((perf_counter() - started_at) * 1000, 2),
         )
         step = self.runtime.record_agent_step(
             workflow_run=workflow_run,

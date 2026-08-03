@@ -83,6 +83,10 @@ async def test_document_preparation_adapter_preserves_runtime_persistence() -> N
     ]
     assert persistence.step_executions == result.step_executions
     assert persistence.handoffs == result.handoffs
+    assert all(
+        isinstance(step.metrics, dict) and "duration_ms" in step.metrics
+        for step in result.step_executions
+    )
     assert len(result.handoffs) == 5
     assert {handoff.target_agent for handoff in result.handoffs} == {
         PRIVACY_POLICY_GATE_AGENT,

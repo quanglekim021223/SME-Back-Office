@@ -83,6 +83,68 @@ export type WorkflowRunStatusResponse = {
   progress: WorkflowProgressResponse;
 };
 
+export type LineageCorrectionSignal = {
+  code: string;
+  target_agent: string;
+  message: string;
+  field_path: string | null;
+  instruction: string | null;
+  retryable: boolean;
+};
+
+export type WorkflowLineageStep = {
+  step_index: number;
+  step_execution_id: string;
+  agent_name: string;
+  status: string;
+  attempt: number;
+  started_at: string;
+  finished_at: string;
+  duration_ms: number | null;
+  confidence: string | null;
+  metrics: Record<string, unknown>;
+  error_code: string | null;
+  error_message: string | null;
+  correction_signal: LineageCorrectionSignal | null;
+};
+
+export type WorkflowLineageHandoff = {
+  handoff_id: string;
+  source_agent: string;
+  target_agent: string;
+  handoff_type: string;
+  status: string;
+  attempt: number;
+  confidence: string | null;
+  occurred_at: string;
+  correction_signal: LineageCorrectionSignal | null;
+};
+
+export type WorkflowLineageAuditEvent = {
+  audit_event_id: string;
+  action: string;
+  actor_type: string;
+  actor_id: string | null;
+  actor_name: string | null;
+  occurred_at: string;
+  comment: string | null;
+  reason_code: string | null;
+};
+
+export type WorkflowLineageResponse = {
+  document_id: string;
+  workflow_run_id: string;
+  workflow_name: string;
+  workflow_version: string;
+  status: string;
+  stage: string | null;
+  total_latency_ms: number;
+  workflow_state: Record<string, unknown>;
+  steps: WorkflowLineageStep[];
+  handoffs: WorkflowLineageHandoff[];
+  audit_history: WorkflowLineageAuditEvent[];
+};
+
 export type ReviewTaskStatus =
   | "open"
   | "in_progress"
@@ -655,6 +717,10 @@ export function listInvoices({
 
 export function getInvoice(invoiceId: string) {
   return apiGet<InvoiceResponse>(`/invoices/${invoiceId}`);
+}
+
+export function getDocumentLineage(documentId: string) {
+  return apiGet<WorkflowLineageResponse>(`/documents/${documentId}/lineage`);
 }
 
 export function formatApiError(error: unknown) {

@@ -31,6 +31,7 @@ from app.schemas.document import (
     DocumentWorkflowTriggerResponse,
     MalwareScanResponse,
 )
+from app.schemas.lineage import WorkflowLineageResponse
 from app.services.audit import AuditService
 from app.services.document_events import DocumentEventPublisher, DocumentIngested
 from app.services.document_ingestion import (
@@ -43,9 +44,21 @@ from app.services.document_storage import (
     FileValidationError,
     build_document_storage,
 )
+from app.services.workflow_lineage import (
+    WorkflowLineageNotFoundError,
+    WorkflowLineageService,
+)
 from app.workflows.triggers import QueuedDocumentWorkflowPublisher
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+
+
+def get_workflow_runtime_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> WorkflowRuntimeRepository:
+    """Return tenant-scoped workflow persistence for document lineage."""
+
+    return WorkflowRuntimeRepository(session)
 
 
 def get_document_storage(request: Request) -> DocumentStorage:
@@ -331,6 +344,40 @@ async def reprocess_failed_document(
         workflow_run_id=submission.workflow_run_id,
         job_id=submission.job.job_id,
     )
+
+
+@router.get(
+    "/{document_id}/lineage",
+    response_model=WorkflowLineageResponse,
+)
+async def get_document_lineage(
+    document_id: UUID,
+    tenant_context: Annotated[TenantContext, Depends(get_tenant_context)],
+    principal: Annotated[
+        Principal,
+        Depends(require_permission(Permission.READ_INVOICES)),
+    ],
+    repository: Annotated[
+        WorkflowRuntimeRepository,
+        Depends(get_workflow_runtime_repository),
+    ],
+) -> WorkflowLineageResponse:
+    """Return the latest tenant-scoped execution lineage for a document."""
+
+    del principal
+    tenant_id = resolve_tenant_uuid(tenant_context)
+    try:
+        return await WorkflowLineageService(repository).get_for_document(
+            tenant_id=tenant_id,
+            document_id=document_id,
+        )
+    except WorkflowLineageNotFoundError as exc:
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="workflow_lineage_not_found",
+            message="Workflow lineage was not found for the document.",
+            details={"document_id": str(document_id)},
+        ) from exc
 
 
 @router.get(

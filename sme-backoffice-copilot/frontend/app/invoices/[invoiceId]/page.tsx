@@ -12,6 +12,7 @@ import {
   type InvoiceResponse,
   type InvoiceReconciliationResponse,
 } from "../../_lib/api-client";
+import { WorkflowLineageVisualizer } from "./workflow-lineage-visualizer";
 
 type LoadState = "idle" | "loading" | "loaded" | "error";
 
@@ -168,7 +169,7 @@ export default function InvoiceDetailPage({
 
   return (
     <div className="page-stack">
-      <section className="review-detail-layout">
+      <section className="review-detail-layout invoice-detail-layout">
         <article className="panel-card panel-card-large">
           <div className="card-header">
             <div>
@@ -232,6 +233,10 @@ export default function InvoiceDetailPage({
               <p className="eyebrow">Notes</p>
               <p>{invoice.notes}</p>
             </div>
+          ) : null}
+
+          {invoice.document_id ? (
+            <WorkflowLineageVisualizer documentId={invoice.document_id} />
           ) : null}
 
           <ClassificationPanel proposal={latestClassification} />
