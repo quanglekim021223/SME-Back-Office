@@ -15,7 +15,10 @@ from app.providers.llm import (
     LLMProviderRunContext,
     LLMResponseFormat,
 )
-from app.providers.structured_output import validate_structured_output
+from app.providers.structured_output import (
+    build_native_json_schema,
+    validate_structured_output,
+)
 
 OllamaTransport = Callable[[str, dict[str, object], float], dict[str, object]]
 
@@ -145,7 +148,12 @@ def build_ollama_chat_payload(
         "options": options,
     }
     if request.response_format == LLMResponseFormat.JSON:
-        payload["format"] = "json"
+        native_schema = (
+            build_native_json_schema(request.response_schema_name)
+            if request.response_schema_name is not None
+            else None
+        )
+        payload["format"] = native_schema or "json"
     return payload
 
 

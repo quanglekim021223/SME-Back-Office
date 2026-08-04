@@ -405,7 +405,12 @@ async def test_ollama_provider_builds_chat_request_and_parses_json() -> None:
 
     assert captured_endpoint == "http://localhost:11434/api/chat"
     assert captured_payload["model"] == "llama3.1:8b"
-    assert captured_payload["format"] == "json"
+    output_format = captured_payload["format"]
+    assert isinstance(output_format, dict)
+    assert output_format["type"] == "object"
+    assert output_format["additionalProperties"] is False
+    assert "invoice_number" in output_format["properties"]
+    assert "invoice_number" in output_format["required"]
     assert captured_payload["stream"] is False
     assert captured_payload["options"] == {
         "temperature": 0.0,
@@ -437,6 +442,24 @@ def test_ollama_payload_omits_json_format_for_text_responses() -> None:
     )
 
     assert "format" not in payload
+
+
+def test_ollama_payload_falls_back_to_json_for_unregistered_schema() -> None:
+    payload = build_ollama_chat_payload(
+        request=LLMGenerationRequest(
+            messages=[
+                LLMMessage(
+                    role=LLMMessageRole.USER,
+                    content="Extract invoice JSON.",
+                )
+            ],
+            response_format=LLMResponseFormat.JSON,
+            response_schema_name="tenant-custom-schema.v1",
+        ),
+        model_name="llama3.1:8b",
+    )
+
+    assert payload["format"] == "json"
 
 
 @pytest.mark.asyncio
