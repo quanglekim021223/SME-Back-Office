@@ -100,6 +100,34 @@ def test_rule_based_classifier_returns_expense_fallback_for_unmatched_outflow() 
     assert result.matched_rule_ids == []
 
 
+def test_keyword_matching_respects_word_boundaries() -> None:
+    classifier = RuleBasedCategoryClassifier()
+
+    false_positive = classifier.classify(
+        CategoryClassificationInput(
+            target_type=ClassificationTargetType.TRANSACTION,
+            text="Dinner at Jaws Restaurant",
+            amount=Decimal("-42.00"),
+            direction=TransactionDirection.OUTFLOW,
+            currency="USD",
+        )
+    )
+    exact_token = classifier.classify(
+        CategoryClassificationInput(
+            target_type=ClassificationTargetType.TRANSACTION,
+            text="AWS monthly infrastructure bill",
+            amount=Decimal("-42.00"),
+            direction=TransactionDirection.OUTFLOW,
+            currency="USD",
+        )
+    )
+
+    assert false_positive.category_code == "uncategorized_expense"
+    assert "aws" not in false_positive.matched_keywords
+    assert exact_token.category_code == "software_subscription"
+    assert "aws" in exact_token.matched_keywords
+
+
 def test_rule_based_classifier_returns_revenue_fallback_for_unmatched_inflow() -> None:
     classifier = RuleBasedCategoryClassifier()
 

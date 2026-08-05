@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -258,7 +259,9 @@ def score_rule(
         return None
 
     matched_keywords = [
-        keyword for keyword in rule.keywords if keyword.lower() in haystack
+        keyword
+        for keyword in rule.keywords
+        if keyword_matches_text(keyword=keyword, haystack=haystack)
     ]
     if not matched_keywords:
         return None
@@ -274,6 +277,24 @@ def score_rule(
         score=score,
         matched_keywords=matched_keywords,
     )
+
+
+def keyword_matches_text(*, keyword: str, haystack: str) -> bool:
+    """Match a keyword as words while preserving punctuation-based prefixes."""
+
+    normalized_keyword = " ".join(keyword.casefold().split())
+    if not normalized_keyword:
+        return False
+
+    pattern = r"\s+".join(
+        re.escape(keyword_part) for keyword_part in normalized_keyword.split()
+    )
+    if normalized_keyword[0].isalnum() or normalized_keyword[0] == "_":
+        pattern = rf"(?<!\w){pattern}"
+    if normalized_keyword[-1].isalnum() or normalized_keyword[-1] == "_":
+        pattern = rf"{pattern}(?!\w)"
+
+    return re.search(pattern, haystack.casefold()) is not None
 
 
 def direction_matches_category(
